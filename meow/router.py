@@ -124,6 +124,21 @@ class JevRouter:
                 "  Add it to .env, or Meow falls back to keyword routing."
             )
 
+        if key.startswith("vck_"):
+            # Measured, not assumed. A vck_ key is a Vercel AI Gateway key, and
+            # that gateway is OpenAI-compatible for chat completions only. Jev
+            # is reached through its own System One endpoint, which the gateway
+            # does not proxy: api.typesafe.ai answers 401 for this key and the
+            # gateway answers 404 for /v1/systemone, at every base_url tried.
+            #
+            # Caught here rather than left to surface as an opaque 401 from
+            # inside the SDK on the first thing the user says.
+            raise RuntimeError(
+                "TYPESAFE_API_KEY looks like a Vercel AI Gateway key (vck_...). "
+                "Jev needs a native key from typesafe.ai - the gateway does not "
+                "proxy its System One endpoint. Keyword routing runs meanwhile."
+            )
+
         self._classifier = TypeSafeClassifier(api_key=key)
         self._questions = {
             # criteria is a MAPPING, not a list - each option carries its own
