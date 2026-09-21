@@ -34,6 +34,45 @@ import time
 from dataclasses import dataclass
 from typing import Iterator
 
+import warnings as _warnings
+
+
+def _quiet_langgraph() -> None:
+    """Stop a library notice printing above the prompt on every launch.
+
+    LangGraph warns about a serializer default the first time its checkpoint
+    module loads. Filtering it beforehand does not work, because LangChain
+    registers an "always" filter for its own warning classes while IT loads,
+    and that filter goes in front of ours.
+
+    So the order matters: let LangChain load and register, then override with
+    the specific class in hand, then touch the module that warns. Anything
+    else either fires too early or gets overridden.
+
+    The notice is addressed to whoever maintains this code, not to someone
+    talking to a cat, and four lines of stack trace above the prompt teaches
+    people to ignore the terminal - which is where the messages that matter go.
+    """
+    try:
+        # It lives in _api.deprecation, not _api - importing the wrong
+        # one returned early and the notice kept printing.
+        from langchain_core._api.deprecation import (
+            LangChainDeprecationWarning,
+            LangChainPendingDeprecationWarning,
+        )
+    except Exception:  # noqa: BLE001 - cosmetic only, never fatal
+        return
+    for category in (LangChainPendingDeprecationWarning,
+                     LangChainDeprecationWarning):
+        _warnings.filterwarnings("ignore", category=category)
+    try:
+        import langgraph.checkpoint.serde.jsonplus  # noqa: F401
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_quiet_langgraph()
+
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
     HumanInTheLoopMiddleware, ModelCallLimitMiddleware,

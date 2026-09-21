@@ -30,25 +30,9 @@ def use_utf8_console() -> None:
 
 
 def quiet_library_warnings() -> None:
-    """Silence warnings from libraries that the user cannot act on.
+    """Kept for callers. The filtering itself lives in meow/__init__.py.
 
-    LangGraph prints a pending-deprecation notice about a serializer default
-    on every single import. It is aimed at whoever maintains this code, not at
-    someone talking to a cat, and printing it above the prompt every launch
-    trains people to ignore the terminal - which is where the things that DO
-    matter appear.
-
-    Only the categories, and only from libraries. Nothing here hides a warning
-    raised by Meow.
+    It has to run when the package is first imported - LangGraph emits its
+    notice on the way in, which is before any script body executes, so doing
+    it here was always too late.
     """
-    for category in ("LangChainPendingDeprecationWarning",
-                     "LangChainBetaWarning"):
-        try:
-            from langchain_core._api import beta, deprecation  # noqa: F401
-        except Exception:  # noqa: BLE001
-            break
-    warnings.filterwarnings("ignore", category=DeprecationWarning,
-                            module=r"langgraph\..*")
-    warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
-    warnings.filterwarnings("ignore", message=r".*allowed_objects.*")
-    warnings.filterwarnings("ignore", message=r".*is in beta.*")
