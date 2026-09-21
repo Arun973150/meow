@@ -213,6 +213,12 @@ class Planner:
             HumanMessage(state["goal"]),
         ])
         steps = parse_steps(str(reply.content))
+        if steps:
+            # Said before anything runs. Planning takes a second or two, and
+            # without this the user gets silence and then a cat suddenly
+            # operating their machine - the count is what turns that into
+            # something they agreed to watch.
+            self._report("say", f"okay, {len(steps)} steps.")
         return {"steps": steps, "index": 0, "abandoned": not steps}
 
     def _step(self, state: PlanState) -> PlanState:

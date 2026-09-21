@@ -145,10 +145,18 @@ class JevRouter:
                              "or a request to find, point at, highlight or "
                              "navigate to something. Includes 'where is the X' "
                              "and 'can you take me to X'."),
-                    "act": ("Press, click, type, open or close something - a "
-                            "change to the machine."),
-                    "plan": ("A task with several steps to work through in "
-                             "order."),
+                    # The boundary between these two is where the planner
+                    # actually gets used, and it was in the wrong place: "open
+                    # notepad and type hello there" scored as act, so the
+                    # planner never ran for anything a person would call a
+                    # multi-step task.
+                    "act": ("ONE action, or two in the same application. "
+                            "Press, click, type, open or close something."),
+                    "plan": ("THREE OR MORE actions, or anything that moves "
+                             "between applications - open something then do "
+                             "things in it, gather something then put it "
+                             "somewhere. If the sentence contains 'and' "
+                             "joining two different activities, it is a plan."),
                 },
             ),
             "needs_screen": boolean(
