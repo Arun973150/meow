@@ -85,11 +85,12 @@ cut. Everything past Phase 1 is optional.
 
 ## Open questions
 
-| Question | Blocks | Resolved by |
+| Question | Blocks | Status |
 |---|---|---|
-| Does UIA expose enough of real apps? | the core thesis | `spikes/uia_probe.py` — run first |
-| Can a Chromium tree be woken reliably? | Chrome/VS Code/Slack support | same spike, second pass |
-| Cloud or local voice? | latency, cost, privacy | deferred — provider interface built either way |
+| Does UIA expose enough of real apps? | the core thesis | **Resolved — yes.** VS Code 819 actionable elements, Chrome 153, Explorer 74. All RICH at full depth |
+| Can a Chromium tree be woken reliably? | Chrome/VS Code/Slack support | **Resolved — no wake needed.** The skeletal reading was a depth-cap bug. `SPI_SETSCREENREADER` and `editor.accessibilitySupport` both A/B tested, neither did anything |
+| Which ~150 of 819 elements does the model see? | every action in Phase 1 | **Open, and now the hard problem.** Replaces the two above |
+| Cloud or local voice? | latency, cost, privacy | Partly settled by architecture: Jev routes on *interim* transcripts, which requires **streaming** STT, which rules out batch local Whisper on the hot path. TTS can still be local |
 | Bundle Manim deps or guided install? | Phase 3 onboarding | deferred to Phase 3 |
 
 ## Document map
