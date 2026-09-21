@@ -48,6 +48,7 @@ from . import actions, apps
 from .actions import Confirmer, Outcome, always_allow
 from .config import get, openai_api_key
 from .grounding import Target
+from .risk import judge
 from .uia import WindowDigest, digest_foreground
 
 MODEL = "gpt-4o-mini"
@@ -120,6 +121,11 @@ class Harness:
     def __init__(self, model: str = MODEL, confirm: Confirmer = always_allow,
                  ask_before_acting: bool = True) -> None:
         self.confirm = confirm
+        # What the user actually said this turn. The risk policy needs it to
+        # tell "open notepad" -> open Notepad, which is their own instruction,
+        # from "open that" -> open Notepad, which is the cat's inference.
+        self.transcript = ""
+        self.route_risky = False
         self.digest: WindowDigest | None = None
         self.runs: list[ToolRun] = []
         self.last_error: str | None = None
@@ -134,7 +140,7 @@ class Harness:
             target = self._resolve(name)
             if target is None:
                 return self._no_such_control(name)
-            outcome = actions.invoke(target, self._inner_confirm)
+            outcome = actions.invoke(target, self._gated("click_control", name))
             self.runs.append(ToolRun("click_control", name, outcome, target))
             return outcome.detail
 
@@ -151,7 +157,7 @@ class Harness:
         @tool
         def type_text(text: str) -> str:
             """Type text into whatever currently has keyboard focus."""
-            outcome = actions.type_text(text, self._inner_confirm)
+            outcome = actions.type_text(text, self._gated("type_text", text))
             self.runs.append(ToolRun("type_text", text, outcome))
             return outcome.detail
 
@@ -170,7 +176,8 @@ class Harness:
                               if near else "")
                 return f"No application called {name!r} is installed.{suggestion}"
 
-            if not self._inner_confirm(f"open {application.name}?"):
+            if not self._gated("open_app", application.name)(
+                    f"open {application.name}?"):
                 # Recorded, not just returned. The planner decides whether a
                 # step succeeded by looking at these, and an early return with
                 # no record made a refused step read as a completed one.
@@ -230,7 +237,7 @@ class Harness:
             Use for things with no clickable control - opening a new tab,
             submitting a search, moving focus to an address bar.
             """
-            outcome = actions.press_shortcut(keys, self._inner_confirm)
+            outcome = actions.press_shortcut(keys, self._gated("press_keys", keys))
             self.runs.append(ToolRun("press_keys", keys, outcome))
             return outcome.detail
 
@@ -245,6 +252,10 @@ class Harness:
         # The gate. Only the tools that change something are listed, so
         # pointing stays free - which is the autonomy decision this project was
         # built around, expressed as configuration rather than as a habit.
+        # The risk policy inside each tool decides now, so the middleware gate
+        # is off by default. Having both meant two prompts for one action, and
+        # the middleware one could not see WHAT was about to be pressed - only
+        # that something was.
         interrupts = {
             "click_control": True,
             "type_text": True,
@@ -300,14 +311,26 @@ class Harness:
                 f"names, or say you cannot find it.")
 
     def _inner_confirm(self, question: str) -> bool:
-        """Permission at the action layer.
-
-        The middleware has usually already asked by the time a tool runs, so
-        this normally passes. It stays because `actions` must be safe to call
-        from anywhere - the evaluation harness drives it directly, with no
-        agent and no middleware in the way.
-        """
+        """Permission at the action layer, for callers with no policy."""
         return self.confirm(question)
+
+    def _gated(self, tool: str, target: str):
+        """A Confirmer that asks only when this particular action warrants it.
+
+        Two rules, in order. Anything dangerous asks regardless of how plainly
+        it was requested - "delete them" is a clear instruction and that is not
+        a reason to skip the question. Anything the user named themselves does
+        not ask, because repeating their sentence back and waiting is how a
+        prompt becomes furniture.
+        """
+        decision = judge(tool, target, self.transcript, self.route_risky)
+
+        def gate(question: str) -> bool:
+            if not decision.should_ask:
+                return True
+            return self.confirm(question)
+
+        return gate
 
     # --- running --------------------------------------------------------
 
@@ -320,6 +343,7 @@ class Harness:
         """
         self.last_error = None
         self.runs.clear()
+        self.transcript = transcript
         self.digest = digest_foreground()
 
         self._thread += 1

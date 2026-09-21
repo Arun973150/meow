@@ -54,6 +54,7 @@ meow/jev.py                 Jev via the Vercel gateway, a LangChain Runnable
 meow/panic.py               the stop button - local, latched, no network
 meow/apps.py                open apps, switch windows, list what exists
 meow/planner.py             PHASE 2 - multi-step tasks as a LangGraph state machine
+meow/risk.py                when to ask, and when asking is just noise
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
@@ -203,7 +204,12 @@ Do not violate these without updating the relevant doc first.
 4. **Plan is state, not context.** Long tasks must not accumulate into one
    growing conversation.
 5. **Panic path is local.** No network, no Jev, no model on the abort route.
-6. **`run_powershell` always confirms.** No exceptions, no "remember this".
+6. **Confirmation is targeted, not blanket.** Dangerous actions always ask,
+   however plainly they were requested. Actions the user named themselves do
+   not, because repeating their sentence back is how a prompt becomes
+   furniture. Everything else asks. Judge the ACTION, not the sentence — "click
+   that one" is harmless until it resolves to "Delete All Messages". See
+   `meow/risk.py`. `run_powershell`, when it exists, is in the always-ask set.
 7. **The overlay is excluded from capture** (`WDA_EXCLUDEFROMCAPTURE`) — or the
    cat appears in its own screenshots and confuses the model.
 8. **Coordinates:** call `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`

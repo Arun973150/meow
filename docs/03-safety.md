@@ -1,5 +1,34 @@
 # Safety
 
+## Confirming - built, and narrower than it started
+
+The first rule here was "confirm anything that changes the machine". Using it
+for five minutes showed that to be wrong: told to open notepad, the cat asked
+"open notepad?" and waited. **A blanket confirm does not make anything safer -
+it makes the one prompt that mattered invisible**, because nobody reads the
+tenth prompt of a session.
+
+`meow/risk.py` asks two questions, in this order:
+
+1. **Is it dangerous?** Ask - always, regardless of how plainly it was
+   requested. "Delete them" is a clear instruction, and that is not a reason to
+   skip the question.
+2. **Did they name it themselves?** Then proceed. The confirmation would be
+   their own sentence read back to them.
+
+Anything else asks, because it is inference rather than instruction.
+
+**Danger is judged on the action, not the sentence.** Jev classifies what was
+said, which is necessary and not sufficient - "click that one" is harmless
+until it resolves to "Delete All Messages". Jev's opinion can add a reason to
+ask and never remove one.
+
+Measured: "point at the terminal", "switch to my chrome window" and "press
+ctrl t" proceed silently; Delete, Send, alt+f4 and an unnamed "click the other
+thing" all stop and ask. 18 of 18 policy cases as intended.
+
+
+
 Meow reads untrusted content, holds private data, controls the mouse and
 keyboard, executes shell commands, and will eventually send email. That
 combination is dangerous in a specific, well-documented way.
