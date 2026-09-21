@@ -111,7 +111,8 @@ def get_cursor() -> tuple[int, int]:
 
 
 def glide_to(target_x: int, target_y: int, seconds: float = 0.55,
-             steps_per_second: int = 90) -> bool:
+             steps_per_second: int = 90,
+             should_stop=None) -> bool:
     """Move the pointer smoothly. Returns False if the user took over.
 
     Eased rather than linear - it starts slowly, covers the distance, and
@@ -134,6 +135,11 @@ def glide_to(target_x: int, target_y: int, seconds: float = 0.55,
     for step in range(1, total_steps + 1):
         progress = step / total_steps
         eased = progress * progress * (3.0 - 2.0 * progress)  # smoothstep
+
+        if should_stop is not None and should_stop():
+            # The panic key. Checked every step rather than only at the start,
+            # because the whole point is to stop something already moving.
+            return False
 
         current_x, current_y = get_cursor()
         deviated = (abs(current_x - expected_x) > USER_TAKEOVER_PIXELS

@@ -50,6 +50,8 @@ meow/actions.py             point, click, invoke, type - each with a risk level
 meow/harness.py             LangGraph create_agent + HumanInTheLoop gate
 meow/router.py              Jev via langchain-typesafe, on interim transcripts
 meow/evaluation.py          THE ABLATION - UIA labels its own ground truth
+meow/jev.py                 Jev via the Vercel gateway, a LangChain Runnable
+meow/panic.py               the stop button - local, latched, no network
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
@@ -61,7 +63,7 @@ scripts/cat_preview.py      all states to one PNG, light and dark
 scripts/companion_demo.py   tap Ctrl+M, the cat wakes and follows the cursor
 scripts/listen_demo.py      tap Ctrl+M and talk - words appear in the bubble
 scripts/check_keys.py       what is installed, which keys are set
-scripts/meow.py             THE WHOLE LOOP - talk to it and it answers
+scripts/meow.py             THE WHOLE LOOP - routes, answers, points, presses
 ```
 
 Activation is `RegisterHotKey`, **not** `WH_KEYBOARD_LL` - the hook stops
@@ -107,7 +109,12 @@ Phase 2's planner needs. `ModelCallLimitMiddleware` caps the rounds.
 
 LangSmith turns on by itself if `LANGSMITH_API_KEY` is in `.env`; currently off.
 
-**Phase 1 is complete.** First ablation result, VS Code, one frozen screen:
+**Phase 1 is complete and reachable by voice.** `python scripts/meow.py` — tap
+Ctrl+M and talk, tap **Pause** to stop everything. Jev routes each sentence to
+answer / show / act / plan; act goes through the UIA harness and asks out loud
+before pressing anything.
+
+First ablation result, VS Code, one frozen screen:
 
 | strategy | hit rate | median miss |
 |---|---|---|

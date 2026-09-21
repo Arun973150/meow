@@ -125,10 +125,11 @@ def _mouse_event(flags: int) -> _INPUT:
                   union=_INPUTUNION(mi=_MOUSEINPUT(0, 0, 0, flags, 0, None)))
 
 
-def point_at(target: Target, glide_seconds: float = 0.55) -> Outcome:
+def point_at(target: Target, glide_seconds: float = 0.55,
+             should_stop=None) -> Outcome:
     """Move the pointer to the target. Shows, changes nothing."""
     x, y = target.centre
-    reached = glide_to(x, y, seconds=glide_seconds)
+    reached = glide_to(x, y, seconds=glide_seconds, should_stop=should_stop)
     if not reached:
         return Outcome(False, "you moved the mouse, so it stopped",
                        method="glide")
