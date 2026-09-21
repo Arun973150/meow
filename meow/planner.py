@@ -213,12 +213,11 @@ class Planner:
             HumanMessage(state["goal"]),
         ])
         steps = parse_steps(str(reply.content))
-        if steps:
-            # Said before anything runs. Planning takes a second or two, and
-            # without this the user gets silence and then a cat suddenly
-            # operating their machine - the count is what turns that into
-            # something they agreed to watch.
-            self._report("say", f"okay, {len(steps)} steps.")
+        # Deliberately silent. An earlier version said "okay, 4 steps" here,
+        # which cost a whole spoken sentence before anything happened and said
+        # nothing the first step does not - "step 1 of 4" carries the same
+        # count. The thinking dots cover the pause while this runs, and they
+        # cover it without delaying the work.
         return {"steps": steps, "index": 0, "abandoned": not steps}
 
     def _step(self, state: PlanState) -> PlanState:
