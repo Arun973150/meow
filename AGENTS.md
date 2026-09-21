@@ -43,6 +43,8 @@ meow/cat/bubble.py          small speech bubble - capped, never a transcript
 meow/config.py              .env keys; never logs a value
 meow/vision.py              when to send a screenshot, and how much of one
 meow/mind.py                gpt-4o-mini call, streamed, sentence-chunked
+meow/pointing.py            [POINT:x,y] protocol, eased pointer glide
+meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
 meow/voice/stt.py           Transcriber protocol + AssemblyAI v3 streaming
@@ -79,15 +81,16 @@ Spikes, both run:
 - `spikes/wake_probe.py` - `SPI_SETSCREENREADER` does nothing, and neither does
   `editor.accessibilitySupport`. Both A/B tested. **No wake step is needed.**
 
-**0.6, 0.7 and 0.9 done. `python scripts/meow.py` is the whole loop:** tap
-Ctrl+M, talk, and the cat answers out loud while seeing your screen.
+**PHASE 0 IS COMPLETE.** `python scripts/meow.py` - tap Ctrl+M, talk, and the
+cat answers out loud, sees your screen, and flies the pointer to what you asked
+about while wearing `cat_cursor.png`.
 
-Measured end to end: ~2.5s to the first spoken sentence, ~$0.0005 per turn with
-an image. Sentence-chunked, so speech starts before the reply is finished.
+Measured: ~2.5s to the first spoken sentence, ~$0.0005 per turn with an image,
+394ms to first audio, 634ms for a pointer glide across the screen.
 
-Left in Phase 0: **0.8**, the `[POINT:x,y]` baseline — which is also the control
-condition for the ablation in [docs/04-evaluation.md](docs/04-evaluation.md).
-Then Phase 1 and the UIA digest, which is the actual thesis.
+**Next: Phase 1, which is the thesis.** 1.1 UIA tree extraction and 1.4 element
+selection are the hard parts - VS Code exposes 819 actionable elements and the
+model can see about 150. See [docs/05-phases.md](docs/05-phases.md).
 
 ## Stack
 
@@ -148,11 +151,19 @@ Do not violate these without updating the relevant doc first.
    cat appears in its own screenshots and confuses the model.
 8. **Coordinates:** call `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`
    at startup, or clicks land off-target on secondary monitors.
-9. **Never send a full-screen `detail=high` image.** 36,835 tokens against
+9. **Restore anything you change system-wide.** `SetSystemCursor` replaces the
+   pointer for every application until something puts it back, so a crash while
+   installed leaves the user with a cat cursor and no explanation. Wire restore
+   three ways - context manager, `atexit`, and SIGINT - as `meow/cat/cursor.py`
+   and `spikes/wake_probe.py` both do.
+10. **The user can always take back the mouse.** A pointer glide aborts the
+   instant the cursor moves somewhere we did not put it. Never fight a user for
+   control of their own machine.
+11. **Never send a full-screen `detail=high` image.** 36,835 tokens against
    2,833 for low detail, which is *flat* regardless of resolution. Send nothing,
    or "unchanged", or low detail at full size, or a 512px high-detail crop. See
    `meow/vision.py`.
-10. **Activation is tapped, never held.** The problem with Clicky's ctrl+option
+12. **Activation is tapped, never held.** The problem with Clicky's ctrl+option
    is that it is *sustained* for the length of an utterance, which is hostile to
    tremor and arthritis - not that it has two keys. A tapped chord that toggles
    is fine. Use `RegisterHotKey`, never `WH_KEYBOARD_LL`: the hook dies under

@@ -34,6 +34,7 @@ from openai import OpenAI
 
 from .config import openai_api_key
 from .platform.capture import ScreenShot
+from .pointing import Point, describe_point_protocol, parse_point, strip_points
 from .vision import ScreenContext, ScreenNeed
 
 MODEL = "gpt-4o-mini"
@@ -160,6 +161,10 @@ class Mind:
         # so ten turns each carrying their own screenshot would cost 28,330
         # tokens of history rather than 2,833.
         self._screen_message: dict | None = None
+        # Where the model said the last thing was, in IMAGE pixels. Read by the
+        # caller after answer() finishes, because the tag arrives at the end.
+        self.last_point: Point | None = None
+        self.last_shot: ScreenShot | None = None
 
     def _messages(self, transcript: str, shot: ScreenShot | None,
                   crop_around: tuple[int, int] | None,
@@ -183,13 +188,21 @@ class Mind:
                     }},
                 ],
             }
+            self.last_shot = shot
         elif attachment.note is None and attachment.need is ScreenNeed.NONE:
             # A request with nothing to do with the screen. The old image stays
             # in context - dropping it would make the next follow-up pay for a
             # new one - but nothing new is attached.
             pass
 
-        messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        system = SYSTEM_PROMPT
+        if self._screen_message is not None and self.last_shot is not None:
+            # Only explain the pointing tag when there is an image to point
+            # into. Describing a coordinate space the model cannot see invites
+            # it to invent coordinates.
+            system += describe_point_protocol(self.last_shot)
+
+        messages: list[dict] = [{"role": "system", "content": system}]
         for turn in self.history[-MAX_HISTORY_TURNS * 2:]:
             messages.append({"role": turn.role, "content": turn.text})
         if self._screen_message is not None:
@@ -207,6 +220,7 @@ class Mind:
         one that matters for latency.
         """
         self.last_error = None
+        self.last_point = None
         messages, _ = self._messages(transcript, shot, crop_around, always_see)
 
         chunker = SentenceChunker()
@@ -234,10 +248,15 @@ class Mind:
                 if not piece:
                     continue
                 for sentence in chunker.feed(piece):
-                    spoken.append(sentence)
-                    yield sentence
+                    cleaned = self._take_point(sentence)
+                    if cleaned:
+                        spoken.append(cleaned)
+                        yield cleaned
 
-            tail = chunker.flush()
+            # The tag has no sentence terminator, so it sits in the buffer and
+            # comes out here. Stripping it is what stops the cat reading
+            # "point colon four five zero comma three hundred" out loud.
+            tail = self._take_point(chunker.flush())
             if tail:
                 spoken.append(tail)
                 yield tail
@@ -249,3 +268,12 @@ class Mind:
         if spoken:
             self.history.append(Turn("user", transcript))
             self.history.append(Turn("assistant", " ".join(spoken)))
+
+    def _take_point(self, text: str) -> str:
+        """Record any coordinates in this fragment and return it speakable."""
+        if not text:
+            return ""
+        point = parse_point(text)
+        if point is not None:
+            self.last_point = point
+        return strip_points(text)

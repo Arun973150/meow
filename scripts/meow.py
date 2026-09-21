@@ -39,6 +39,7 @@ from meow.cat import (
 from meow.cat.bubble import (
     BubblePalette, BubbleRenderer, BubbleState, bubble_position,
 )
+from meow.cat.cursor import CatCursor
 from meow.cat.follow import CursorFollower, FollowSettings, target_beside_cursor
 from meow.config import MissingKey
 from meow.console import use_utf8_console
@@ -48,6 +49,7 @@ from meow.platform.dpi import enable_per_monitor_dpi_awareness
 from meow.platform.hotkey import HotkeyListener, HotkeyUnavailable
 from meow.platform.monitors import get_cursor_position, get_virtual_desktop
 from meow.platform.overlay import Bounds, Overlay
+from meow.pointing import glide_to
 from meow.voice import AssemblyAIStreaming, ElevenLabsSpeaker, Microphone, SpeechQueue
 
 TARGET_FPS = 60
@@ -74,6 +76,9 @@ def main() -> None:
                         help="attach a screenshot every turn. Costs ~2,833 "
                              "tokens each; the default only sends one when the "
                              "request needs it")
+    parser.add_argument("--no-pointer", action="store_true",
+                        help="answer without moving the mouse or swapping "
+                             "the system cursor")
     parser.add_argument("--mute", action="store_true",
                         help="skip text to speech, show replies in the bubble")
     args = parser.parse_args()
@@ -89,6 +94,14 @@ def main() -> None:
         speech = None if args.mute else SpeechQueue(ElevenLabsSpeaker())
     except MissingKey as error:
         raise SystemExit(f"\n{error}\n")
+
+    cat_cursor = None
+    if not args.no_pointer:
+        try:
+            cat_cursor = CatCursor()
+        except Exception as error:  # noqa: BLE001 - cosmetic, never fatal
+            print(f"  cat cursor unavailable ({error}); "
+                  f"the pointer still moves")
 
     renderer = CatRenderer(width=args.width)
     bubble_renderer = BubbleRenderer()
@@ -126,11 +139,35 @@ def main() -> None:
                 replies.put(("say", sentence))
             if mind.last_error:
                 replies.put(("error", mind.last_error))
+
+            point = mind.last_point
+            if point is not None and not args.no_pointer and shot is not None:
+                destination = point.to_screen([shot])
+                if destination is not None:
+                    replies.put(("point",
+                                 f"{destination[0]},{destination[1]},"
+                                 f"{point.label or 'it'}"))
         except Exception as error:  # noqa: BLE001 - reported, never fatal
             replies.put(("error", f"{type(error).__name__}: {error}"))
         finally:
             thinking.clear()
             replies.put(("done", ""))
+
+    def travel_to(x: int, y: int, label: str) -> None:
+        """Wear the cat cursor and glide the pointer to the target.
+
+        On a worker thread because it sleeps between steps. The cursor is
+        put back in a finally - leaving a desktop-wide cat cursor installed
+        after a crash would be a genuinely hostile thing to do to someone.
+        """
+        try:
+            if cat_cursor is not None:
+                cat_cursor.install()
+            if not glide_to(x, y):
+                print("          you moved the mouse, so it stopped")
+        finally:
+            if cat_cursor is not None:
+                cat_cursor.remove()
 
     def shut_down_audio(mic, stt) -> None:
         def run() -> None:
@@ -218,6 +255,15 @@ def main() -> None:
                         animator.set_state(CatState.SPEAKING, elapsed)
                         if speech is not None:
                             speech.enqueue(payload)
+                    elif kind == "point":
+                        x, y, label = payload.split(",", 2)
+                        print(f"  {elapsed:5.1f}s  pointing at {label} "
+                              f"({x},{y})")
+                        animator.set_state(CatState.POINTING, elapsed)
+                        threading.Thread(
+                            target=travel_to, args=(int(x), int(y), label),
+                            name="pointer-glide", daemon=True,
+                        ).start()
                     elif kind == "error":
                         print(f"  error: {payload}")
                         bubble_state.say("something went wrong", elapsed)
@@ -293,6 +339,8 @@ def main() -> None:
                 transcriber.stop()
             if speech is not None:
                 speech.clear()
+            if cat_cursor is not None:
+                cat_cursor.remove()
 
     print(f"\nspend this session: {mind.screen.budget.summary()}")
 

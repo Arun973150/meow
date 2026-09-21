@@ -25,10 +25,13 @@ overlay → hide-from-capture → capture → coordinates → DPI
 | 0.5 | Cat sprite with animation states | idle · listening · thinking · speaking · pointing · working · sleeping. **Done** - line art, 7 states, follows the cursor when activated |
 | 0.6 | **Done.** Voice loop: activation → STT → OpenAI → TTS | AssemblyAI v3 streaming in, ElevenLabs `eleven_flash_v2_5` out. Fire the model on `end_of_turn`, not `turn_is_formatted` |
 | 0.7 | **Done.** Sentence-chunked TTS | speak sentence 1 while writing sentence 2 — biggest perceived-latency win |
-| 0.8 | Point at an element | the `[POINT:x,y]` baseline — also Claim 1's control condition |
+| 0.8 | Point at an element | **Done.** The `[POINT:x,y]` baseline — also Claim 1's control condition. The system cursor becomes `cat_cursor.png` while it travels, and the glide aborts the moment the user touches the mouse |
 | 0.9 | **Done.** Conversation history | last 10 turns |
 
 **Demo:** *"ask it what a button does — the cat flies over and explains."*
+
+**Phase 0 is complete.** Measured: ~2.5s to first spoken sentence, ~$0.0005
+per turn with an image, 634ms for a pointer glide across the screen.
 
 ⚠ **Activation is tapped, never held.** The problem with a push-to-talk chord is
 that it is *sustained* for the whole utterance, which is hostile to tremor and
