@@ -54,7 +54,7 @@ MAX_OUTPUT_TOKENS = 220
 
 # An agent that keeps deciding to click is the failure this project can least
 # afford. A hard cap is cheaper than cleverness and cannot be talked out of.
-MAX_MODEL_CALLS_PER_RUN = 6
+MAX_MODEL_CALLS_PER_RUN = 8
 
 SYSTEM_PROMPT = """You are a cat that lives on the user's Windows desktop. You \
 can see the controls on their screen and you can operate them.
@@ -128,7 +128,7 @@ class Harness:
             """Press a control on screen. Use its exact name from the list."""
             target = self._resolve(name)
             if target is None:
-                return f"There is no control called {name!r} on screen."
+                return self._no_such_control(name)
             outcome = actions.invoke(target, self._inner_confirm)
             self.runs.append(ToolRun("click_control", name, outcome, target))
             return outcome.detail
@@ -138,7 +138,7 @@ class Harness:
             """Move the pointer to a control to show where it is. Presses nothing."""
             target = self._resolve(name)
             if target is None:
-                return f"There is no control called {name!r} on screen."
+                return self._no_such_control(name)
             outcome = actions.point_at(target)
             self.runs.append(ToolRun("point_at_control", name, outcome, target))
             return outcome.detail
@@ -192,6 +192,22 @@ class Harness:
         element = self.digest.find(name)
         return Target.from_element(element) if element else None
 
+    def _no_such_control(self, name: str) -> str:
+        """A miss that tells the agent what to try instead.
+
+        A bare "no such control" is a dead end, and the agent answers a dead
+        end by guessing again. One request for "terminal control" burned all
+        six model calls that way without ever discovering that
+        "Terminal (Ctrl+`)" exists.
+        """
+        near = self.digest.suggest(name) if self.digest else []
+        if not near:
+            return f"There is no control called {name!r} on screen."
+        options = ", ".join(f'"{option}"' for option in near)
+        return (f"There is no control called {name!r}. The closest on screen "
+                f"are: {options}. Call the tool again with one of those exact "
+                f"names, or say you cannot find it.")
+
     def _inner_confirm(self, question: str) -> bool:
         """Permission at the action layer.
 
@@ -242,6 +258,14 @@ class Harness:
 
         for message in result.get("messages", []):
             if isinstance(message, AIMessage) and message.content:
+                if "call limits exceeded" in str(message.content).lower():
+                    # The cap did its job; the user should hear a sentence, not
+                    # a middleware diagnostic. "Model call limits exceeded: run
+                    # limit (6/6)" was read out loud, which is both alarming
+                    # and meaningless to anyone who is not me.
+                    yield ("i could not find that one, and i have stopped "
+                           "looking rather than keep guessing.")
+                    continue
                 text = message.content
                 if isinstance(text, list):  # content blocks
                     text = " ".join(

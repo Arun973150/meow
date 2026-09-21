@@ -168,6 +168,29 @@ class WindowDigest:
                 return min(matches, key=lambda e: len(e.name))
         return None
 
+    def suggest(self, text: str, limit: int = 6) -> list[str]:
+        """Names close to what was asked for.
+
+        Returned with every miss, because "there is no control called that" is
+        a dead end and the agent answers it by guessing again. Six guesses is
+        how a single request exhausted its whole call budget: it asked for
+        "terminal control", which does not exist, and never learned that
+        "Terminal (Ctrl+`)" does.
+        """
+        wanted = set(text.lower().split())
+        scored = []
+        for element in self.elements:
+            words = set(element.name.lower().split())
+            overlap = len(wanted & words)
+            if overlap:
+                scored.append((overlap, -len(element.name), element.name))
+        scored.sort(reverse=True)
+        if scored:
+            return [name for _, _, name in scored[:limit]]
+        # Nothing shares a word. Offer the most prominent controls instead, so
+        # the reply is still useful rather than only apologetic.
+        return [element.name for element in self.elements[:limit]]
+
 
 class _Query:
     """Reusable condition and cache request.

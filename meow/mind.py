@@ -73,6 +73,13 @@ plainly that you are not looking at it, and ask what is on it.
 You are warm and brief. You are not chirpy, and you do not apologise twice."""
 
 
+STYLE_REMINDER = (
+    "Reply in lowercase, one or two short sentences, written to be read aloud. "
+    "No markdown. Do NOT end on a yes or no question - not 'can you see it?', "
+    "not 'is that what you meant?'. If you need something, ask for the thing."
+)
+
+
 @dataclass
 class Turn:
     role: str
@@ -208,6 +215,11 @@ class Mind:
         if self._screen_message is not None:
             messages.append(self._screen_message)
         messages.append({"role": "user", "content": transcript})
+        # Restated immediately before the reply. The rules are in the system
+        # prompt, but with a screenshot in between they were being ignored:
+        # live, the cat ended two replies in a row on "can you see it?" and
+        # "what is on your screen right now?", which the prompt forbids twice.
+        messages.append({"role": "system", "content": STYLE_REMINDER})
         return messages, attachment.estimated_tokens
 
     def answer(self, transcript: str, shot: ScreenShot | None = None,

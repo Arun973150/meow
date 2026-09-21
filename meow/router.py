@@ -134,11 +134,19 @@ class JevRouter:
             "intent": choice(
                 "What does the user want Meow to do?",
                 {
-                    "answer": "Be told something. No screen, no action.",
-                    "show": ("Be shown where something is, without it being "
-                             "pressed or changed."),
-                    "act": ("Have something pressed, typed, opened or closed - "
-                            "a change to the machine."),
+                    "answer": ("A question about facts, or about the user's "
+                               "own life. Nothing to do with what is on their "
+                               "screen right now."),
+                    # "where is X" was landing on answer, because being TOLD
+                    # where something is genuinely is an answer. It has to be
+                    # show, or the reply is a description of where the button
+                    # probably is instead of the cat going to it.
+                    "show": ("Anything about where a thing is on their screen, "
+                             "or a request to find, point at, highlight or "
+                             "navigate to something. Includes 'where is the X' "
+                             "and 'can you take me to X'."),
+                    "act": ("Press, click, type, open or close something - a "
+                            "change to the machine."),
                     "plan": ("A task with several steps to work through in "
                              "order."),
                 },
