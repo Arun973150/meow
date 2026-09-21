@@ -1,5 +1,35 @@
 # Architecture
 
+## Handing work over - built
+
+A plan that takes half a minute runs as a **background task** rather than in the
+voice loop. The cat says it has started and returns to listening; the task gets
+its own thread and a small window that reports as it goes.
+
+| | |
+|---|---|
+| spawn | any `plan` intent, up to two at once |
+| add to one | say "also ...", "add ...", "as well" — queued behind the current step |
+| finish | it says so and stays on screen until dismissed |
+| dismiss | "close that" — clears finished windows, leaves running ones |
+| stop | the panic key reaches tasks; they check between steps |
+
+**Queued, not applied immediately.** Interrupting a half-written spreadsheet to
+add a column produces neither the spreadsheet nor the column.
+
+**Trigger words are explicit.** Guessing whether a sentence belongs to a running
+task is wrong in both directions, and being wrong means either a lost
+instruction or a hijacked one.
+
+**A finished task waits.** One that vanishes leaves the user unsure whether it
+worked, and the moment it finishes is when a follow-up is easiest to ask.
+
+Clicky's commercial build has something similar — *"drop the agent magic word
+and it spawns a background agent"* — but no implementation is public and the
+open build has no agents at all. This is built from the requirement.
+
+
+
 One harness, two specialists, two modes. Capability grows through tools and
 recipes — never through new agents.
 

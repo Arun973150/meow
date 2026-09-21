@@ -57,6 +57,8 @@ meow/planner.py             PHASE 2 - multi-step tasks as a LangGraph state mach
 meow/risk.py                when to ask, and when asking is just noise
 meow/documents.py           docx / xlsx / pptx into Documents/Meow
 meow/research.py            search + fetch ONLY - the trifecta split
+meow/tasks.py               handed-over work, on its own thread
+meow/taskwindow.py          the small window each task gets
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
@@ -125,6 +127,11 @@ no clickable control - ctrl+L for an address bar, Enter to submit a search.
 Control names are matched the way people speak them, degrading from exact to
 word overlap to close spelling, so "that terminal thing" and "minimise" both
 land.
+
+**Long work is handed over.** A plan becomes a background task with its own
+small window: the cat says "i am on it" and goes back to listening. Say
+"also ..." to queue something onto a running task, "close that" when it is
+finished. Two run at once. Pause stops them all.
 
 **Phase 2.1–2.4 done.** `find research on solar panel costs and put it in a
 spreadsheet` produces a real .xlsx with sources in ~30s. Research is a separate

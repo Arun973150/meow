@@ -57,6 +57,8 @@ from meow.platform.hotkey import HotkeyListener, HotkeyUnavailable
 from meow.platform.monitors import get_cursor_position, get_virtual_desktop
 from meow.platform.overlay import Bounds, Overlay
 from meow.router import Intent, Router
+from meow.tasks import TaskRunner, TaskState
+from meow.taskwindow import PanelPalette, TaskPanel, stack_positions
 from meow.voice import AssemblyAIStreaming, ElevenLabsSpeaker, Microphone, SpeechQueue
 
 TARGET_FPS = 60
@@ -70,6 +72,15 @@ REPLY_LINE_SECONDS = 4.0
 # confirmation. Long enough to think, short enough that a forgotten question
 # does not leave a tool call parked forever.
 CONFIRM_TIMEOUT_SECONDS = 20.0
+
+# Saying one of these while a task is running adds to it instead of
+# starting something new. Explicit rather than inferred: guessing whether
+# a sentence belongs to a running task gets it wrong in both directions,
+# and being wrong means either a lost instruction or a hijacked one.
+ADD_WORDS = ("also", "and also", "add", "as well", "on top of that",
+             "tell it to", "make it", "include")
+CLOSE_WORDS = ("close that", "close them", "close it", "dismiss",
+               "get rid of", "clear that", "clear them", "close the task")
 
 YES_WORDS = ("yes", "yeah", "yep", "sure", "go ahead", "do it", "okay", "ok",
              "please do", "confirm", "alright")
@@ -92,6 +103,12 @@ def hears_yes(text: str) -> bool | None:
            for word in YES_WORDS):
         return True
     return None
+
+
+def starts_with_any(text: str, phrases) -> bool:
+    lowered = " ".join(text.lower().split())
+    return any(lowered.startswith(phrase) or f" {phrase} " in f" {lowered} "
+               for phrase in phrases)
 
 
 def home_position(monitor, width: int, height: int) -> tuple[int, int]:
@@ -148,6 +165,11 @@ def main() -> None:
         raise SystemExit(f"\n{error}\n")
 
     router = Router(use_jev=not args.no_jev)
+    tasks = TaskRunner()
+    task_panel = TaskPanel()
+    # One layered window per task, created as needed and reused. Making
+    # and destroying a window per frame flickers.
+    task_overlays: dict[int, Overlay] = {}
     planner = Planner(
         harness,
         # "quiet" is printed and never spoken. A plan the user did not ask to
@@ -194,6 +216,7 @@ def main() -> None:
     panic.on_panic("cursor", lambda: cat_cursor and cat_cursor.remove())
     panic.on_panic("confirmation", lambda: (
         confirm_answer.__setitem__("value", False), confirm_ready.set()))
+    panic.on_panic("tasks", tasks.stop_all)
 
     def ask(transcript: str) -> None:
         """Route the sentence and run whichever path it asked for."""
@@ -206,32 +229,41 @@ def main() -> None:
                 return
 
             if route.intent is Intent.PLAN:
-                # The plan lives in the graph's state, checkpointed per step,
-                # so it can be shown, stopped on a boundary, and resumed.
-                plan = planner.run(transcript)
-                print("          plan:")
-                print(plan.summary())
+                if not tasks.can_start():
+                    replies.put(("say", "i am already working on as much as i "
+                                        "can. say close that when one is done."))
+                    return
 
-                if plan.abandoned:
-                    replies.put(("say", "that is more than i can break into "
-                                        "steps. tell me the first part."))
-                elif planner.narrate:
-                    # Every step was spoken as it happened, so this is a
-                    # full stop rather than a report.
-                    if plan.succeeded:
-                        replies.put(("say", "that is all of them."))
-                elif plan.succeeded:
-                    # Quiet run: one line at the end, and the last step's own
-                    # words are the best available summary - it describes what
-                    # the whole thing was for, and costs nothing to produce.
-                    last = next((step.said for step in reversed(plan.steps)
-                                 if step.said.strip()), "")
-                    replies.put(("say", last or "done."))
-                elif not plan.stopped:
-                    failed = next((step for step in plan.steps
-                                   if step.state.value == "failed"), None)
-                    replies.put(("say", f"i stopped at {failed.instruction}."
-                                 if failed else "i could not finish that."))
+                def work(task):
+                    """Run the plan inside the task, reporting as it goes."""
+                    def report(kind, text):
+                        task.log(text, kind="error" if kind == "error"
+                                 else "step" if kind in ("step", "quiet")
+                                 else "say")
+
+                    worker = Planner(harness, on_event=report,
+                                     should_stop=lambda: (panic.should_stop()
+                                                          or task.should_stop))
+                    plan = worker.run(task.goal)
+
+                    # Anything said while it was working happens now, in order.
+                    while True:
+                        extra = task.take_instruction()
+                        if extra is None or task.should_stop:
+                            break
+                        task.log(extra, kind="step")
+                        worker.run(extra)
+
+                    if plan.abandoned:
+                        return "could not break that into steps"
+                    last = next((s.said for s in reversed(plan.steps)
+                                 if s.said.strip()), "")
+                    return last or ("done" if plan.succeeded else "stopped early")
+
+                task = tasks.spawn(transcript, work)
+                print(f"          handed to task {task.number}")
+                # Back to listening immediately. The window reports from here.
+                replies.put(("say", "i am on it."))
                 return
 
             if route.intent in (Intent.SHOW, Intent.ACT):
@@ -280,6 +312,8 @@ def main() -> None:
 
     print(f"\n  tap {hotkey.display_name} and talk. Tap again to stop listening.")
     print(f"  tap {panic_key.display_name.upper()} to stop everything, instantly.")
+    print("  long jobs get their own window - say \"also ...\" to add to one,")
+    print("  and \"close that\" when you are done with it.")
     print(f"  routing: {'jev' if router.using_jev else 'keywords'}"
           f"{'  (' + (router.unavailable_reason or '')[:60] + ')' if not router.using_jev else ''}")
     print(f"  speech: {'muted' if args.mute else 'on'}")
@@ -355,7 +389,26 @@ def main() -> None:
                             confirm_ready.set()
                             continue
 
-                        print(f"  {elapsed:5.1f}s  heard: {transcript.text}")
+                        said = transcript.text
+                        print(f"  {elapsed:5.1f}s  heard: {said}")
+
+                        if starts_with_any(said, CLOSE_WORDS):
+                            gone = tasks.dismiss_finished()
+                            replies.put(("say", "closed." if gone
+                                         else "nothing finished to close."))
+                            continue
+
+                        running = tasks.newest_running()
+                        if running is not None and starts_with_any(said, ADD_WORDS):
+                            # Queued behind the current step rather than
+                            # applied now. Interrupting half-written work to
+                            # change it produces neither the work nor the
+                            # change.
+                            running.add_instruction(said)
+                            print(f"          queued onto task {running.number}")
+                            replies.put(("say", "added to what i am doing."))
+                            continue
+
                         asked_at = elapsed
                         animator.set_state(CatState.THINKING, elapsed)
                         # Dots until there is something to say. Routing and
@@ -399,6 +452,19 @@ def main() -> None:
                     elif kind == "done" and active:
                         animator.set_state(CatState.LISTENING, elapsed)
 
+                for finished in tasks.newly_finished():
+                    mark = {TaskState.DONE: "done",
+                            TaskState.FAILED: "failed",
+                            TaskState.STOPPED: "stopped"}[finished.state]
+                    print(f"  {elapsed:5.1f}s  task {finished.number} {mark}: "
+                          f"{finished.summary[:70]}")
+                    if finished.state is TaskState.DONE:
+                        replies.put(("say", f"{finished.summary} say close "
+                                            f"that when you want it gone."))
+                    else:
+                        replies.put(("say", f"that one {mark}. "
+                                            f"{finished.summary[:70]}"))
+
                 animator.speech_level = speech.level if speech is not None else 0.0
 
                 cursor_x, cursor_y = get_cursor_position()
@@ -431,6 +497,7 @@ def main() -> None:
                         using_light_ink = luminance < threshold
                         renderer.palette = CatPalette.for_background(luminance)
                         bubble_renderer.palette = BubblePalette.for_background(luminance)
+                        task_panel.palette = PanelPalette.for_background(luminance)
 
                 bubble_state.update(elapsed, timestep)
 
@@ -458,6 +525,25 @@ def main() -> None:
                 else:
                     bubble.hide()
 
+                # One window per task, stacked up the right edge. Built on
+                # demand and torn down when the task is dismissed.
+                live = tasks.visible
+                for task, left, top in stack_positions(live, task_panel, monitor):
+                    image = task_panel.render(task, phase=elapsed)
+                    overlay = task_overlays.get(task.number)
+                    if overlay is None:
+                        overlay = Overlay(Bounds(left, top, image.width,
+                                                 image.height))
+                        task_overlays[task.number] = overlay
+                        overlay.show()
+                    overlay.set_bounds(Bounds(left, top, image.width,
+                                              image.height))
+                    overlay.draw(rgba_to_premultiplied_bgra(image))
+
+                for number in list(task_overlays):
+                    if not any(task.number == number for task in live):
+                        task_overlays.pop(number).close()
+
                 remaining = frame_budget - (time.perf_counter() - frame_started)
                 if remaining > 0:
                     time.sleep(remaining)
@@ -474,6 +560,9 @@ def main() -> None:
                 speech.clear()
             if cat_cursor is not None:
                 cat_cursor.remove()
+            tasks.stop_all()
+            for overlay in task_overlays.values():
+                overlay.close()
 
     print(f"\n  spend: {mind.screen.budget.summary()}")
 
