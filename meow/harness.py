@@ -122,7 +122,9 @@ How you talk, and this matters as much as what you do:
 
 STYLE_REMINDER = (
     "Reply in lowercase, one or two short sentences, written to be read aloud. "
-    "No markdown. Do not end on a yes or no question."
+    "No markdown. Do NOT end on a question answerable with yes or no, "
+    "including ones dressed as requests like 'can you tell me what you "
+    "are trying to do?'. Ask for the thing itself, or say nothing."
 )
 
 

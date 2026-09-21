@@ -150,6 +150,9 @@ def main() -> None:
     router = Router(use_jev=not args.no_jev)
     planner = Planner(
         harness,
+        # "quiet" is printed and never spoken. A plan the user did not ask to
+        # have explained should leave the voice alone until it has something
+        # to report, and let the thinking dots carry the meantime.
         on_event=lambda kind, text: replies.put(
             ("say" if kind in ("say", "step", "stopped") else kind, text)),
         should_stop=panic.should_stop,
@@ -208,11 +211,27 @@ def main() -> None:
                 plan = planner.run(transcript)
                 print("          plan:")
                 print(plan.summary())
+
                 if plan.abandoned:
                     replies.put(("say", "that is more than i can break into "
                                         "steps. tell me the first part."))
+                elif planner.narrate:
+                    # Every step was spoken as it happened, so this is a
+                    # full stop rather than a report.
+                    if plan.succeeded:
+                        replies.put(("say", "that is all of them."))
                 elif plan.succeeded:
-                    replies.put(("say", "that is all of them."))
+                    # Quiet run: one line at the end, and the last step's own
+                    # words are the best available summary - it describes what
+                    # the whole thing was for, and costs nothing to produce.
+                    last = next((step.said for step in reversed(plan.steps)
+                                 if step.said.strip()), "")
+                    replies.put(("say", last or "done."))
+                elif not plan.stopped:
+                    failed = next((step for step in plan.steps
+                                   if step.state.value == "failed"), None)
+                    replies.put(("say", f"i stopped at {failed.instruction}."
+                                 if failed else "i could not finish that."))
                 return
 
             if route.intent in (Intent.SHOW, Intent.ACT):
@@ -372,6 +391,8 @@ def main() -> None:
                         animator.set_state(CatState.SPEAKING, elapsed)
                         if speech is not None:
                             speech.enqueue(payload)
+                    elif kind == "quiet":
+                        print(f"          {payload}")
                     elif kind == "error":
                         print(f"  error: {payload}")
                         bubble_state.say("something went wrong", elapsed)

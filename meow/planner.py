@@ -175,6 +175,27 @@ def parse_steps(text: str) -> list[Step]:
     return [Step(str(item).strip()) for item in raw if str(item).strip()][:MAX_STEPS]
 
 
+# Asking to be told what is happening, rather than just to have it happen.
+# Without one of these the plan runs quietly and says one line at the end.
+EXPLAIN_WORDS = (
+    "explain", "tell me", "walk me through", "narrate", "talk me through",
+    "step by step", "show me how", "what are you doing", "describe",
+    "teach me", "how do i", "how do you",
+)
+
+
+def wants_narration(goal: str) -> bool:
+    """Did they ask to be told, or just to have it done?
+
+    Narrating every step is right when someone is learning and wrong when they
+    are busy. A two-step task narrated in full is five spoken lines, four of
+    which say what the fifth already implies, and the machine sat idle through
+    all of them.
+    """
+    lowered = goal.lower()
+    return any(phrase in lowered for phrase in EXPLAIN_WORDS)
+
+
 class Planner:
     """A graph that plans, then runs each step as its own node visit."""
 
@@ -184,6 +205,9 @@ class Planner:
         self.harness = harness
         self.on_event = on_event
         self.should_stop = should_stop
+        # Set per run. Quiet by default: the thinking dots already say that
+        # something is happening, and saying it out loud as well delays it.
+        self.narrate = False
         self._client = ChatOpenAI(model=model, api_key=openai_api_key(),
                                   max_completion_tokens=400)
 
@@ -235,7 +259,12 @@ class Planner:
 
         step.state = StepState.RUNNING
         plan = Plan.from_state({**state, "steps": steps})
-        self._report("step", f"{plan.progress()}, {step.instruction}")
+        if self.narrate:
+            self._report("step", f"{plan.progress()}, {step.instruction}")
+        else:
+            # Printed, not spoken. The terminal is for watching; the voice is
+            # for the answer.
+            self._report("quiet", f"{plan.progress()}, {step.instruction}")
 
         said: list[str] = []
         try:
@@ -253,7 +282,7 @@ class Planner:
                     stream = self.harness.respond(allowed)
                     continue
                 said.append(str(event))
-                self._report("say", str(event))
+                self._report("say" if self.narrate else "quiet", str(event))
 
             step.said = " ".join(said)
 
@@ -296,8 +325,14 @@ class Planner:
 
     # --- running ---------------------------------------------------------
 
-    def run(self, goal: str, thread: str | None = None) -> Plan:
-        """Plan the goal and carry it out. Returns the finished plan."""
+    def run(self, goal: str, thread: str | None = None,
+            narrate: bool | None = None) -> Plan:
+        """Plan the goal and carry it out. Returns the finished plan.
+
+        `narrate` defaults to whether the request asked to be told. Someone
+        learning wants every step; someone busy wants the thing done.
+        """
+        self.narrate = wants_narration(goal) if narrate is None else narrate
         self._runs += 1
         config = {"configurable": {"thread_id": thread or f"plan-{self._runs}"},
                   # Every step is a node visit, so the default of 25 would cap

@@ -77,8 +77,10 @@ You are warm and brief. You are not chirpy, and you do not apologise twice."""
 
 STYLE_REMINDER = (
     "Reply in lowercase, one or two short sentences, written to be read aloud. "
-    "No markdown. Do NOT end on a yes or no question - not 'can you see it?', "
-    "not 'is that what you meant?'. If you need something, ask for the thing."
+    "No markdown. Do NOT end on a question the user can answer with yes or "
+    "no, and that includes ones dressed up as requests: not 'can you see "
+    "it?', not 'can you tell me what you are trying to do?', not 'is that "
+    "what you meant?'. Ask for the thing itself, or say nothing."
 )
 
 
