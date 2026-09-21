@@ -145,6 +145,12 @@ def names_the_target(transcript: str, target: str) -> bool:
 
 def is_dangerous(tool: str, target: str) -> bool:
     """Would getting this wrong be hard to undo?"""
+    if tool == "write_about":
+        # The topic is a subject, not an instruction. "Write about deleting
+        # files" is an essay, and matching "delete" in it would ask permission
+        # to write a paragraph. What write_about does - typing where the
+        # cursor is - is no more dangerous than type_text.
+        return False
     if tool == "press_keys":
         return target.strip().lower().replace(" ", "") in DANGEROUS_SHORTCUTS
     return bool(_DANGEROUS_PATTERN.search(target))

@@ -52,22 +52,25 @@ MODEL = "gpt-4o-mini"
 # the honest answer is to say so. It also caps what a runaway plan can do.
 MAX_STEPS = 8
 
-PLANNER_PROMPT = """You break a spoken request into the fewest steps that \
-actually do it, for a cat that operates a Windows desktop.
+PLANNER_PROMPT = """You break a spoken request into the fewest steps that actually do it, for a cat that operates a Windows desktop.
 
-It can: open applications, switch between open windows, click controls by name, \
-type text, and press keyboard shortcuts.
+It can: open applications, switch between open windows, minimise and maximise them, click controls by name, type exact text, WRITE text about a topic, and press keyboard shortcuts.
 
 Rules:
-- Each step is ONE action, phrased as an instruction: "open chrome", \
-"press ctrl+t", "type solar panel costs", "press enter".
-- Do not include steps for looking, checking or waiting. It looks at the \
-screen before every step anyway.
-- Do not plan past what was asked.
-- Between two and six steps. If it needs more than that, return one step \
-saying it is too big.
+- Each step says WHAT to achieve, not which keys to hit. "minimise vs code" is a step; "press alt+space" then "click minimize" is you guessing at how, and guessing wrong. It works out how.
+- Say "write about X" when the user wants something composed, and "type X" only when they gave you the exact words. "Write about Elon Musk" means write several sentences about him, NOT type his name.
+- Do not add steps nobody asked for. No pressing enter at the end, no saving, no closing, no tidying up.
+- Do not include steps for looking, checking or waiting. It looks at the screen before every step anyway.
+- Two to six steps. If it needs more, return one step saying it is too big.
 
-Reply with JSON only: {"steps": ["...", "..."]}"""
+Reply with JSON only: {"steps": ["...", "..."]}
+
+Examples:
+  "minimise vs code then open notepad and write about llms"
+  -> {"steps": ["minimise visual studio code", "open notepad", "write about large language models"]}
+
+  "open chrome and search for solar panel costs"
+  -> {"steps": ["open chrome", "press ctrl+t", "type solar panel costs", "press enter"]}"""
 
 
 class StepState(Enum):

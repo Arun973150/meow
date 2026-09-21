@@ -100,8 +100,13 @@ MAX_MODEL_CALLS_PER_RUN = 8
 SYSTEM_PROMPT = """You are a cat that lives on the user's Windows desktop. You \
 can see the controls on their screen and you can operate them.
 
-You can also open applications, switch between open windows, and press \
-keyboard shortcuts. If what the user wants is not on screen, open it or switch \
+You can also open applications, switch between open windows, press \
+keyboard shortcuts, and WRITE text about a topic.
+
+Use write_about when asked to write, draft or compose something - it thinks of \
+the words. Use type_text only when the exact words were given to you. Asked to \
+"write a note about llms", write_about("llms") is right and \
+type_text("llms") types two letters and nothing else. If what the user wants is not on screen, open it or switch \
 to it rather than saying you cannot see it.
 
 You are given a list of the controls currently on screen with their exact \
@@ -283,6 +288,25 @@ class Harness:
             return outcome.detail
 
         @tool
+        def write_about(topic: str, sentences: int = 4) -> str:
+            """Compose text about a topic and type it where the cursor is.
+
+            Use when asked to WRITE or DRAFT something - "write a note about
+            llms", "draft an email about the delay". Use type_text instead when
+            the exact words to type were given.
+            """
+            composed = self._compose(topic, sentences)
+            if not composed:
+                return f"I could not think of anything to write about {topic!r}."
+            outcome = actions.type_text(
+                composed, self._gated("write_about", topic))
+            self.runs.append(ToolRun("write_about", topic, outcome))
+            if outcome.ok:
+                return (f"Wrote {len(composed.split())} words about {topic}. "
+                        f"It begins: {composed[:60]}...")
+            return outcome.detail
+
+        @tool
         def list_controls() -> str:
             """Re-read the controls on screen, after something has changed."""
             self.digest = digest_foreground()
@@ -302,6 +326,7 @@ class Harness:
             "type_text": True,
             "open_app": True,
             "press_keys": True,
+            "write_about": True,
             # switch_to_window is NOT here. Bringing a window forward changes
             # nothing and the user can alt-tab straight back, so asking about
             # it is the kind of prompt that teaches people to stop reading
@@ -316,11 +341,18 @@ class Harness:
                 description_prefix="Meow wants to",
             ))
 
+        # A separate, plainer model call for composing prose. The agent's
+        # own prompt is built for one-line spoken replies, which is exactly
+        # wrong for something being typed into a document.
+        self._writer = ChatOpenAI(model=model, api_key=openai_api_key(),
+                                  max_completion_tokens=500)
+
         self.agent = create_agent(
             model=ChatOpenAI(model=model, api_key=openai_api_key(),
                              max_completion_tokens=MAX_OUTPUT_TOKENS),
             tools=[click_control, point_at_control, type_text, list_controls,
-                   open_app, switch_to_window, list_open_windows, press_keys],
+                   open_app, switch_to_window, list_open_windows, press_keys,
+                   write_about],
             system_prompt=SYSTEM_PROMPT,
             middleware=middleware,
             checkpointer=InMemorySaver(),
@@ -328,6 +360,33 @@ class Harness:
         self._thread = 0
 
     # --- helpers --------------------------------------------------------
+
+    def _compose(self, topic: str, sentences: int = 4) -> str:
+        """Write the thing, rather than typing the name of the thing.
+
+        "Write a note about Elon Musk" produced the literal text "Elon Musk",
+        because every path from a request to the keyboard went through
+        type_text, which types what it is given. Composing is a different
+        operation and needs its own one.
+
+        Plain prose: this lands in Notepad or a text box, where markdown is
+        just punctuation nobody asked for.
+        """
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        try:
+            reply = self._writer.invoke([
+                SystemMessage(
+                    "You write short, plain prose to be typed straight into a "
+                    "text editor. No markdown, no headings, no bullet points, "
+                    "no title, no sign-off. Just the text itself. "
+                    f"About {sentences} sentences."
+                ),
+                HumanMessage(f"Write about: {topic}"),
+            ])
+        except Exception:  # noqa: BLE001 - a failed compose is not a crash
+            return ""
+        return " ".join(str(reply.content).split())
 
     def _resolve(self, name: str) -> Target | None:
         if self.digest is None:
