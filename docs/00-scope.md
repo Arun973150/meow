@@ -38,8 +38,13 @@ for everyone. Voice interfaces lift task completion by more than 40% for users
 with motor impairments *when designed for them*.
 
 One concrete consequence: **Clicky's held two-key chord (ctrl+option) is not
-acceptable.** A sustained modifier chord is hostile to tremor and arthritis.
-Meow uses a wake word or a single key.
+acceptable.** The problem is the *holding*, not the two keys - it is sustained
+for the whole utterance, and a sustained modifier chord is hostile to tremor and
+arthritis. Meow taps to toggle instead, so the keys are down for a moment.
+
+Tapping also keeps **Sticky Keys** usable, which is the actual accommodation:
+`RegisterHotKey` reads modifier state rather than physical presses, so Ctrl then
+M pressed in sequence still activates. A raw keyboard hook would not.
 
 ## Why it exists
 

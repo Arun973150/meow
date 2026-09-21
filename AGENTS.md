@@ -42,7 +42,7 @@ meow/cat/follow.py          critically damped cursor follow
 scripts/overlay_demo.py     A/B tests the capture exclusion
 scripts/cat_demo.py         the cat, live, cycling states
 scripts/cat_preview.py      all states to one PNG, light and dark
-scripts/companion_demo.py   press F9, the cat wakes and follows the cursor
+scripts/companion_demo.py   tap Ctrl+M, the cat wakes and follows the cursor
 ```
 
 Activation is `RegisterHotKey`, **not** `WH_KEYBOARD_LL` - the hook stops
@@ -130,8 +130,12 @@ Do not violate these without updating the relevant doc first.
    cat appears in its own screenshots and confuses the model.
 8. **Coordinates:** call `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`
    at startup, or clicks land off-target on secondary monitors.
-9. **No push-to-talk chord.** Held two-key chords are hostile to tremor and
-   arthritis. Wake word or single key.
+9. **Activation is tapped, never held.** The problem with Clicky's ctrl+option
+   is that it is *sustained* for the length of an utterance, which is hostile to
+   tremor and arthritis - not that it has two keys. A tapped chord that toggles
+   is fine. Use `RegisterHotKey`, never `WH_KEYBOARD_LL`: the hook dies under
+   Chromium focus, and only the former keeps **Sticky Keys** working, which is
+   what lets someone press Ctrl then M in sequence.
 
 ## Known platform traps
 

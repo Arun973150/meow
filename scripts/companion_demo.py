@@ -5,10 +5,13 @@ pointer. Press it again and it goes home and dozes off. This is the shape of
 Phase 0 activation without any of the voice parts attached yet.
 
     python scripts/companion_demo.py
-    python scripts/companion_demo.py --key f10 --width 72
+    python scripts/companion_demo.py --key ctrl+space
+    python scripts/companion_demo.py --key f9 --width 64
 
-Ctrl+C to stop. The key is global - it works while any other window has focus,
-which is the whole point of registering it rather than reading the keyboard.
+Ctrl+C to stop. The activation key is global - it works while any other window
+has focus, which is the whole point of registering it rather than reading the
+keyboard. It is TAPPED to toggle, never held: see hotkey.py on why that
+distinction matters.
 """
 
 from __future__ import annotations
@@ -47,9 +50,9 @@ def home_position(monitor, width: int, height: int) -> tuple[int, int]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--key", default="f9",
-                        help="activation key: f8, f9, f10, f11, scrolllock, "
-                             "pause, insert")
+    parser.add_argument("--key", default="ctrl+m",
+                        help="activation combination, e.g. ctrl+m, ctrl+space, "
+                             "alt+space, f9. Tapped to toggle, never held.")
     parser.add_argument("--width", type=int, default=72)
     parser.add_argument("--seconds", type=float, default=0.0,
                         help="0 means run until Ctrl+C")
