@@ -47,6 +47,7 @@ meow/pointing.py            [POINT:x,y] protocol, eased pointer glide
 meow/uia.py                 THE THESIS - accessibility tree digest, 268ms
 meow/grounding.py           UIA / vision / hybrid behind one protocol
 meow/actions.py             point, click, invoke, type - each with a risk level
+meow/harness.py             the model names controls and calls tools
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
@@ -91,10 +92,15 @@ about while wearing `cat_cursor.png`.
 Measured: ~2.5s to the first spoken sentence, ~$0.0005 per turn with an image,
 394ms to first audio, 634ms for a pointer glide across the screen.
 
-**Phase 1: 1.1, 1.2, 1.4 and 1.7 done, 1.5 started.** Meow can now name a
-control, find it exactly, and press it - `invoke()` goes through UIA with no
-pointer movement, which works on a window that is not even in front. Every
-action declares a risk level and the risky ones ask first.
+**Phase 1: 1.1, 1.2, 1.4, 1.5 and 1.7 done.** Say "click the close button" and
+it happens. The model reads the control list and asks for a control BY NAME,
+which resolves against the tree to an exact rectangle - it never produces a
+coordinate, so it cannot produce a wrong one. `invoke()` then presses through
+UIA with no pointer movement, which works on a window that is not in front.
+
+Every action declares a risk level and the risky ones ask first. Remaining:
+**1.10, the evaluation harness** - worth building before tuning anything else,
+or element selection gets optimised with no way to tell if it improved.
 
 **1.1 and 1.4 detail.** `meow/uia.py` returns the foreground
 window as a ranked list of named, on-screen controls with exact coordinates, in

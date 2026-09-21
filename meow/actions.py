@@ -141,7 +141,9 @@ def click(target: Target, confirm: Confirmer,
     question = (f"right-click {target.name}?" if right_button
                 else f"click {target.name}?")
     if not confirm(question):
-        return Outcome(False, f"left {target.name} alone", refused=True)
+        return Outcome(False, f"The user declined. {target.name} was not "
+                       f"pressed, and nothing is wrong with it.",
+                       refused=True)
 
     moved = point_at(target)
     if not moved:
@@ -166,7 +168,12 @@ def invoke(target: Target, confirm: Confirmer) -> Outcome:
     correct and useless to the user.
     """
     if not confirm(f"press {target.name}?"):
-        return Outcome(False, f"left {target.name} alone", refused=True)
+        # Worded for the model, not for a log. "left it alone" was read as
+        # a malfunction and reported to the user as "the button did not
+        # respond, it might be disabled" - which is alarming and false.
+        return Outcome(False, f"The user declined. {target.name} was not "
+                       f"pressed, and nothing is wrong with it.",
+                       refused=True)
 
     element = target.element
     if target.source is not Source.UIA or element is None or element.node is None:
@@ -219,7 +226,8 @@ def type_text(text: str, confirm: Confirmer,
 
     preview = text if len(text) <= 40 else text[:40] + "..."
     if not confirm(f'type "{preview}"?'):
-        return Outcome(False, "did not type it", refused=True)
+        return Outcome(False, "The user declined, so nothing was typed.",
+                       refused=True)
 
     delay = 1.0 / max(1, characters_per_second)
     for character in text:
