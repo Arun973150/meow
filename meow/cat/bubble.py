@@ -27,6 +27,7 @@ arbitrary desktop content is unreadable without a background behind it.
 
 from __future__ import annotations
 
+import math
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +45,12 @@ PADDING_X = 11
 PADDING_Y = 8
 TAIL_WIDTH = 13
 TAIL_HEIGHT = 8
+
+# The thinking animation.
+THINKING_DOTS = 3
+THINKING_DOT_SIZE = 6
+THINKING_DOT_GAP = 5
+THINKING_DOT_RISE = 3.0
 
 _FONT_CANDIDATES = (
     r"C:\Windows\Fonts\segoeui.ttf",
@@ -150,6 +157,69 @@ class BubbleRenderer:
             line_height * len(lines) + PADDING_Y * 2 + TAIL_HEIGHT + 2,
         )
 
+    def measure_thinking(self) -> tuple[int, int]:
+        """The thinking bubble is a fixed size - it holds three dots."""
+        line_height = self.font_size + 4
+        return (THINKING_DOTS * (THINKING_DOT_SIZE + THINKING_DOT_GAP)
+                + PADDING_X * 2, line_height + PADDING_Y * 2 + TAIL_HEIGHT + 2)
+
+    def render_thinking(self, phase: float, alpha: float = 1.0,
+                        tail_on_right: bool = True) -> Image.Image | None:
+        """Three dots rising and falling in sequence.
+
+        Planning takes a second or two, and an empty bubble during it reads as
+        nothing happening. Dots rather than a spinner: a spinner says "wait",
+        and three dots say "it is composing something", which is what is
+        actually going on.
+
+        Each dot is offset a third of a cycle from the last, so the movement
+        travels left to right instead of all three bouncing together.
+        """
+        if alpha <= 0.01:
+            return None
+
+        width, height = self.measure_thinking()
+        image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+
+        body_bottom = height - TAIL_HEIGHT - 1
+        self._draw_body(draw, width, body_bottom, height, alpha, tail_on_right)
+
+        centre_y = body_bottom / 2
+        for index in range(THINKING_DOTS):
+            # A third of a cycle between neighbours.
+            offset = phase * 6.0 - index * (2.0 * math.pi / 3.0)
+            lift = math.sin(offset)
+            # Dots at the bottom of their arc fade slightly, which reads as
+            # depth and stops the row looking like it is sliding sideways.
+            fade = 0.55 + 0.45 * (lift * 0.5 + 0.5)
+            x = PADDING_X + index * (THINKING_DOT_SIZE + THINKING_DOT_GAP)
+            y = centre_y - lift * THINKING_DOT_RISE - THINKING_DOT_SIZE / 2
+            draw.ellipse(
+                [x, y, x + THINKING_DOT_SIZE, y + THINKING_DOT_SIZE],
+                fill=self._faded(self.palette.text, alpha * fade),
+            )
+        return image
+
+    def _draw_body(self, draw, width, body_bottom, height, alpha,
+                   tail_on_right) -> None:
+        """The card and its tail, shared by text and thinking bubbles."""
+        fill = self._faded(self.palette.fill, alpha)
+        border = self._faded(self.palette.border, alpha)
+
+        draw.rounded_rectangle(
+            [0, 0, width - 1, body_bottom],
+            radius=CORNER_RADIUS, fill=fill, outline=border, width=1,
+        )
+        tail_x = width - CORNER_RADIUS - TAIL_WIDTH if tail_on_right else CORNER_RADIUS
+        tip = (tail_x + (TAIL_WIDTH // 2 if tail_on_right else 0), height - 1)
+        draw.polygon(
+            [(tail_x, body_bottom - 1), (tail_x + TAIL_WIDTH, body_bottom - 1), tip],
+            fill=fill,
+        )
+        draw.line([(tail_x, body_bottom - 1), tip], fill=border, width=1)
+        draw.line([tip, (tail_x + TAIL_WIDTH, body_bottom - 1)], fill=border, width=1)
+
     def render(self, text: str, alpha: float = 1.0,
                tail_on_right: bool = True) -> Image.Image | None:
         """The bubble, RGBA. None when there is nothing to say.
@@ -219,6 +289,7 @@ class BubbleState:
 
     def __init__(self) -> None:
         self.text = ""
+        self.thinking = False
         self._alpha = 0.0
         self._fading_out = False
         self._hide_at: float | None = None
@@ -231,6 +302,18 @@ class BubbleState:
     def visible(self) -> bool:
         return self._alpha > 0.01
 
+    def think(self, now: float) -> None:
+        """Show the dots. Stays until something is said or it is dismissed.
+
+        No timeout, unlike a spoken line: the dots mean "still working", and a
+        thinking bubble that expires while the work continues is worse than no
+        bubble at all.
+        """
+        self.thinking = True
+        self.text = ""
+        self._fading_out = False
+        self._hide_at = None
+
     def say(self, text: str, now: float, seconds: float = 4.0) -> None:
         """Show a line, and schedule it to fade out.
 
@@ -238,6 +321,7 @@ class BubbleState:
         minutes later, covering something.
         """
         self.text = text
+        self.thinking = False
         self._fading_out = False
         self._hide_at = now + seconds
 
@@ -252,9 +336,10 @@ class BubbleState:
             self._alpha = max(0.0, self._alpha - timestep / self.FADE_OUT_SECONDS)
             if self._alpha <= 0.0:
                 self.text = ""
+                self.thinking = False
                 self._hide_at = None
                 self._fading_out = False
-        elif self.text:
+        elif self.text or self.thinking:
             self._alpha = min(1.0, self._alpha + timestep / self.FADE_IN_SECONDS)
 
 

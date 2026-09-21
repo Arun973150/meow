@@ -339,6 +339,10 @@ def main() -> None:
                         print(f"  {elapsed:5.1f}s  heard: {transcript.text}")
                         asked_at = elapsed
                         animator.set_state(CatState.THINKING, elapsed)
+                        # Dots until there is something to say. Routing and
+                        # planning take a second or two together, and an empty
+                        # bubble for that long reads as nothing happening.
+                        bubble_state.think(elapsed)
                         if speech is not None:
                             speech.clear()
                         panic.reset()
@@ -413,12 +417,19 @@ def main() -> None:
                     renderer.render(animator.pose_at(elapsed))))
 
                 if bubble_state.visible:
-                    width, height = bubble_renderer.measure(bubble_state.text)
+                    if bubble_state.thinking:
+                        width, height = bubble_renderer.measure_thinking()
+                    else:
+                        width, height = bubble_renderer.measure(bubble_state.text)
                     left, top, tail_on_right = bubble_position(
                         int(follower.x), int(follower.y), renderer.width,
                         width, height, monitor)
-                    image = bubble_renderer.render(
-                        bubble_state.text, bubble_state.alpha, tail_on_right)
+                    if bubble_state.thinking:
+                        image = bubble_renderer.render_thinking(
+                            elapsed, bubble_state.alpha, tail_on_right)
+                    else:
+                        image = bubble_renderer.render(
+                            bubble_state.text, bubble_state.alpha, tail_on_right)
                     if image is not None:
                         bubble.set_bounds(Bounds(left, top, width, height))
                         bubble.draw(rgba_to_premultiplied_bgra(image))
