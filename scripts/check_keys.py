@@ -24,7 +24,7 @@ from meow.config import ENV_PATH, describe
 # LANGSMITH_API_KEY is Phase 1 tracing. Reporting it as "still needed" during
 # Phase 0 trains the reader to ignore this script, which is the opposite of
 # what a setup check is for.
-OPTIONAL_KEYS = {"LANGSMITH_API_KEY"}
+OPTIONAL_KEYS = {"LANGSMITH_API_KEY", "TYPESAFE_API_KEY"}
 
 # module name -> (what needs it, which phase)
 PACKAGES = [
@@ -35,6 +35,8 @@ PACKAGES = [
     ("assemblyai", "streaming speech to text", "0.6"),
     ("elevenlabs", "text to speech", "0.6"),
     ("sounddevice", "microphone and playback", "0.6"),
+    ("langchain", "the agent harness", "1.5"),
+    ("langchain_typesafe", "Jev routing", "1.6"),
 ]
 
 

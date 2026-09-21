@@ -48,6 +48,8 @@ meow/uia.py                 THE THESIS - accessibility tree digest, 268ms
 meow/grounding.py           UIA / vision / hybrid behind one protocol
 meow/actions.py             point, click, invoke, type - each with a risk level
 meow/harness.py             LangGraph create_agent + HumanInTheLoop gate
+meow/router.py              Jev via langchain-typesafe, on interim transcripts
+meow/evaluation.py          THE ABLATION - UIA labels its own ground truth
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
@@ -105,9 +107,17 @@ Phase 2's planner needs. `ModelCallLimitMiddleware` caps the rounds.
 
 LangSmith turns on by itself if `LANGSMITH_API_KEY` is in `.env`; currently off.
 
-Remaining: **1.10, the evaluation harness** — worth building before tuning
-anything else, or element selection gets optimised with no way to tell whether
-it improved.
+**Phase 1 is complete.** First ablation result, VS Code, one frozen screen:
+
+| strategy | hit rate | median miss |
+|---|---|---|
+| **UIA** | **6/6** | **0 px** |
+| vision `detail=low` | 0/6 | 908–1,840 px |
+| vision `detail=high` | 0/6 | 91 px on its one attempt |
+
+At thirteen times the tokens the baseline is still 0/6, so it was not starved of
+pixels. See [docs/04-evaluation.md](docs/04-evaluation.md), including the two
+methodology bugs that produced plausible wrong numbers first.
 
 **1.1 and 1.4 detail.** `meow/uia.py` returns the foreground
 window as a ranked list of named, on-screen controls with exact coordinates, in

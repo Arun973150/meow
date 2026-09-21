@@ -39,6 +39,7 @@ KEY_SOURCES = {
     "OPENAI_API_KEY": ("the harness model", "platform.openai.com/api-keys"),
     "ASSEMBLYAI_API_KEY": ("streaming speech to text", "assemblyai.com/dashboard"),
     "ELEVENLABS_API_KEY": ("text to speech", "elevenlabs.io -> Profile -> API Keys"),
+    "TYPESAFE_API_KEY": ("Jev routing", "typesafe.ai"),
     "LANGSMITH_API_KEY": ("tracing", "smith.langchain.com -> Settings -> API Keys"),
 }
 

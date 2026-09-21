@@ -94,17 +94,25 @@ class Grounding(Protocol):
 
 
 class UIAGrounding:
-    """Ask the accessibility tree. Exact or nothing."""
+    """Ask the accessibility tree. Exact or nothing.
 
-    def __init__(self) -> None:
-        self.last_digest: WindowDigest | None = None
+    `frozen` pins it to one digest instead of re-reading. The evaluation needs
+    that: a vision call takes ~2.7 seconds, and a live window moves underneath
+    the experiment while it runs. Measured, that alone dropped UIA from 6/6 to
+    3/6 - not because it failed, but because it was being asked about controls
+    that had scrolled away since the ground truth was recorded.
+    """
+
+    def __init__(self, frozen: WindowDigest | None = None) -> None:
+        self.last_digest: WindowDigest | None = frozen
+        self._frozen = frozen
 
     @property
     def name(self) -> str:
         return "uia"
 
     def locate(self, description: str) -> Target | None:
-        digest = digest_foreground()
+        digest = self._frozen if self._frozen is not None else digest_foreground()
         self.last_digest = digest
         if digest is None or digest.regime is Regime.EMPTY:
             return None
@@ -119,20 +127,34 @@ class VisionGrounding:
     condition. A baseline that has been quietly handicapped proves nothing.
     """
 
-    def __init__(self, mind, capture) -> None:
+    def __init__(self, mind, capture, frozen=None) -> None:
         # `mind` answers and `capture` returns screenshots. Injected rather than
         # imported so the evaluation can drive this without a microphone.
         self._mind = mind
         self._capture = capture
+        # Same reason as UIAGrounding: in an experiment both strategies must be
+        # asked about the same screen, or the comparison measures how fast the
+        # window changed rather than how well either one located anything.
+        self._frozen = frozen
 
     @property
     def name(self) -> str:
         return "vision"
 
     def locate(self, description: str) -> Target | None:
-        shots = self._capture()
+        shots = self._frozen if self._frozen is not None else self._capture()
         if not shots:
             return None
+
+        if self._frozen is not None:
+            # The unchanged-screen optimisation must not run in an experiment.
+            # A frozen screenshot is byte-identical on every task, so the
+            # deduplicator skipped the image for five of six tasks and the
+            # baseline was asked to locate controls with no picture at all -
+            # scoring 0/6, for the wrong reason entirely. A handicapped
+            # baseline proves nothing, which is the whole argument for
+            # reproducing Clicky's method faithfully in the first place.
+            self._mind.screen.forget()
 
         # Consume the generator: the tag arrives at the end of the reply, so
         # the answer is only complete once the stream is.

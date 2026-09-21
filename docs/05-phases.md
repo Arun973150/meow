@@ -56,11 +56,11 @@ option that keeps Sticky Keys working.
 | 1.3 | Regime detection (RICH / DENSE / EMPTY) — and `TRUNCATED` as a refusal to classify |
 | 1.4 | **Largely dissolved.** Filtering to on-screen AND named turns 762 actionable into 120 usable — under budget without ranking. Scoring exists for windows where it is not |
 | 1.5 | **Done.** `meow/harness.py` — the model names controls from the digest and calls tools; names resolve to exact rectangles, so it never guesses a coordinate. `meow/actions.py` does the pressing |
-| 1.6 | Jev router on interim transcripts |
+| 1.6 | **Done.** `meow/router.py` — Jev via `langchain-typesafe`, routed on interim transcripts so its latency lands off the critical path. Falls back to keywords with no key |
 | 1.7 | **Done in shape.** Every action takes a `Confirmer`; `point_at` is SAFE, everything else asks. Middleware wiring comes with the harness |
 | 1.8 | Panic key — local, no network |
 | 1.9 | Visual verification loop: produce → screenshot → `look_at` → repair |
-| 1.10 | **Evaluation harness + 30-task suite** |
+| 1.10 | **Done.** `scripts/evaluate.py` — UIA labels the ground truth, so the ablation is automatic. First result: UIA 6/6 at 0px, vision 0/6 at both detail levels |
 
 **Demo:** *"it uses your computer for you, while you watch, and asks before
 anything that matters."*

@@ -50,6 +50,54 @@ budget", so the regimes are now split by tree size. See
 
 If a genuinely skeletal app turns up, the row comes back. None has so far.
 
+### First run - measured
+
+`python scripts/evaluate.py --tasks 6`, VS Code, DENSE regime, one screen frozen
+for every task and every strategy.
+
+| strategy | hit rate | median miss | median ms | cost / 6 tasks |
+|---|---|---|---|---|
+| **UIA** | **6/6 (100%)** | **0 px** | 0 ms lookup, 268 ms digest | ~1,535 tokens |
+| vision, `detail=low` | 0/6 | 908–1,840 px | 2,323 ms | 17,000 tokens, $0.0031 |
+| vision, `detail=high` | 0/6 | 91 px on its one attempt | 2,411 ms | 221,000 tokens, $0.0337 |
+
+The high-detail row exists to answer the obvious objection: was the baseline
+just starved of pixels? At **thirteen times the tokens** it is still 0/6. What
+improves is precision when it does answer - 91px out instead of 1,840 - not
+whether it answers. On five of six tasks it declined to point at all, because
+the targets are small UI chrome and it genuinely could not resolve them.
+
+**Ground truth is free, and that is the design.** UIA returns the exact
+rectangle of every control, from the operating system that drew it, so the tree
+labels the data the vision system is scored against. No hand-labelling, and the
+suite runs against whatever is on screen rather than a fixed set of screenshots
+that slowly stops resembling anything real. A vision answer counts as correct
+when its point falls **inside** the true rectangle - the criterion that matters,
+because that is where a click lands.
+
+This does assume UIA is right about its own widgets, which is safe where a tree
+exists and meaningless where one does not. EMPTY-regime windows are refused
+rather than silently scored against nothing.
+
+### Two methodology bugs, both found by running it
+
+Worth recording, because both produced plausible numbers that were wrong.
+
+**The window moved during the experiment.** Ground truth was captured once while
+each lookup re-read the live screen, and a vision call takes ~2.4s. Over six
+tasks that is a running application scrolling out from underneath. UIA scored
+3/6 - not because it failed, but because it was asked about controls that had
+moved. Both strategies are now pinned to one captured screen.
+
+**The optimisation sabotaged the baseline.** The frozen screenshot is
+byte-identical every task, so the unchanged-screen deduplicator in `vision.py`
+skipped the image on five of six tasks. The baseline was being asked to locate
+controls with no picture attached, and scoring 0/6 for entirely the wrong
+reason. `ScreenContext.forget()` now disables it for experiments.
+
+A handicapped baseline proves nothing, which is the whole reason Clicky's method
+is reproduced faithfully rather than approximated.
+
 ### Task suite
 
 ~30 tasks across 6 apps, balanced across regimes. Each task is one unambiguous

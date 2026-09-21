@@ -188,6 +188,16 @@ class ScreenContext:
     def __init__(self) -> None:
         self._last_fingerprint: bytes | None = None
         self.budget = TokenBudget()
+        self.force_high_detail = False
+
+    def forget(self) -> None:
+        """Discard the memory of the last screen.
+
+        Only for experiments. The deduplicator is right in normal use and
+        actively wrong in a controlled one, where every task deliberately sees
+        the same screen and must still be given it.
+        """
+        self._last_fingerprint = None
 
     def attach(self, transcript: str, shot: ScreenShot | None,
                crop_around: tuple[int, int] | None = None) -> ScreenAttachment:
@@ -214,7 +224,12 @@ class ScreenContext:
 
         self._last_fingerprint = fingerprint
 
-        if need is ScreenNeed.HIGH_CROP and crop_around is not None:
+        if self.force_high_detail:
+            # Experiments only. Thirteen times the cost of the default, and the
+            # only way to answer "was the baseline just starved of pixels?" -
+            # which is a fair objection to a result of 0 out of 6.
+            image, detail, tokens = shot.image, "high", 36_835
+        elif need is ScreenNeed.HIGH_CROP and crop_around is not None:
             image, detail, tokens = self._crop_high(shot, crop_around)
         else:
             # Full size at low detail: measured identical in cost to 512px, so
