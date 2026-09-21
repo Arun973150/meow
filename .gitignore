@@ -24,3 +24,4 @@ probe_*.json
 Thumbs.db
 desktop.ini
 reference/
+models/

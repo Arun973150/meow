@@ -95,7 +95,7 @@ cut. Everything past Phase 1 is optional.
 | Does UIA expose enough of real apps? | the core thesis | **Resolved — yes.** VS Code 819 actionable elements, Chrome 153, Explorer 74. All RICH at full depth |
 | Can a Chromium tree be woken reliably? | Chrome/VS Code/Slack support | **Resolved — no wake needed.** The skeletal reading was a depth-cap bug. `SPI_SETSCREENREADER` and `editor.accessibilitySupport` both A/B tested, neither did anything |
 | Which ~150 of 819 elements does the model see? | every action in Phase 1 | **Open, and now the hard problem.** Replaces the two above |
-| Cloud or local voice? | latency, cost, privacy | Partly settled by architecture: Jev routes on *interim* transcripts, which requires **streaming** STT, which rules out batch local Whisper on the hot path. TTS can still be local |
+| Cloud or local voice? | latency, cost, privacy | **Resolved — cloud both ways.** STT must stream because Jev routes on interim transcripts, which rules out batch local Whisper. And local TTS was benchmarked and lost: ElevenLabs reaches first sound in **394ms** against Kokoro-82M's **1714ms** on this CPU, because ElevenLabs streams while Kokoro must finish the whole clip first |
 | Bundle Manim deps or guided install? | Phase 3 onboarding | deferred to Phase 3 |
 
 ## Document map

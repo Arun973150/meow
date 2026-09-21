@@ -125,4 +125,4 @@ install rather than a build.
 | `create_agent` | replaces deprecated `create_react_agent`; middleware system is where the risk gate plugs in |
 | Composio | `composio-langgraph`, managed OAuth, 250+ (to 1,500+) integrations |
 | STT latency | Deepgram Flux / ElevenLabs Scribe v2 lowest; AssemblyAI ~300ms+; local Whisper ~500ms |
-| TTS latency | ElevenLabs Flash v2.5 ~75ms @ $0.05/1k chars; **Kokoro-82M ~100ms, CPU-capable, free** |
+| TTS latency | **Measured, not quoted.** ElevenLabs Flash v2.5 reaches first audio in **394ms median** from India (requests land in asia-southeast1); the advertised ~75ms is inference only. Kokoro-82M on this CPU: **1714ms median**, and 0.4-1.2x realtime. Kokoro is not slower at generating - it is slower to the *first sound*, because it returns a finished clip while ElevenLabs streams |
