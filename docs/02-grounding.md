@@ -191,6 +191,47 @@ rather than guessed. The cost constraint and the thesis point the same way.
 
 ---
 
+## Built - what the tree actually costs
+
+Phase 1.1 and 1.4, measured on this machine against VS Code.
+
+**Ask UIA, do not walk it.** Reading name, role and rectangle node by node from
+Python costs ~1.2ms per element, because each is a cross-process COM call. The
+native `FindAllBuildCache` asks for only the control types that matter and
+pre-fetches their properties in one round trip:
+
+| method | result | time |
+|---|---|---|
+| Python breadth-first walk | 5000 elements, 728 actionable | 6170 ms |
+| `FindAllBuildCache` | 756 actionable, **complete** | **262 ms** |
+
+23.5x faster, and the speed is the lesser point: the walk had to be truncated,
+so it returned an arbitrary slice. The native call returns the whole tree.
+
+**The selection problem was mostly an artefact of how we counted.** The spike
+found 819 actionable elements in VS Code, and that number framed 1.4 as "which
+150 of 819?". But that count includes elements scrolled out of view, sitting in
+collapsed menus, or carrying no name at all - none of which a user can refer to
+or a model can act on. Filter to **on-screen AND named**:
+
+```
+762 actionable found  ->  120 usable  ->  120 sent
+```
+
+Under the 150 budget, with no ranking needed. Ranking still exists for windows
+where it is not, and the scoring function is deliberately written as named,
+separable weights because every one of them is a guess until 04-evaluation.md
+measures it.
+
+**And it is cheaper than a screenshot.** The digest for that window is ~1,535
+tokens against 2,833 for the cheapest possible image - so the accessibility tree
+is both more accurate *and* less expensive than vision. The two arguments for
+the thesis point the same way.
+
+Full digest, end to end including process lookup: **268 ms**.
+
+---
+
 ## The interface
 
 Build grounding as a **swappable strategy from the first commit.** This is what

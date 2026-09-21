@@ -44,6 +44,7 @@ meow/config.py              .env keys; never logs a value
 meow/vision.py              when to send a screenshot, and how much of one
 meow/mind.py                gpt-4o-mini call, streamed, sentence-chunked
 meow/pointing.py            [POINT:x,y] protocol, eased pointer glide
+meow/uia.py                 THE THESIS - accessibility tree digest, 268ms
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
@@ -88,9 +89,14 @@ about while wearing `cat_cursor.png`.
 Measured: ~2.5s to the first spoken sentence, ~$0.0005 per turn with an image,
 394ms to first audio, 634ms for a pointer glide across the screen.
 
-**Next: Phase 1, which is the thesis.** 1.1 UIA tree extraction and 1.4 element
-selection are the hard parts - VS Code exposes 819 actionable elements and the
-model can see about 150. See [docs/05-phases.md](docs/05-phases.md).
+**Phase 1 started. 1.1 and 1.4 done.** `meow/uia.py` returns the foreground
+window as a ranked list of named, on-screen controls with exact coordinates, in
+**268ms** — via native `FindAllBuildCache`, which is 23.5x faster than walking
+the tree from Python and returns all of it rather than a truncated slice.
+
+The digest is **~1,535 tokens against 2,833 for the cheapest screenshot**, so
+the tree is cheaper *and* exact. Next: 1.2 the Grounding protocol, 1.5 the
+harness that can actually click. See [docs/05-phases.md](docs/05-phases.md).
 
 ## Stack
 

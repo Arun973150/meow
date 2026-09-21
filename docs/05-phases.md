@@ -51,10 +51,10 @@ option that keeps Sticky Keys working.
 
 | | Task |
 |---|---|
-| 1.1 | UIA tree extraction — filtered, capped at ~150 elements |
+| 1.1 | **Done.** UIA extraction via native `FindAllBuildCache` — 23.5x faster than walking, and complete rather than truncated. 268ms |
 | 1.2 | `Grounding` protocol with all three strategies |
 | 1.3 | Regime detection (RICH / DENSE / EMPTY) — and `TRUNCATED` as a refusal to classify |
-| 1.4 | **Element selection under a ~150 budget** — was "Chromium wake techniques"; no wake is needed, but VS Code exposes 819 actionable elements and the model can see ~150 |
+| 1.4 | **Largely dissolved.** Filtering to on-screen AND named turns 762 actionable into 120 usable — under budget without ranking. Scoring exists for windows where it is not |
 | 1.5 | `create_agent` harness, reactive mode, ~19 primitives |
 | 1.6 | Jev router on interim transcripts |
 | 1.7 | Confirmation gate via `AutoModeMiddleware` |

@@ -40,9 +40,19 @@ OCR_NORMAL = 32512
 SPI_SETCURSORS = 0x0057
 SPIF_SENDCHANGE = 0x0002
 
-# Windows scales cursors itself, and an oversized bitmap is resampled badly.
-# 32px is the classic size; 48 is what a 150% display expects.
-DEFAULT_CURSOR_SIZE = 48
+# Match the system cursor exactly. Windows reports the size it expects through
+# GetSystemMetrics, and anything larger is a cat that looms over the desktop
+# rather than a pointer. Resolved at import so a 150% display gets 48 and a
+# 100% display gets 32, without either being hardcoded.
+SM_CXCURSOR = 13
+
+
+def _system_cursor_size() -> int:
+    size = ctypes.windll.user32.GetSystemMetrics(SM_CXCURSOR)
+    return size if size > 0 else 32
+
+
+DEFAULT_CURSOR_SIZE = _system_cursor_size()
 
 SOURCE_IMAGE = Path(__file__).resolve().parent.parent.parent / "cat_cursor.png"
 
