@@ -88,6 +88,12 @@ _DANGEROUS_PATTERN = re.compile(
 HARMLESS_TOOLS = frozenset({
     "point_at_control", "list_controls", "list_open_windows",
     "switch_to_window",
+    # Searching reads public pages and changes nothing on the machine.
+    "look_up",
+    # Writing a NEW file into Documents/Meow is additive: documents.py never
+    # overwrites, it numbers. Nothing here can lose existing work, so asking
+    # would be a prompt about a file that did not exist a moment ago.
+    "make_document", "make_spreadsheet", "make_slides", "open_last_document",
 })
 
 # Keyboard shortcuts that do something serious. A shortcut hides its meaning -

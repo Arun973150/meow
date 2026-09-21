@@ -55,6 +55,8 @@ meow/panic.py               the stop button - local, latched, no network
 meow/apps.py                open apps, switch windows, list what exists
 meow/planner.py             PHASE 2 - multi-step tasks as a LangGraph state machine
 meow/risk.py                when to ask, and when asking is just noise
+meow/documents.py           docx / xlsx / pptx into Documents/Meow
+meow/research.py            search + fetch ONLY - the trifecta split
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
@@ -124,7 +126,12 @@ Control names are matched the way people speak them, degrading from exact to
 word overlap to close spelling, so "that terminal thing" and "minimise" both
 land.
 
-**Phase 2.1 and 2.2 done.** Multi-step requests are broken into steps and run
+**Phase 2.1–2.4 done.** `find research on solar panel costs and put it in a
+spreadsheet` produces a real .xlsx with sources in ~30s. Research is a separate
+component with search and fetch and **nothing else** — no files, no desktop, no
+outbound — because it is the one that reads untrusted pages.
+
+**Phase 2.1 and 2.2 detail.** Multi-step requests are broken into steps and run
 one at a time by a LangGraph `StateGraph` — the plan *is* the state, each step
 is a node visit, and the checkpointer makes it resumable. It says "step 2 of 4"
 as it goes.

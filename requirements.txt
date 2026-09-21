@@ -31,6 +31,14 @@ langsmith>=0.7          # tracing - set LANGSMITH_API_KEY to turn it on
 
 # langchain-typesafe    # Jev router, non-generative classifier (1.6)
 
+# --- Phase 2: documents and research ---------------------------------------
+
+python-docx>=1.1        # make_document
+openpyxl>=3.1           # make_spreadsheet
+python-pptx>=0.6        # make_slides
+ddgs>=9.0               # web search, no API key
+beautifulsoup4>=4.12    # turning a page into readable text
+
 # --- Phase 4: connectors ---------------------------------------------------
 #
 # composio-langgraph    # managed OAuth for gmail/calendar/slack/youtube
