@@ -122,7 +122,8 @@ install rather than a build.
 |---|---|
 | Computer use toolset | `computer_toolset_20260801`, 17 actions. ~1,000–1,800 tokens per screenshot; keep ≤20 images, prune to last 3 |
 | Jev | `langchain-typesafe` — real, but **pre-release** (0.0.1a3), so `pip index` cannot see it and a plain install is needed. `Choice.criteria` is a **mapping** of option to description, not a list of names; `Score.criteria` is a list. Parallel questions ≈ free. API, not local |
-| Jev keys | Must be native, from typesafe.ai. A Vercel AI Gateway key (`vck_...`) **does not work**: the gateway is OpenAI-compatible for chat completions, and Jev's System One endpoint is bespoke. Measured — api.typesafe.ai returns 401 for the key, the gateway returns 404 for `/v1/systemone`, and no `base_url` bridges the two |
+| Jev via Vercel | A `vck_` gateway key **does** reach Jev, as `typesafe-ai/jev`, at `POST https://ai-gateway.vercel.sh/v1/evaluate`. Three plausible routes do not: `api.typesafe.ai/v1/systemone` 401s (wants a native key), `/v1/chat/completions` 400s ("an evaluation model, not a language model"), and `/v1/evaluation`, `/v1/evaluations`, `/v1/evals` all 404 — the path is `/v1/evaluate`, singular. `langchain-typesafe` speaks to the first, so it cannot be used with a gateway key |
+| Jev question types | `boolean` returns a probability; `choice` needs `criteria` as a **mapping** of option to description (a list is rejected). Measured **~421ms warm** for three questions in one request — the 30–80ms figure is inference, not a round trip |
 | `create_agent` | replaces deprecated `create_react_agent`; middleware system is where the risk gate plugs in |
 | Composio | `composio-langgraph`, managed OAuth, 250+ (to 1,500+) integrations |
 | STT latency | Deepgram Flux / ElevenLabs Scribe v2 lowest; AssemblyAI ~300ms+; local Whisper ~500ms |

@@ -1,26 +1,27 @@
 """The reflex layer - Phase 1.6.
 
-Jev, through `langchain-typesafe`, answering a few small questions about what
-the user just said: is this about the screen, does it want an action, is it
-risky, is it worth planning.
+Jev answering a few small questions about what the user just said: what they
+want, whether it needs the screen, whether getting it wrong would be hard to
+undo.
 
-**It runs while the user is still talking.** That is the entire point. AssemblyAI
-emits interim transcripts mid-sentence, and each one is routed the moment it
-arrives, so by the time `end_of_turn` fires the decision is usually already made
-and costs nothing. Routing after the sentence finishes would add its latency to
-the critical path; routing during it adds none.
+**It runs while the user is still talking.** That is the entire point.
+AssemblyAI emits interim transcripts mid-sentence, and each one is routed the
+moment it arrives, so by the time `end_of_turn` fires the decision is usually
+already made and costs nothing. Measured, a route takes ~421ms warm through the
+Vercel gateway - which would be ruinous on the critical path and is free off it.
 
-This is only affordable because Jev is **non-generative**. It classifies rather
-than writes, so several questions asked together cost about what one costs, and
-a wrong answer degrades gracefully - the harness still sees the screen, it just
-pays for a screenshot it might not have needed.
+Only affordable because Jev is **non-generative**. It scores rather than writes,
+so three questions in one request cost about what one costs.
 
 **Never on the panic path.** Invariant 5: abort is local keyword matching with
 no network in it. A reflex that needs a round trip is not a reflex.
 
-Falls back to keyword matching when there is no key, so the loop runs without
-one. The fallback is honest about being a fallback - `Route.source` says which
-answered, and the evaluation reports them separately.
+Falls back to keywords when there is no key, and the fallback is honest about
+being one - `Route.source` records which answered, so the evaluation never
+conflates them. The gap is real: asked to "find three papers on solar costs and
+put them in a spreadsheet", Jev returns `plan`, and keywords cannot.
+
+See `meow/jev.py` for how it is reached, which took some finding.
 """
 
 from __future__ import annotations
@@ -112,89 +113,61 @@ def classify_locally(text: str) -> Route:
 # --- Jev --------------------------------------------------------------------
 
 class JevRouter:
-    """Jev via LangChain, asked several questions at once."""
+    """Jev, asked three questions at once, through LangChain."""
 
     def __init__(self, api_key: str | None = None) -> None:
-        from langchain_typesafe import Choice, Noul, TypeSafeClassifier
+        from .jev import JevEvaluator, boolean, choice
 
         key = api_key or get("TYPESAFE_API_KEY")
         if not key:
             raise RuntimeError(
-                "TYPESAFE_API_KEY is not set (Jev routing, from typesafe.ai).\n"
-                "  Add it to .env, or Meow falls back to keyword routing."
+                "TYPESAFE_API_KEY is not set (Jev routing). "
+                "Add it to .env, or Meow falls back to keyword routing."
             )
 
-        if key.startswith("vck_"):
-            # Measured, not assumed. A vck_ key is a Vercel AI Gateway key, and
-            # that gateway is OpenAI-compatible for chat completions only. Jev
-            # is reached through its own System One endpoint, which the gateway
-            # does not proxy: api.typesafe.ai answers 401 for this key and the
-            # gateway answers 404 for /v1/systemone, at every base_url tried.
-            #
-            # Caught here rather than left to surface as an opaque 401 from
-            # inside the SDK on the first thing the user says.
-            raise RuntimeError(
-                "TYPESAFE_API_KEY looks like a Vercel AI Gateway key (vck_...). "
-                "Jev needs a native key from typesafe.ai - the gateway does not "
-                "proxy its System One endpoint. Keyword routing runs meanwhile."
-            )
-
-        self._classifier = TypeSafeClassifier(api_key=key)
+        self._evaluator = JevEvaluator(api_key=key)
         self._questions = {
-            # criteria is a MAPPING, not a list - each option carries its own
-            # description. That is better than a bare list of names: the
-            # difference between "show" and "act" is the whole confirmation
-            # gate, and it deserves a sentence rather than a label.
-            "intent": Choice(
-                instructions="What does the user want Meow to do?",
-                criteria={
+            # criteria is a MAPPING of option to meaning, not a list of names -
+            # the gateway rejects a list outright. It is the better shape
+            # anyway: the difference between "show" and "act" is the whole
+            # confirmation gate, and deserves a sentence rather than a label.
+            "intent": choice(
+                "What does the user want Meow to do?",
+                {
                     "answer": "Be told something. No screen, no action.",
                     "show": ("Be shown where something is, without it being "
                              "pressed or changed."),
                     "act": ("Have something pressed, typed, opened or closed - "
                             "a change to the machine."),
-                    "plan": ("A task with several steps that needs to be "
-                             "worked through in order."),
+                    "plan": ("A task with several steps to work through in "
+                             "order."),
                 },
             ),
-            "needs_screen": Noul(
-                instructions=(
-                    "Does answering this require looking at what is currently "
-                    "on the user's screen?"
-                ),
-            ),
-            "risky": Noul(
-                instructions=(
-                    "If this were carried out wrongly, would it change "
-                    "something the user would find hard to undo?"
-                ),
-            ),
+            "needs_screen": boolean(
+                "Does answering this require looking at what is currently on "
+                "the user's screen?"),
+            "risky": boolean(
+                "If this were carried out wrongly, would it change something "
+                "the user would find hard to undo?"),
         }
 
     def route(self, text: str, partial: bool = False) -> Route:
-        started = time.perf_counter()
-        response = self._classifier.invoke({
+        evaluation = self._evaluator.invoke({
             "state": text,
             "questions": self._questions,
         })
 
         try:
-            intent = Intent(response.choices["intent"].choice)
-        except (KeyError, ValueError, AttributeError):
+            intent = Intent(evaluation.pick("intent", "answer"))
+        except ValueError:
             intent = Intent.ANSWER
-
-        def noul(name: str) -> bool:
-            try:
-                return bool(response.nouls[name].noul)
-            except (KeyError, AttributeError):
-                return False
 
         return Route(
             intent=intent,
-            needs_screen=noul("needs_screen"),
-            risky=noul("risky"),
+            needs_screen=evaluation.flag("needs_screen"),
+            risky=evaluation.flag("risky"),
             source="jev",
-            milliseconds=(time.perf_counter() - started) * 1000,
+            milliseconds=evaluation.milliseconds,
             partial=partial,
         )
 
