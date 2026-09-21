@@ -23,10 +23,10 @@ overlay → hide-from-capture → capture → coordinates → DPI
 | 0.3 | Multi-monitor capture, labeled, cursor-screen first | **Done.** 1280px max edge, JPEG q80. Measured: 8.8 MB raw -> 63 KB. `ScreenShot.to_screen()` carries the scale back, which 0.8 needs |
 | 0.4 | DPI-correct coordinate pipeline | **Done.** `PER_MONITOR_AWARE_V2` — prerequisite for every click |
 | 0.5 | Cat sprite with animation states | idle · listening · thinking · speaking · pointing · working · sleeping. **Done** - line art, 7 states, follows the cursor when activated |
-| 0.6 | Voice loop: activation → STT → OpenAI → TTS | AssemblyAI v3 streaming in, ElevenLabs `eleven_flash_v2_5` out. Fire the model on `end_of_turn`, not `turn_is_formatted` |
-| 0.7 | Sentence-chunked TTS | speak sentence 1 while writing sentence 2 — biggest perceived-latency win |
+| 0.6 | **Done.** Voice loop: activation → STT → OpenAI → TTS | AssemblyAI v3 streaming in, ElevenLabs `eleven_flash_v2_5` out. Fire the model on `end_of_turn`, not `turn_is_formatted` |
+| 0.7 | **Done.** Sentence-chunked TTS | speak sentence 1 while writing sentence 2 — biggest perceived-latency win |
 | 0.8 | Point at an element | the `[POINT:x,y]` baseline — also Claim 1's control condition |
-| 0.9 | Conversation history | last 10 turns |
+| 0.9 | **Done.** Conversation history | last 10 turns |
 
 **Demo:** *"ask it what a button does — the cat flies over and explains."*
 

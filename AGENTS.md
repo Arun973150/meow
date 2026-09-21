@@ -42,6 +42,7 @@ meow/cat/follow.py          critically damped cursor follow
 meow/cat/bubble.py          small speech bubble - capped, never a transcript
 meow/config.py              .env keys; never logs a value
 meow/vision.py              when to send a screenshot, and how much of one
+meow/mind.py                gpt-4o-mini call, streamed, sentence-chunked
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
 meow/voice/stt.py           Transcriber protocol + AssemblyAI v3 streaming
@@ -52,6 +53,7 @@ scripts/cat_preview.py      all states to one PNG, light and dark
 scripts/companion_demo.py   tap Ctrl+M, the cat wakes and follows the cursor
 scripts/listen_demo.py      tap Ctrl+M and talk - words appear in the bubble
 scripts/check_keys.py       what is installed, which keys are set
+scripts/meow.py             THE WHOLE LOOP - talk to it and it answers
 ```
 
 Activation is `RegisterHotKey`, **not** `WH_KEYBOARD_LL` - the hook stops
@@ -77,11 +79,15 @@ Spikes, both run:
 - `spikes/wake_probe.py` - `SPI_SETSCREENREADER` does nothing, and neither does
   `editor.accessibilitySupport`. Both A/B tested. **No wake step is needed.**
 
-**0.6 in progress.** Ears work: microphone -> AssemblyAI v3 streaming ->
-live transcript in the bubble, verified against real speech. Still to wire: the
-OpenAI call, and ElevenLabs once that key exists. Then 0.7 sentence-chunked TTS,
-0.8 the `[POINT:x,y]` baseline, 0.9 history.
-See [docs/05-phases.md](docs/05-phases.md).
+**0.6, 0.7 and 0.9 done. `python scripts/meow.py` is the whole loop:** tap
+Ctrl+M, talk, and the cat answers out loud while seeing your screen.
+
+Measured end to end: ~2.5s to the first spoken sentence, ~$0.0005 per turn with
+an image. Sentence-chunked, so speech starts before the reply is finished.
+
+Left in Phase 0: **0.8**, the `[POINT:x,y]` baseline — which is also the control
+condition for the ablation in [docs/04-evaluation.md](docs/04-evaluation.md).
+Then Phase 1 and the UIA digest, which is the actual thesis.
 
 ## Stack
 

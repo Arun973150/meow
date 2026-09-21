@@ -204,13 +204,13 @@ class ScreenContext:
         )
 
         if unchanged and need is ScreenNeed.LOW:
-            # Paying twice for identical pixels buys nothing. Telling the model
-            # in words that nothing changed costs about eight tokens.
+            # Paying twice for identical pixels buys nothing - but only if the
+            # previous image is still in context to look at. Mind keeps exactly
+            # one and reuses it here. Dropping the image and describing it in
+            # words instead does NOT work: the model, handed no picture, says
+            # it cannot see the screen, which is the truth.
             self.budget.images_skipped += 1
-            return ScreenAttachment(
-                need=ScreenNeed.NONE,
-                note="The screen has not changed since the last image.",
-            )
+            return ScreenAttachment(need=ScreenNeed.NONE)
 
         self._last_fingerprint = fingerprint
 

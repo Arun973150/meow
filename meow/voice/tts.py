@@ -29,6 +29,7 @@ being made, rather than on a timer that happens to look similar.
 from __future__ import annotations
 
 import threading
+import time
 from typing import Protocol
 
 import numpy
@@ -166,6 +167,18 @@ class ElevenLabsSpeaker:
                 # pronunciation accuracy for a little latency, which is a bad
                 # bargain when the cat is reading out filenames.
                 optimize_streaming_latency=0,
+                request_options={
+                    # No retries. The failure this actually hits is 402 on a
+                    # Voice Library voice, which will never succeed no matter
+                    # how many times it is asked - and the SDK default turned a
+                    # refusal that should be instant into a 14 SECOND wait
+                    # before the fallback voice could even start.
+                    "max_retries": 0,
+                    # The SDK default is 240s. Four minutes of silence is not a
+                    # failure mode a voice assistant can have; better to give up
+                    # and say nothing than to answer a question from last week.
+                    "timeout_in_seconds": 15,
+                },
             )
 
             stream = sounddevice.RawOutputStream(
@@ -261,3 +274,73 @@ class SilentSpeaker:
     @property
     def level(self) -> float:
         return 0.0
+
+
+class SpeechQueue:
+    """Plays utterances one after another.
+
+    `Speaker.say()` replaces whatever is currently being said, which is correct
+    for a new answer and wrong for the second sentence of the same answer.
+    Sentence-chunked speech needs both: sentences queue behind each other, and a
+    new question clears the lot.
+
+    Barge-in is `clear()`. It drops everything pending as well as cutting what
+    is playing - stopping the current sentence only to start the next one is not
+    an interruption, it is a pause.
+    """
+
+    def __init__(self, speaker) -> None:
+        self._speaker = speaker
+        self._pending: list[str] = []
+        self._lock = threading.Lock()
+        self._worker: threading.Thread | None = None
+        self._generation = 0
+
+    @property
+    def level(self) -> float:
+        return self._speaker.level
+
+    @property
+    def is_busy(self) -> bool:
+        with self._lock:
+            if self._pending:
+                return True
+        return self._speaker.is_speaking
+
+    def enqueue(self, text: str) -> None:
+        if not text.strip():
+            return
+        with self._lock:
+            self._pending.append(text)
+            if self._worker is not None and self._worker.is_alive():
+                return
+            self._generation += 1
+            generation = self._generation
+            self._worker = threading.Thread(
+                target=self._drain, args=(generation,),
+                name="speech-queue", daemon=True,
+            )
+            worker = self._worker
+        worker.start()
+
+    def clear(self) -> None:
+        with self._lock:
+            self._generation += 1
+            self._pending.clear()
+        self._speaker.stop()
+
+    def _drain(self, generation: int) -> None:
+        while True:
+            with self._lock:
+                if generation != self._generation or not self._pending:
+                    return
+                text = self._pending.pop(0)
+
+            self._speaker.say(text)
+            # Wait for this utterance to finish before starting the next.
+            # Polling rather than a callback because Speaker is a protocol and
+            # a provider is not required to offer one.
+            while self._speaker.is_speaking:
+                if generation != self._generation:
+                    return
+                time.sleep(0.01)
