@@ -101,7 +101,7 @@ def _lerp(start: float, end: float, amount: float) -> float:
 class CatRenderer:
     """Draws a CatPose into RGBA pixels."""
 
-    def __init__(self, width: int = 96, palette: CatPalette | None = None) -> None:
+    def __init__(self, width: int = 72, palette: CatPalette | None = None) -> None:
         self.width = width
         self.height = max(1, round(width * ASPECT))
         self.palette = palette or CatPalette()

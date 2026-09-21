@@ -22,7 +22,7 @@ overlay → hide-from-capture → capture → coordinates → DPI
 | 0.2 | **Hide overlay from its own screenshots** | `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)` — skip and the cat confuses the model |
 | 0.3 | Multi-monitor capture, labeled, cursor-screen first | 1280px max edge, JPEG q0.8 |
 | 0.4 | DPI-correct coordinate pipeline | `PER_MONITOR_AWARE_V2` — prerequisite for every click |
-| 0.5 | Cat sprite with animation states | idle · listening · thinking · speaking · pointing · working · sleeping |
+| 0.5 | Cat sprite with animation states | idle · listening · thinking · speaking · pointing · working · sleeping. **Done** - line art, 7 states, follows the cursor when activated |
 | 0.6 | Voice loop: activation → STT → Claude → TTS | streaming both ends |
 | 0.7 | Sentence-chunked TTS | speak sentence 1 while writing sentence 2 — biggest perceived-latency win |
 | 0.8 | Point at an element | the `[POINT:x,y]` baseline — also Claim 1's control condition |

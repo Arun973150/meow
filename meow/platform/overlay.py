@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
@@ -369,6 +369,18 @@ class Overlay:
             gdi32.DeleteObject(bitmap)
             gdi32.DeleteDC(memory_device_context)
             user32.ReleaseDC(None, screen_device_context)
+
+    # --- position --------------------------------------------------------
+
+    def move_to(self, left: int, top: int) -> None:
+        """Reposition the window.
+
+        Takes effect on the next draw(), because UpdateLayeredWindow moves and
+        repaints in a single call. Calling SetWindowPos here as well would move
+        the old pixels first and then redraw them, which tears visibly on a
+        sprite that moves every frame.
+        """
+        self.bounds = replace(self.bounds, left=int(left), top=int(top))
 
     # --- lifecycle -------------------------------------------------------
 

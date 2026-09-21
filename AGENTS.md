@@ -35,12 +35,19 @@ meow/platform/dpi.py        PER_MONITOR_AWARE_V2, with two fallbacks
 meow/platform/monitors.py   virtual desktop, negative origins, per-monitor rects
 meow/platform/overlay.py    layered - click-through - topmost - no-activate
 meow/platform/capture.py    GDI BitBlt to raw BGRA, always CAPTUREBLT
+meow/platform/hotkey.py     RegisterHotKey activation, single key, NOREPEAT
 meow/cat/sprite.py          line-art cat, traced from image.png
 meow/cat/animation.py       7 states, cross-faded
+meow/cat/follow.py          critically damped cursor follow
 scripts/overlay_demo.py     A/B tests the capture exclusion
 scripts/cat_demo.py         the cat, live, cycling states
 scripts/cat_preview.py      all states to one PNG, light and dark
+scripts/companion_demo.py   press F9, the cat wakes and follows the cursor
 ```
+
+Activation is `RegisterHotKey`, **not** `WH_KEYBOARD_LL` - the hook stops
+delivering while a Chromium window has focus, and activation that dies in
+Chrome and VS Code is worse than none. Single key, `MOD_NOREPEAT`.
 
 Verified: `WDA_EXCLUDEFROMCAPTURE` applied, **0 overlay pixels in our own
 screenshot with it on, 16929 with it off.** Invariant 7 holds, and the control
@@ -61,7 +68,7 @@ Spikes, both run:
 - `spikes/wake_probe.py` - `SPI_SETSCREENREADER` does nothing, and neither does
   `editor.accessibilitySupport`. Both A/B tested. **No wake step is needed.**
 
-Next: 0.3 multi-monitor capture, then 0.6 the voice loop. See
+Next: 0.3 proper multi-monitor capture, then 0.6 the voice loop. See
 [docs/05-phases.md](docs/05-phases.md).
 
 ## Stack

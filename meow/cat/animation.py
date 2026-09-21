@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import fields
+from dataclasses import fields, replace
 from enum import Enum
 
 from .sprite import CatPose
@@ -67,6 +67,11 @@ class Animator:
         # Where to point, in sprite-relative terms, -1..1 on each axis.
         self.point_direction_x = 0.0
         self.point_direction_y = 0.0
+        # Which way the cat is currently travelling, -1..1, set by the follower
+        # while it chases the cursor. Applied on top of whatever the state
+        # produces, so no state has to know the cat is moving.
+        self.travel_x = 0.0
+        self.travel_y = 0.0
 
     def set_state(self, state: CatState, now: float) -> None:
         if state is self.state:
@@ -78,7 +83,7 @@ class Animator:
     def pose_at(self, now: float) -> CatPose:
         target = self._pose_for(self.state, now)
         if self._transition_started_at is None:
-            return target
+            return self._apply_travel(target)
 
         elapsed = now - self._transition_started_at
         if elapsed >= TRANSITION_SECONDS:
@@ -86,7 +91,29 @@ class Animator:
             return target
 
         previous = self._pose_for(self._previous_state, now)
-        return blend_poses(previous, target, elapsed / TRANSITION_SECONDS)
+        return self._apply_travel(
+            blend_poses(previous, target, elapsed / TRANSITION_SECONDS)
+        )
+
+    def _apply_travel(self, pose: CatPose) -> CatPose:
+        """Lean and look into the direction of motion.
+
+        A sprite that slides across the screen while facing dead ahead reads as
+        an icon being dragged. Leaning into the movement is what makes it read
+        as something going somewhere.
+
+        Added to whatever the state already asked for rather than replacing it,
+        so pointing still aims at its target while the cat travels.
+        """
+        if abs(self.travel_x) < 0.01 and abs(self.travel_y) < 0.01:
+            return pose
+        return replace(
+            pose,
+            lean_x=max(-1.0, min(1.0, pose.lean_x + self.travel_x * 0.55)),
+            look_x=max(-1.0, min(1.0, pose.look_x + self.travel_x * 0.45)),
+            look_y=max(-1.0, min(1.0, pose.look_y + self.travel_y * 0.35)),
+            head_tilt=pose.head_tilt + self.travel_x * 6.0,
+        )
 
     # --- per-state poses -------------------------------------------------
 

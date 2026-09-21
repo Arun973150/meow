@@ -67,7 +67,7 @@ def corner_bounds(monitor, width: int, height: int, corner: str) -> Bounds:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--width", type=int, default=96)
+    parser.add_argument("--width", type=int, default=72)
     parser.add_argument("--seconds", type=float, default=0.0,
                         help="0 means run until Ctrl+C")
     parser.add_argument("--state", choices=[s.value for s in CatState],
