@@ -155,6 +155,42 @@ comes back.
 
 ---
 
+## What a screenshot costs
+
+Measured on gpt-4o-mini, this account, a 1280x800 desktop. These numbers decide
+the vision strategy, and one of them is counter-intuitive:
+
+| configuration | image tokens |
+|---|---|
+| text only | 9 |
+| `detail=low` 512px | **2,833** |
+| `detail=low` 768px | **2,833** |
+| `detail=low` 1280px | **2,833** |
+| `detail=high` 512px | 8,500 |
+| `detail=high` 768px | 14,167 |
+| `detail=high` 1280px | **36,835** |
+
+**At low detail the cost is flat.** 512px and 1280px charge exactly the same.
+Downscaling to save money achieves nothing there, so send the largest
+low-detail image available - the extra pixels are free.
+
+**At high detail it scales hard.** A full screen is thirteen times a low-detail
+one. When small text genuinely has to be read, the answer is to *crop*: a 512px
+crop at high detail is 8,500 tokens against 36,835 for the whole desktop, and
+the crop is usually more relevant anyway.
+
+`meow/vision.py` applies this as a policy, cheapest first: send nothing, then
+send "the screen has not changed", then low detail at full size, then a
+high-detail crop. Full-screen high detail is not on the list.
+
+On a $5 budget that is the difference between roughly 880 turns and 8,000.
+
+**This is also an argument for the UIA digest over pixels.** A 150-element tree
+digest is around 1,500 tokens - cheaper than the cheapest screenshot, and exact
+rather than guessed. The cost constraint and the thesis point the same way.
+
+---
+
 ## The interface
 
 Build grounding as a **swappable strategy from the first commit.** This is what

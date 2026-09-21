@@ -41,9 +41,11 @@ meow/cat/animation.py       7 states, cross-faded
 meow/cat/follow.py          critically damped cursor follow
 meow/cat/bubble.py          small speech bubble - capped, never a transcript
 meow/config.py              .env keys; never logs a value
+meow/vision.py              when to send a screenshot, and how much of one
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
 meow/voice/stt.py           Transcriber protocol + AssemblyAI v3 streaming
+meow/voice/tts.py           Speaker protocol + ElevenLabs eleven_flash_v2_5
 scripts/overlay_demo.py     A/B tests the capture exclusion
 scripts/cat_demo.py         the cat, live, cycling states
 scripts/cat_preview.py      all states to one PNG, light and dark
@@ -87,7 +89,7 @@ See [docs/05-phases.md](docs/05-phases.md).
 |---|---|
 | Language | Python 3.12 (installed) |
 | Agent framework | LangGraph + `create_agent` (**not** deprecated `create_react_agent`) |
-| Model | **OpenAI** |
+| Model | **OpenAI `gpt-4o-mini`** — cost-constrained, see `meow/vision.py` |
 | STT | **AssemblyAI v3 streaming** — `wss://streaming.assemblyai.com/v3/ws` |
 | TTS | **ElevenLabs Flash v2.5** — `eleven_flash_v2_5` |
 | Tracing | LangSmith — a requirement, not optional |
@@ -140,7 +142,11 @@ Do not violate these without updating the relevant doc first.
    cat appears in its own screenshots and confuses the model.
 8. **Coordinates:** call `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`
    at startup, or clicks land off-target on secondary monitors.
-9. **Activation is tapped, never held.** The problem with Clicky's ctrl+option
+9. **Never send a full-screen `detail=high` image.** 36,835 tokens against
+   2,833 for low detail, which is *flat* regardless of resolution. Send nothing,
+   or "unchanged", or low detail at full size, or a 512px high-detail crop. See
+   `meow/vision.py`.
+10. **Activation is tapped, never held.** The problem with Clicky's ctrl+option
    is that it is *sustained* for the length of an utterance, which is hostile to
    tremor and arthritis - not that it has two keys. A tapped chord that toggles
    is fine. Use `RegisterHotKey`, never `WH_KEYBOARD_LL`: the hook dies under
