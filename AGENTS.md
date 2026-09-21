@@ -40,10 +40,16 @@ meow/cat/sprite.py          line-art cat, traced from image.png
 meow/cat/animation.py       7 states, cross-faded
 meow/cat/follow.py          critically damped cursor follow
 meow/cat/bubble.py          small speech bubble - capped, never a transcript
+meow/config.py              .env keys; never logs a value
+meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
+meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
+meow/voice/stt.py           Transcriber protocol + AssemblyAI v3 streaming
 scripts/overlay_demo.py     A/B tests the capture exclusion
 scripts/cat_demo.py         the cat, live, cycling states
 scripts/cat_preview.py      all states to one PNG, light and dark
 scripts/companion_demo.py   tap Ctrl+M, the cat wakes and follows the cursor
+scripts/listen_demo.py      tap Ctrl+M and talk - words appear in the bubble
+scripts/check_keys.py       what is installed, which keys are set
 ```
 
 Activation is `RegisterHotKey`, **not** `WH_KEYBOARD_LL` - the hook stops
@@ -69,9 +75,11 @@ Spikes, both run:
 - `spikes/wake_probe.py` - `SPI_SETSCREENREADER` does nothing, and neither does
   `editor.accessibilitySupport`. Both A/B tested. **No wake step is needed.**
 
-**Next: 0.6, the voice loop** - the first thing that needs API keys (OpenAI,
-AssemblyAI, ElevenLabs). Then 0.7 sentence-chunked TTS, 0.8 the `[POINT:x,y]`
-baseline, 0.9 history. See [docs/05-phases.md](docs/05-phases.md).
+**0.6 in progress.** Ears work: microphone -> AssemblyAI v3 streaming ->
+live transcript in the bubble, verified against real speech. Still to wire: the
+OpenAI call, and ElevenLabs once that key exists. Then 0.7 sentence-chunked TTS,
+0.8 the `[POINT:x,y]` baseline, 0.9 history.
+See [docs/05-phases.md](docs/05-phases.md).
 
 ## Stack
 
@@ -160,6 +168,12 @@ Do not violate these without updating the relevant doc first.
 - **Every GDI handle needs an explicit ctypes `restype` on 64-bit Python.**
   Unset, it truncates to 32 bits and surfaces as "OverflowError: int too long to
   convert" several calls later, pointing at innocent code.
+- **The Windows console is cp1252 and cannot print what a speech API returns.**
+  Formatted transcripts carry curly quotes and ellipses, and printing one raises
+  `UnicodeEncodeError` *in the print*, so the traceback blames innocent code.
+  Call `meow.console.use_utf8_console()` first.
+- **Closing the AssemblyAI socket takes ~1s** - it is a termination handshake,
+  not a socket close. Never do it on the render thread.
 
 ## Conventions
 
