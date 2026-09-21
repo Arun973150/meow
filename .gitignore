@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Spike output
+*.json.out
+probe_*.json
+
+# Secrets - never commit keys. See docs/03-safety.md
+.env
+.env.*
+*.key
+*.pem
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
