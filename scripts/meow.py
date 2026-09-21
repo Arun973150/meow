@@ -319,6 +319,23 @@ def main() -> None:
     print(f"  speech: {'muted' if args.mute else 'on'}")
     print("  Ctrl+C to quit.\n")
 
+    # Drawing faults are reported once each and never twice, so a bug that
+    # happens every frame does not fill the terminal.
+    seen_draw_faults: set[str] = set()
+
+    def draw_fault(where: str, error: Exception) -> None:
+        """A bad frame must not take a running task down with it.
+
+        Before background tasks existed, a crash here cost a cat. Now it can
+        cost half-finished work the user is waiting on, which is a much worse
+        trade than a dropped frame. Still printed, in full, the first time -
+        swallowing it silently is how a rendering bug survives to ship.
+        """
+        message = f"{where}: {type(error).__name__}: {error}"
+        if message not in seen_draw_faults:
+            seen_draw_faults.add(message)
+            print(f"  draw fault, frame skipped - {message}")
+
     frame_budget = 1.0 / TARGET_FPS
     started = time.perf_counter()
     previous_frame_at = started
@@ -501,8 +518,11 @@ def main() -> None:
 
                 bubble_state.update(elapsed, timestep)
 
-                overlay.draw(rgba_to_premultiplied_bgra(
-                    renderer.render(animator.pose_at(elapsed))))
+                try:
+                    overlay.draw(rgba_to_premultiplied_bgra(
+                        renderer.render(animator.pose_at(elapsed))))
+                except Exception as error:  # noqa: BLE001 - see draw_fault
+                    draw_fault("cat", error)
 
                 if bubble_state.visible:
                     if bubble_state.thinking:
@@ -527,18 +547,27 @@ def main() -> None:
 
                 # One window per task, stacked up the right edge. Built on
                 # demand and torn down when the task is dismissed.
+                # NOT named `overlay`. It was, and it shadowed the cat's own
+                # overlay for the rest of the frame - so the next cat draw
+                # pushed a 72x50 sprite into a 280x59 task window and the whole
+                # app died on "expected 66080 bytes, got 14400". The loop
+                # variable outliving the loop is the oldest trap in Python.
                 live = tasks.visible
                 for task, left, top in stack_positions(live, task_panel, monitor):
-                    image = task_panel.render(task, phase=elapsed)
-                    overlay = task_overlays.get(task.number)
-                    if overlay is None:
-                        overlay = Overlay(Bounds(left, top, image.width,
-                                                 image.height))
-                        task_overlays[task.number] = overlay
-                        overlay.show()
-                    overlay.set_bounds(Bounds(left, top, image.width,
-                                              image.height))
-                    overlay.draw(rgba_to_premultiplied_bgra(image))
+                    panel_image = task_panel.render(task, phase=elapsed)
+                    panel_bounds = Bounds(left, top, panel_image.width,
+                                          panel_image.height)
+                    task_overlay = task_overlays.get(task.number)
+                    if task_overlay is None:
+                        task_overlay = Overlay(panel_bounds)
+                        task_overlays[task.number] = task_overlay
+                        task_overlay.show()
+                    task_overlay.set_bounds(panel_bounds)
+                    try:
+                        task_overlay.draw(
+                            rgba_to_premultiplied_bgra(panel_image))
+                    except Exception as error:  # noqa: BLE001 - see draw_fault
+                        draw_fault(f"task {task.number}", error)
 
                 for number in list(task_overlays):
                     if not any(task.number == number for task in live):
@@ -561,8 +590,8 @@ def main() -> None:
             if cat_cursor is not None:
                 cat_cursor.remove()
             tasks.stop_all()
-            for overlay in task_overlays.values():
-                overlay.close()
+            for task_overlay in task_overlays.values():
+                task_overlay.close()
 
     print(f"\n  spend: {mind.screen.budget.summary()}")
 
