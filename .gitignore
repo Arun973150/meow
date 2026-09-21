@@ -13,6 +13,8 @@ probe_*.json
 # Secrets - never commit keys. See docs/03-safety.md
 .env
 .env.*
+# The template carries no secrets and is how anyone else learns what to set.
+!.env.example
 *.key
 *.pem
 
