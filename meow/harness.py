@@ -1,140 +1,84 @@
-"""The harness - Phase 1.5.
+"""The harness - Phase 1.5, on LangGraph.
 
-One model, a handful of tools, and the accessibility tree in context. Say
+One agent, a handful of tools, and the accessibility tree in context. Say
 "click the close button" and it happens.
 
-**The model never guesses a coordinate.** This is the whole payoff of Phase 1.1.
-The digest goes into the prompt as a list of named controls, so the model asks
-for `click_control("Close")` and we resolve that name against the tree to an
-exact rectangle. Compare with the vision baseline, where the model produces
-`[POINT:1265,12]` from a downscaled screenshot and is simply believed. One of
-those can be wrong by thirty pixels; the other cannot be wrong at all.
+Built with `langchain.agents.create_agent` rather than raw tool calling, for
+three reasons that are about the next phases rather than this one:
 
-It also means the failure mode changes. Vision grounding fails by clicking the
-wrong thing, silently. This fails by not finding the name, which is visible and
-recoverable - the cat says it cannot see that control, which is true and useful.
+**Middleware is where safety belongs.** `HumanInTheLoopMiddleware` interrupts
+before a risky tool runs, and the interrupt is part of the graph rather than a
+callback somewhere in the caller. Phase 1.7 asked for exactly this.
 
-**Tools stay few and general.** Invariant 1: capability grows through tools and
-recipes, never through new agents. Four tools cover point, press, type and look,
-and each declares what it costs if it was not what the user meant.
+**Checkpointing is the planner.** Phase 2 needs a plan that survives being
+paused, and a graph with a checkpointer already does - the confirmation
+interrupt and a resumable plan are the same mechanism.
+
+**LangSmith is a requirement here, not a nice-to-have.** Every model call and
+every tool result is traced without extra code, which is the only way to answer
+"why did it press that?" once behaviour gets complicated.
+
+**The model never produces a coordinate.** This is the payoff of Phase 1.1. The
+digest lists controls by name, the agent asks for one BY NAME, and the name
+resolves against the tree to an exact rectangle. The vision baseline emits
+`[POINT:1265,12]` from a downscaled screenshot and is simply believed; it can be
+thirty pixels out. A name cannot be thirty pixels out - it either exists or it
+does not, and "it does not" is a visible, recoverable failure rather than a
+silent click on the wrong thing.
 """
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
-from typing import Callable, Iterator
+import os
+from dataclasses import dataclass
+from typing import Iterator
 
-from openai import OpenAI
+from langchain.agents import create_agent
+from langchain.agents.middleware import (
+    HumanInTheLoopMiddleware, ModelCallLimitMiddleware,
+)
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 from . import actions
 from .actions import Confirmer, Outcome, always_allow
-from .config import openai_api_key
+from .config import get, openai_api_key
 from .grounding import Target
-from .mind import MAX_HISTORY_TURNS, SentenceChunker, Turn
 from .uia import WindowDigest, digest_foreground
 
 MODEL = "gpt-4o-mini"
 MAX_OUTPUT_TOKENS = 220
 
+# An agent that keeps deciding to click is the failure this project can least
+# afford. A hard cap is cheaper than cleverness and cannot be talked out of.
+MAX_MODEL_CALLS_PER_RUN = 6
+
 SYSTEM_PROMPT = """You are a cat that lives on the user's Windows desktop. You \
 can see the controls on their screen and you can operate them.
 
-You are given a list of the controls currently on screen, with their exact \
+You are given a list of the controls currently on screen with their exact \
 names. To act on one, call a tool with the control's name EXACTLY as it appears \
 in that list. Never invent a name, and never guess coordinates - you do not \
 need them, and the list is the truth about what exists.
 
 If what the user asked for is not in the list, say so plainly and say what you \
-can see instead. Do not press something merely similar.
+can see instead. Never press something merely similar.
 
-How you talk, and these matter more than what you say:
+How you talk, and this matters as much as what you do:
 - Write for the ear. This is read aloud. No markdown, no lists, no emoji.
 - All lowercase.
 - One or two sentences. Usually one.
 - Never say "simply" or "just". Nothing is simple to someone who is stuck.
 - Never end on a yes or no question.
-- After acting, say what happened in a few words. Do not narrate beforehand.
+- After acting, say what happened in a few words. Do not narrate beforehand."""
 
-You are warm and brief."""
-
-
-# Repeated immediately before the reply. The rules are in the system prompt too,
-# but a hundred lines of control list between them and the request is enough to
-# lose them.
 STYLE_REMINDER = (
     "Reply in lowercase, one or two short sentences, written to be read aloud. "
     "No markdown. Do not end on a yes or no question."
 )
-
-
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "click_control",
-            "description": (
-                "Press a control on screen. Use the exact name from the list. "
-                "This asks the user for permission first."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Exact control name from the list",
-                    },
-                },
-                "required": ["name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "point_at_control",
-            "description": (
-                "Move the pointer to a control without pressing it, to show "
-                "the user where it is. Safe, and never asks permission."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                },
-                "required": ["name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "type_text",
-            "description": (
-                "Type text into whatever currently has keyboard focus. Asks "
-                "permission first."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string"},
-                },
-                "required": ["text"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_controls",
-            "description": (
-                "Re-read the controls on screen. Use after something has "
-                "changed, such as a menu opening."
-            ),
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-]
 
 
 @dataclass
@@ -147,20 +91,100 @@ class ToolRun:
     target: Target | None = None
 
 
-class Harness:
-    """A model that can see the controls on screen and operate them."""
+@dataclass
+class Confirmation:
+    """The agent has paused and wants permission."""
 
-    def __init__(self, model: str = MODEL, api_key: str | None = None,
-                 confirm: Confirmer = always_allow) -> None:
-        self._client = OpenAI(api_key=api_key or openai_api_key())
-        self.model = model
+    question: str
+
+
+def enable_tracing() -> bool:
+    """Turn on LangSmith if a key is present. Returns whether it is on."""
+    key = get("LANGSMITH_API_KEY")
+    if not key:
+        return False
+    os.environ["LANGSMITH_TRACING"] = "true"
+    os.environ["LANGSMITH_API_KEY"] = key
+    os.environ.setdefault("LANGSMITH_PROJECT", get("LANGSMITH_PROJECT") or "meow")
+    return True
+
+
+class Harness:
+    """An agent that can see the controls on screen and operate them."""
+
+    def __init__(self, model: str = MODEL, confirm: Confirmer = always_allow,
+                 ask_before_acting: bool = True) -> None:
         self.confirm = confirm
-        self.history: list[Turn] = []
         self.digest: WindowDigest | None = None
         self.runs: list[ToolRun] = []
         self.last_error: str | None = None
+        self.tracing = enable_tracing()
 
-    # --- tools ----------------------------------------------------------
+        # Tools close over `self` so they can reach the digest and record runs.
+        # Defined here rather than at module level for that reason alone.
+
+        @tool
+        def click_control(name: str) -> str:
+            """Press a control on screen. Use its exact name from the list."""
+            target = self._resolve(name)
+            if target is None:
+                return f"There is no control called {name!r} on screen."
+            outcome = actions.invoke(target, self._inner_confirm)
+            self.runs.append(ToolRun("click_control", name, outcome, target))
+            return outcome.detail
+
+        @tool
+        def point_at_control(name: str) -> str:
+            """Move the pointer to a control to show where it is. Presses nothing."""
+            target = self._resolve(name)
+            if target is None:
+                return f"There is no control called {name!r} on screen."
+            outcome = actions.point_at(target)
+            self.runs.append(ToolRun("point_at_control", name, outcome, target))
+            return outcome.detail
+
+        @tool
+        def type_text(text: str) -> str:
+            """Type text into whatever currently has keyboard focus."""
+            outcome = actions.type_text(text, self._inner_confirm)
+            self.runs.append(ToolRun("type_text", text, outcome))
+            return outcome.detail
+
+        @tool
+        def list_controls() -> str:
+            """Re-read the controls on screen, after something has changed."""
+            self.digest = digest_foreground()
+            if self.digest is None:
+                return "No window is in the foreground."
+            return self.digest.to_prompt()
+
+        # The gate. Only the tools that change something are listed, so
+        # pointing stays free - which is the autonomy decision this project was
+        # built around, expressed as configuration rather than as a habit.
+        interrupts = {
+            "click_control": True,
+            "type_text": True,
+        } if ask_before_acting else {}
+
+        middleware = [ModelCallLimitMiddleware(
+            run_limit=MAX_MODEL_CALLS_PER_RUN, exit_behavior="end")]
+        if interrupts:
+            middleware.insert(0, HumanInTheLoopMiddleware(
+                interrupt_on=interrupts,
+                description_prefix="Meow wants to",
+            ))
+
+        self.agent = create_agent(
+            model=ChatOpenAI(model=model, api_key=openai_api_key(),
+                             max_completion_tokens=MAX_OUTPUT_TOKENS),
+            tools=[click_control, point_at_control, type_text, list_controls],
+            system_prompt=SYSTEM_PROMPT,
+            middleware=middleware,
+            checkpointer=InMemorySaver(),
+        )
+        self._thread = 0
+
+    # --- helpers --------------------------------------------------------
 
     def _resolve(self, name: str) -> Target | None:
         if self.digest is None:
@@ -168,126 +192,117 @@ class Harness:
         element = self.digest.find(name)
         return Target.from_element(element) if element else None
 
-    def _click_control(self, name: str) -> str:
-        target = self._resolve(name)
-        if target is None:
-            # Visible, recoverable failure. Far better than pressing something
-            # that merely looked similar.
-            return f"There is no control called {name!r} on screen."
-        outcome = actions.invoke(target, self.confirm)
-        self.runs.append(ToolRun("click_control", name, outcome, target))
-        return outcome.detail
+    def _inner_confirm(self, question: str) -> bool:
+        """Permission at the action layer.
 
-    def _point_at_control(self, name: str) -> str:
-        target = self._resolve(name)
-        if target is None:
-            return f"There is no control called {name!r} on screen."
-        outcome = actions.point_at(target)
-        self.runs.append(ToolRun("point_at_control", name, outcome, target))
-        return outcome.detail
+        The middleware has usually already asked by the time a tool runs, so
+        this normally passes. It stays because `actions` must be safe to call
+        from anywhere - the evaluation harness drives it directly, with no
+        agent and no middleware in the way.
+        """
+        return self.confirm(question)
 
-    def _type_text(self, text: str) -> str:
-        outcome = actions.type_text(text, self.confirm)
-        self.runs.append(ToolRun("type_text", text, outcome))
-        return outcome.detail
+    # --- running --------------------------------------------------------
 
-    def _list_controls(self) -> str:
-        self.digest = digest_foreground()
-        if self.digest is None:
-            return "No window is in the foreground."
-        return self.digest.to_prompt()
+    def answer(self, transcript: str) -> Iterator[str | Confirmation]:
+        """Yield spoken sentences, and a Confirmation wherever it pauses.
 
-    def _run_tool(self, name: str, arguments: dict) -> str:
-        if name == "click_control":
-            return self._click_control(arguments.get("name", ""))
-        if name == "point_at_control":
-            return self._point_at_control(arguments.get("name", ""))
-        if name == "type_text":
-            return self._type_text(arguments.get("text", ""))
-        if name == "list_controls":
-            return self._list_controls()
-        return f"No tool called {name!r}."
-
-    # --- the loop -------------------------------------------------------
-
-    def answer(self, transcript: str, max_rounds: int = 4) -> Iterator[str]:
-        """Yield spoken sentences, acting on the screen along the way.
-
-        Bounded rounds rather than "until the model stops calling tools". An
-        unbounded loop that decides to keep clicking is the failure mode this
-        project can least afford, and a cap is a cheaper safeguard than
-        cleverness.
+        The caller answers a Confirmation by calling `allow()` or `deny()` and
+        continuing to iterate. That shape exists because the voice loop has to
+        ask out loud and wait, which a callback cannot express.
         """
         self.last_error = None
         self.runs.clear()
         self.digest = digest_foreground()
 
-        messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
-        for turn in self.history[-MAX_HISTORY_TURNS * 2:]:
-            messages.append({"role": turn.role, "content": turn.text})
-        if self.digest is not None:
-            # System role, not user. As a user message the control list - often
-            # a hundred lines - sat between the style rules and the request and
-            # drowned them: the first version replied in capitalised paragraphs
-            # ending on a yes/no question, which the prompt explicitly forbids.
-            messages.append({"role": "system",
-                             "content": self.digest.to_prompt()})
-        messages.append({"role": "user", "content": transcript})
-        # Restated last, where it is closest to the reply being written.
-        messages.append({"role": "system", "content": STYLE_REMINDER})
+        self._thread += 1
+        config = {"configurable": {"thread_id": f"turn-{self._thread}"}}
 
-        spoken: list[str] = []
+        messages = [SystemMessage(self.digest.to_prompt())] if self.digest else []
+        messages.append(HumanMessage(transcript))
+        messages.append(SystemMessage(STYLE_REMINDER))
+
         try:
-            for _ in range(max_rounds):
-                response = self._client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    tools=TOOLS,
-                    max_tokens=MAX_OUTPUT_TOKENS,
-                )
-                choice = response.choices[0].message
-
-                if choice.content:
-                    chunker = SentenceChunker()
-                    for sentence in chunker.feed(choice.content):
-                        spoken.append(sentence)
-                        yield sentence
-                    tail = chunker.flush()
-                    if tail:
-                        spoken.append(tail)
-                        yield tail
-
-                if not choice.tool_calls:
-                    break
-
-                messages.append(choice.model_dump(exclude_none=True))
-                for call in choice.tool_calls:
-                    try:
-                        arguments = json.loads(call.function.arguments or "{}")
-                    except json.JSONDecodeError:
-                        arguments = {}
-                    result = self._run_tool(call.function.name, arguments)
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": call.id,
-                        "content": result,
-                    })
-
-                # The screen has probably changed, so the old list is stale.
-                # Re-reading costs ~270ms and stops the model pressing a menu
-                # item that moved when the menu opened.
-                self.digest = digest_foreground()
-
-        except Exception as error:  # noqa: BLE001 - surfaced, never fatal
+            yield from self._drain({"messages": messages}, config)
+        except Exception as error:  # noqa: BLE001 - reported, never fatal
             self.last_error = f"{type(error).__name__}: {error}"
+
+    def _drain(self, payload, config) -> Iterator[str | Confirmation]:
+        """Run the graph, surfacing text and interrupts until it settles."""
+        self._pending = None
+        result = self.agent.invoke(payload, config=config)
+
+        interrupts = result.get("__interrupt__") or []
+        if interrupts:
+            request = interrupts[0].value
+            question = _interrupt_question(request)
+            self._pending = config
+            yield Confirmation(question)
             return
 
-        if spoken:
-            self.history.append(Turn("user", transcript))
-            self.history.append(Turn("assistant", " ".join(spoken)))
+        for message in result.get("messages", []):
+            if isinstance(message, AIMessage) and message.content:
+                text = message.content
+                if isinstance(text, list):  # content blocks
+                    text = " ".join(
+                        block.get("text", "") for block in text
+                        if isinstance(block, dict))
+                cleaned = text.strip()
+                if cleaned:
+                    yield cleaned
+
+    def respond(self, allowed: bool) -> Iterator[str | Confirmation]:
+        """Answer the pending Confirmation and carry on."""
+        if self._pending is None:
+            return
+        config, self._pending = self._pending, None
+        # A bare reject leaves the model to guess why the tool did not run, and
+        # it guesses badly: asked to press a button and refused, it told the
+        # user the button "seems to be disabled right now", which is alarming
+        # and untrue. The message says what actually happened.
+        decision = {"decisions": [
+            {"type": "approve"} if allowed else {
+                "type": "reject",
+                "message": ("The user declined, so this was not done. "
+                            "Nothing is wrong with the control."),
+            }
+        ]}
+        yield from self._drain(Command(resume=decision), config)
+
+
+def _interrupt_question(request) -> str:
+    """Turn the interrupt payload into something a cat can say out loud.
+
+    The middleware sends a structure, not a sentence: action_requests carrying
+    a tool name and arguments, plus review_configs. The first version of this
+    printed the raw dict at the user, which is exactly the kind of thing that
+    makes software feel like it is talking to itself.
+    """
+    if isinstance(request, list) and request:
+        request = request[0]
+    if not isinstance(request, dict):
+        return str(request)
+
+    requests = request.get("action_requests")
+    if isinstance(requests, list) and requests:
+        action = requests[0]
+        name = action.get("name", "")
+        args = action.get("args") or {}
+        subject = args.get("name") or args.get("text") or ""
+        if name == "click_control":
+            return f"press {subject}?"
+        if name == "type_text":
+            preview = subject if len(subject) <= 40 else subject[:40] + "..."
+            return f'type "{preview}"?'
+        return f"{name.replace('_', ' ')} {subject}?".strip()
+
+    for key in ("description", "message", "question"):
+        value = request.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return str(request)
 
 
 def console_confirmer(question: str) -> bool:
     """Ask on the terminal. For testing; the voice loop asks out loud."""
-    answer = input(f"  {question} [y/N] ").strip().lower()
-    return answer in ("y", "yes")
+    return input(f"  {question} [y/N] ").strip().lower() in ("y", "yes")

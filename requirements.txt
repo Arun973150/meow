@@ -23,10 +23,13 @@ uiautomation>=2.0       # UIA tree walking (spikes/)
 # sounddevice>=0.4      # microphone capture and playback
 
 # --- Phase 1: the agent harness --------------------------------------------
-#
-# langgraph>=0.2        # create_agent, NOT the deprecated create_react_agent
-# langsmith>=0.1        # tracing - a requirement, not optional
-# langchain-typesafe    # Jev router, non-generative classifier
+
+langchain>=1.2          # create_agent, NOT the deprecated create_react_agent
+langgraph>=1.1          # the graph, checkpointing, interrupts
+langchain-openai>=1.1   # ChatOpenAI
+langsmith>=0.7          # tracing - set LANGSMITH_API_KEY to turn it on
+
+# langchain-typesafe    # Jev router, non-generative classifier (1.6)
 
 # --- Phase 4: connectors ---------------------------------------------------
 #

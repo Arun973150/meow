@@ -47,7 +47,7 @@ meow/pointing.py            [POINT:x,y] protocol, eased pointer glide
 meow/uia.py                 THE THESIS - accessibility tree digest, 268ms
 meow/grounding.py           UIA / vision / hybrid behind one protocol
 meow/actions.py             point, click, invoke, type - each with a risk level
-meow/harness.py             the model names controls and calls tools
+meow/harness.py             LangGraph create_agent + HumanInTheLoop gate
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
@@ -98,9 +98,16 @@ which resolves against the tree to an exact rectangle - it never produces a
 coordinate, so it cannot produce a wrong one. `invoke()` then presses through
 UIA with no pointer movement, which works on a window that is not in front.
 
-Every action declares a risk level and the risky ones ask first. Remaining:
-**1.10, the evaluation harness** - worth building before tuning anything else,
-or element selection gets optimised with no way to tell if it improved.
+The harness is `langchain.agents.create_agent` with `HumanInTheLoopMiddleware`
+as the confirmation gate — the interrupt is part of the graph rather than a
+callback, and the checkpointer that makes it resumable is the same mechanism
+Phase 2's planner needs. `ModelCallLimitMiddleware` caps the rounds.
+
+LangSmith turns on by itself if `LANGSMITH_API_KEY` is in `.env`; currently off.
+
+Remaining: **1.10, the evaluation harness** — worth building before tuning
+anything else, or element selection gets optimised with no way to tell whether
+it improved.
 
 **1.1 and 1.4 detail.** `meow/uia.py` returns the foreground
 window as a ranked list of named, on-screen controls with exact coordinates, in
@@ -116,7 +123,7 @@ harness that can actually click. See [docs/05-phases.md](docs/05-phases.md).
 | | |
 |---|---|
 | Language | Python 3.12 (installed) |
-| Agent framework | LangGraph + `create_agent` (**not** deprecated `create_react_agent`) |
+| Agent framework | LangGraph + `langchain.agents.create_agent` — **installed and in use**, see `meow/harness.py` |
 | Model | **OpenAI `gpt-4o-mini`** — cost-constrained, see `meow/vision.py` |
 | STT | **AssemblyAI v3 streaming** — `wss://streaming.assemblyai.com/v3/ws` |
 | TTS | **ElevenLabs Flash v2.5** — `eleven_flash_v2_5` |
