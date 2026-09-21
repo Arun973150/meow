@@ -114,30 +114,33 @@ def _words(text: str) -> set[str]:
 def names_the_target(transcript: str, target: str) -> bool:
     """Did the user's own sentence name this thing?
 
-    The test runs from the SENTENCE to the target, not the other way round.
-    That direction matters: a resolved target is usually fuller than what was
-    said - "open word" becomes "Microsoft Word 2016", "open chrome" becomes
-    "Google Chrome" - so asking whether the user said every word of the target
-    makes them confirm their own instruction because of a version number.
+    The test is whether a distinctive word of the TARGET appears in what they
+    said. Both other directions were tried and both were wrong.
 
-    What is actually being asked is whether the words they DID say point at
-    this thing. Fillers are stripped first; if nothing identifying is left,
-    the answer is no. "Click that one" names nothing.
+    Requiring every target word made the user confirm their own instruction
+    because of a version number: "open word" does not contain "Microsoft" or
+    "2016".
+
+    Requiring most of the SENTENCE to be about the target broke on compound
+    instructions, which is how most people speak. "Can you open Notepad and
+    type hello there" scores one matching word in three when judging the
+    launch, because the other two belong to the second half of the sentence -
+    so the cat asked permission to open notepad immediately after being told
+    to open notepad.
+
+    Four characters is the floor for a word counting as distinctive. Below it,
+    matching is coincidence - "OK", "No", a single letter - and those ask.
     """
     if not target.strip():
         return False
 
-    said = _words(transcript) - _FILLER
-    if not said:
-        return False
-
-    target_words = _words(target.replace("+", " "))
-    matched = sum(1 for word in said
-                  if word in target_words
-                  or any(word in candidate for candidate in target_words))
-    # Most of what they said has to land. One word out of five landing means
-    # they were talking about something else and one word happened to fit.
-    return matched / len(said) >= 0.6
+    said = _words(transcript)
+    for word in _words(target.replace("+", " ")):
+        if len(word) < 4 or word in _FILLER:
+            continue
+        if word in said or any(word in spoken for spoken in said):
+            return True
+    return False
 
 
 def is_dangerous(tool: str, target: str) -> bool:

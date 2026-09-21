@@ -118,10 +118,9 @@ class AssemblyAIStreaming:
                     # considered finished. The defaults are tuned for dictation,
                     # where people speak in a steady stream; someone asking a
                     # computer for something pauses to think mid-sentence and
-                    # gets cut off. Both bounds are raised, because raising only
-                    # the confident one still ends the turn on the other.
-                    min_end_of_turn_silence_when_confident=int(
-                        self._patience * 1000),
+                    # gets cut off. Both bounds are raised: raising one alone
+                    # still ends the turn on the other.
+                    min_turn_silence=int(self._patience * 1000),
                     max_turn_silence=int(self._patience * 1000 * 1.6),
                 ))
                 # Blocks, pulling from the microphone generator until it ends.
