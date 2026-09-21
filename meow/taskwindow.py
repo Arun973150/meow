@@ -25,12 +25,20 @@ from PIL import Image, ImageDraw, ImageFont
 from .cat.bubble import _load_font
 from .tasks import Task, TaskState
 
-WIDTH = 280
+# Wide enough to read a finding in. 280 was chosen to be unobtrusive and was
+# unobtrusive to the point of useless - a research result trimmed to 256px is
+# a source name and nothing else, and the user could not see what had been
+# found.
+WIDTH = 430
 PADDING = 12
-LINE_HEIGHT = 15
-TITLE_HEIGHT = 20
-MAX_VISIBLE_LINES = 6
+LINE_HEIGHT = 16
+TITLE_HEIGHT = 22
+MAX_VISIBLE_LINES = 12
 CORNER = 10
+
+# Long lines wrap rather than being cut. A finding is a sentence, and half a
+# sentence with an ellipsis is not a result.
+WRAP_LINES = 2
 
 # Gap between stacked windows, and from the screen edge.
 STACK_GAP = 8
@@ -75,8 +83,47 @@ class TaskPanel:
         self.title_font = _load_font(12)
         self.body_font = _load_font(11)
 
+    def _wrap(self, text: str, draw, font) -> list[str]:
+        """Break a line to fit the panel, up to WRAP_LINES rows."""
+        limit = WIDTH - PADDING * 2
+        if draw.textlength(text, font=font) <= limit:
+            return [text]
+
+        rows, current = [], ""
+        for word in text.split():
+            candidate = f"{current} {word}".strip()
+            if draw.textlength(candidate, font=font) <= limit:
+                current = candidate
+                continue
+            rows.append(current)
+            current = word
+            if len(rows) == WRAP_LINES:
+                break
+        if current and len(rows) < WRAP_LINES:
+            rows.append(current)
+
+        if len(rows) == WRAP_LINES:
+            last = rows[-1]
+            while (draw.textlength(last + "…", font=font) > limit
+                   and len(last) > 4):
+                last = last[:-2]
+            rows[-1] = last.rstrip() + "…"
+        return rows or [text[:40]]
+
+    def rows_for(self, task: Task) -> list[tuple[str, str]]:
+        """Every visible row as (text, kind), already wrapped."""
+        from PIL import Image as _Image
+        measuring = ImageDraw.Draw(_Image.new("RGBA", (1, 1)))
+
+        rows: list[tuple[str, str]] = []
+        for line in task.lines():
+            for piece in self._wrap(line.text, measuring, self.body_font):
+                rows.append((piece, line.kind))
+        # Newest at the bottom, so it reads like a log.
+        return rows[-MAX_VISIBLE_LINES:]
+
     def height(self, task: Task) -> int:
-        shown = min(MAX_VISIBLE_LINES, max(1, len(task.lines())))
+        shown = max(1, len(self.rows_for(task)))
         return PADDING * 2 + TITLE_HEIGHT + shown * LINE_HEIGHT
 
     def _dot_colour(self, task: Task):
@@ -115,22 +162,12 @@ class TaskPanel:
 
         # The most recent lines, oldest first, so it reads like a log rather
         # than like a stack.
-        lines = task.lines()[-MAX_VISIBLE_LINES:]
         y = PADDING + TITLE_HEIGHT
-        for line in lines:
+        for text, kind in self.rows_for(task):
             colour = {
                 "error": self.palette.error,
                 "queued": self.palette.queued,
-            }.get(line.kind, self.palette.body)
-            text = line.text
-            # Trimmed by measurement rather than a character count, because a
-            # font is not monospaced and a guess either wraps or wastes half
-            # the width.
-            while (draw.textlength(text, font=self.body_font)
-                   > WIDTH - PADDING * 2 and len(text) > 4):
-                text = text[:-2]
-            if text != line.text:
-                text = text.rstrip() + "…"
+            }.get(kind, self.palette.body)
             draw.text((PADDING, y), text, font=self.body_font, fill=colour)
             y += LINE_HEIGHT
 

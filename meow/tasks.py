@@ -88,6 +88,11 @@ class Task:
         self.finished_at: float | None = None
         self.summary = ""
         self.acknowledged = False  # the user has been told it finished
+        # What the task actually produced - findings, a file path, text. Kept
+        # so "paste the results here" has something to paste; without it the
+        # work exists only as sentences that have already been spoken.
+        self.result = ""
+        self.skipped: list[str] = []
 
         self._lines: list[Line] = []
         self._lock = threading.Lock()
@@ -156,6 +161,31 @@ class Task:
 
 # A worker is handed the task and does the work, logging as it goes.
 Worker = Callable[[Task], str]
+
+
+def declining_confirmer(task: "Task") -> Callable[[str], bool]:
+    """Permission for a handed-over task: no, and say so in the window.
+
+    A background task must never ask the voice loop for permission. It did,
+    once, and the result was the worst of both: the task sat blocked for
+    twenty seconds waiting for a yes, and the user - who had moved on, which
+    is the entire point of handing work over - got "open excel?" out of
+    nowhere followed by "say yes or no."
+
+    Consent has to be given knowing what is being consented to, and someone
+    who has moved on to something else is not in a position to know. So
+    anything needing a real decision is declined and written into the task
+    window, where it can be read when convenient and redone in the foreground
+    where the question makes sense.
+
+    Nearly nothing reaches this. The risk policy already lets through whatever
+    the user named themselves, which covers most of what a task does.
+    """
+    def confirm(question: str) -> bool:
+        task.log(f"skipped, needs you: {question.rstrip('?')}", kind="queued")
+        return False
+
+    return confirm
 
 
 class TaskRunner:

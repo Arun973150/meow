@@ -184,6 +184,10 @@ class Harness:
         # but importing it pulls in an HTTP stack nothing else needs.
         self._researcher = None
         self._last_document = None
+        # Set by the app so the harness can reach finished background
+        # work. Absent when a harness runs standalone, which is why it
+        # is looked up rather than required.
+        self.task_results = None
         self.digest: WindowDigest | None = None
         self.runs: list[ToolRun] = []
         self.last_error: str | None = None
@@ -398,6 +402,19 @@ class Harness:
                     else f"Could not open {self._last_document.path.name}.")
 
         @tool
+        def recall_task_results() -> str:
+            """What background tasks have found or produced.
+
+            Use when asked to paste, use or refer to the results of something
+            that ran in the background.
+            """
+            getter = getattr(self, "task_results", None)
+            results = getter() if getter else []
+            if not results:
+                return "No background task has produced anything yet."
+            return "\n\n".join(f"[{title}]\n{body}" for title, body in results)
+
+        @tool
         def list_controls() -> str:
             """Re-read the controls on screen, after something has changed."""
             self.digest = digest_foreground()
@@ -444,7 +461,7 @@ class Harness:
             tools=[click_control, point_at_control, type_text, list_controls,
                    open_app, switch_to_window, list_open_windows, press_keys,
                    write_about, look_up, make_document, make_spreadsheet,
-                   make_slides, open_last_document],
+                   make_slides, open_last_document, recall_task_results],
             system_prompt=SYSTEM_PROMPT,
             middleware=middleware,
             checkpointer=InMemorySaver(),

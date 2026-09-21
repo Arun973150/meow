@@ -57,7 +57,7 @@ from meow.platform.hotkey import HotkeyListener, HotkeyUnavailable
 from meow.platform.monitors import get_cursor_position, get_virtual_desktop
 from meow.platform.overlay import Bounds, Overlay
 from meow.router import Intent, Router
-from meow.tasks import TaskRunner, TaskState
+from meow.tasks import TaskRunner, TaskState, declining_confirmer
 from meow.taskwindow import PanelPalette, TaskPanel, stack_positions
 from meow.voice import AssemblyAIStreaming, ElevenLabsSpeaker, Microphone, SpeechQueue
 
@@ -166,6 +166,13 @@ def main() -> None:
 
     router = Router(use_jev=not args.no_jev)
     tasks = TaskRunner()
+    # So "paste the results here" can reach what a task found. Without this the
+    # harness had no idea a task had ever run, and answered that it could not
+    # paste research results - which was true and unhelpful.
+    harness.task_results = lambda: [
+        (t.title, t.result or t.summary) for t in tasks.visible
+        if (t.result or t.summary)
+    ]
     task_panel = TaskPanel()
     # One layered window per task, created as needed and reused. Making
     # and destroying a window per frame flickers.
@@ -241,7 +248,14 @@ def main() -> None:
                                  else "step" if kind in ("step", "quiet")
                                  else "say")
 
-                    worker = Planner(harness, on_event=report,
+                    # Its OWN harness, with a confirmer that declines rather
+                    # than asking. Sharing the foreground one meant a task's
+                    # permission question went to the voice loop - the task sat
+                    # blocked for twenty seconds and the user, who had moved on,
+                    # got "open excel?" out of nowhere.
+                    own = Harness(confirm=declining_confirmer(task),
+                                  ask_before_acting=False)
+                    worker = Planner(own, on_event=report,
                                      should_stop=lambda: (panic.should_stop()
                                                           or task.should_stop))
                     plan = worker.run(task.goal)
@@ -256,6 +270,13 @@ def main() -> None:
 
                     if plan.abandoned:
                         return "could not break that into steps"
+
+                    # Everything the steps produced, kept so "paste the results
+                    # here" has something to paste. Without it the work exists
+                    # only as sentences that have already been spoken.
+                    task.result = "\n".join(
+                        step.said for step in plan.steps if step.said.strip())
+
                     last = next((s.said for s in reversed(plan.steps)
                                  if s.said.strip()), "")
                     return last or ("done" if plan.succeeded else "stopped early")

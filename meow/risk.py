@@ -94,6 +94,8 @@ HARMLESS_TOOLS = frozenset({
     # overwrites, it numbers. Nothing here can lose existing work, so asking
     # would be a prompt about a file that did not exist a moment ago.
     "make_document", "make_spreadsheet", "make_slides", "open_last_document",
+    # Reading back what a task already produced changes nothing.
+    "recall_task_results",
 })
 
 # Keyboard shortcuts that do something serious. A shortcut hides its meaning -
