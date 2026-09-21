@@ -171,8 +171,14 @@ class Harness:
                 return f"No application called {name!r} is installed.{suggestion}"
 
             if not self._inner_confirm(f"open {application.name}?"):
-                return (f"The user declined, so {application.name} was not "
-                        f"opened. Nothing is wrong.")
+                # Recorded, not just returned. The planner decides whether a
+                # step succeeded by looking at these, and an early return with
+                # no record made a refused step read as a completed one.
+                refusal = Outcome(False, f"The user declined, so "
+                                         f"{application.name} was not opened. "
+                                         f"Nothing is wrong.", refused=True)
+                self.runs.append(ToolRun("open_app", name, refusal))
+                return refusal.detail
 
             started = apps.launch(application)
             outcome = Outcome(started,

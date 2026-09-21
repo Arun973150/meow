@@ -53,6 +53,7 @@ meow/evaluation.py          THE ABLATION - UIA labels its own ground truth
 meow/jev.py                 Jev via the Vercel gateway, a LangChain Runnable
 meow/panic.py               the stop button - local, latched, no network
 meow/apps.py                open apps, switch windows, list what exists
+meow/planner.py             PHASE 2 - multi-step tasks as a LangGraph state machine
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
@@ -121,6 +122,11 @@ no clickable control - ctrl+L for an address bar, Enter to submit a search.
 Control names are matched the way people speak them, degrading from exact to
 word overlap to close spelling, so "that terminal thing" and "minimise" both
 land.
+
+**Phase 2.1 and 2.2 done.** Multi-step requests are broken into steps and run
+one at a time by a LangGraph `StateGraph` — the plan *is* the state, each step
+is a node visit, and the checkpointer makes it resumable. It says "step 2 of 4"
+as it goes.
 
 First ablation result, VS Code, one frozen screen:
 

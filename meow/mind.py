@@ -43,9 +43,11 @@ MODEL = "gpt-4o-mini"
 # tokens, and nobody wants a paragraph read at them.
 MAX_OUTPUT_TOKENS = 220
 
-# Phase 0.9. Ten turns is what Clicky keeps, and it is enough for "what about
-# that one" to resolve without the context growing without bound.
-MAX_HISTORY_TURNS = 10
+# Four turns. Clicky keeps ten; this keeps fewer on purpose. Every turn is
+# recharged in full on the next call, so history is a recurring cost rather
+# than a one-off, and four is enough for "what about that one" to resolve
+# while a long conversation stays cheap and stays on topic.
+MAX_HISTORY_TURNS = 4
 
 SYSTEM_PROMPT = """You are a cat that lives on the user's Windows desktop. You \
 can see their screen when they ask about it, and you help them use their \

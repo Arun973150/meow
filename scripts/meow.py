@@ -19,7 +19,7 @@ The path a sentence takes:
               answer --> gpt-4o-mini + screenshot ----+
               show   --> UIA digest -> point at it
               act    --> UIA digest -> ask -> press it
-              plan   --> not built yet (Phase 2)
+              plan   --> broken into steps, run one at a time
 
 Jev runs on interim transcripts, so its ~420ms lands while the user is still
 speaking rather than after. Everything slow is on a worker thread; the render
@@ -50,6 +50,7 @@ from meow.console import use_utf8_console
 from meow.harness import Confirmation, Harness
 from meow.mind import Mind
 from meow.panic import DEFAULT_PANIC_KEY, Panic
+from meow.planner import Planner
 from meow.platform.capture import capture_region, capture_screens, mean_luminance
 from meow.platform.dpi import enable_per_monitor_dpi_awareness
 from meow.platform.hotkey import HotkeyListener, HotkeyUnavailable
@@ -146,6 +147,12 @@ def main() -> None:
         raise SystemExit(f"\n{error}\n")
 
     router = Router(use_jev=not args.no_jev)
+    planner = Planner(
+        harness,
+        on_event=lambda kind, text: replies.put(
+            ("say" if kind in ("say", "step", "stopped") else kind, text)),
+        should_stop=panic.should_stop,
+    )
 
     cat_cursor = None
     if not args.no_pointer:
@@ -195,8 +202,16 @@ def main() -> None:
                 return
 
             if route.intent is Intent.PLAN:
-                replies.put(("say", "that needs a plan, and i cannot do those "
-                                    "yet. ask me one step at a time for now."))
+                # The plan lives in the graph's state, checkpointed per step,
+                # so it can be shown, stopped on a boundary, and resumed.
+                plan = planner.run(transcript)
+                print("          plan:")
+                print(plan.summary())
+                if plan.abandoned:
+                    replies.put(("say", "that is more than i can break into "
+                                        "steps. tell me the first part."))
+                elif plan.succeeded:
+                    replies.put(("say", "that is all of them."))
                 return
 
             if route.intent in (Intent.SHOW, Intent.ACT):

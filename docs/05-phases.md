@@ -82,8 +82,8 @@ choosing which elements the model actually sees.
 
 | | Task |
 |---|---|
-| 2.1 | Planner mode — plan as state, checkpointed |
-| 2.2 | Progress on the cat ("step 3 of 7") |
+| 2.1 | **Done.** `meow/planner.py` — a LangGraph `StateGraph`. The plan *is* the state, each step is a node visit, so checkpoints land between steps and a plan is stoppable and resumable |
+| 2.2 | **Done.** The plan reports "step 2 of 4, press ctrl+t" into the bubble and the voice as it goes |
 | 2.3 | Research specialist — `search` + `fetch`, isolated toolset |
 | 2.4 | Document primitives — `make_docx` / `make_pptx` / `make_xlsx` |
 | 2.5 | **Search-augmented pointing** — look up how, *then* point |

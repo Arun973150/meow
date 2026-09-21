@@ -35,6 +35,11 @@ from assemblyai.streaming import v3
 from ..config import assemblyai_api_key
 from .microphone import SAMPLE_RATE
 
+# How long the user may pause before Meow decides they have finished. A second
+# and a quarter is long enough to think of the next word and short enough that
+# a finished sentence does not sit there.
+PATIENCE_SECONDS = 1.25
+
 
 @dataclass(frozen=True)
 class Transcript:
@@ -69,11 +74,13 @@ class AssemblyAIStreaming:
     """AssemblyAI v3 streaming over a websocket, on a worker thread."""
 
     def __init__(self, api_key: str | None = None,
-                 format_turns: bool = True) -> None:
+                 format_turns: bool = True,
+                 patience_seconds: float = PATIENCE_SECONDS) -> None:
         # Resolved now rather than at connect time, so a missing key fails
         # immediately with instructions instead of inside a handshake.
         self._api_key = api_key or assemblyai_api_key()
         self._format_turns = format_turns
+        self._patience = patience_seconds
 
         self._client: v3.StreamingClient | None = None
         self._worker: threading.Thread | None = None
@@ -107,6 +114,15 @@ class AssemblyAIStreaming:
                     # unformatted one and is nicer to display; we simply do not
                     # WAIT for it before acting.
                     format_turns=self._format_turns,
+                    # How long a pause is allowed before the sentence is
+                    # considered finished. The defaults are tuned for dictation,
+                    # where people speak in a steady stream; someone asking a
+                    # computer for something pauses to think mid-sentence and
+                    # gets cut off. Both bounds are raised, because raising only
+                    # the confident one still ends the turn on the other.
+                    min_end_of_turn_silence_when_confident=int(
+                        self._patience * 1000),
+                    max_turn_silence=int(self._patience * 1000 * 1.6),
                 ))
                 # Blocks, pulling from the microphone generator until it ends.
                 self._client.stream(audio)
