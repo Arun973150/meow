@@ -121,7 +121,8 @@ install rather than a build.
 | | |
 |---|---|
 | Computer use toolset | `computer_toolset_20260801`, 17 actions. ~1,000–1,800 tokens per screenshot; keep ≤20 images, prune to last 3 |
-| Jev | `langchain-typesafe`, `TypeSafeClassifier`. `Choice` / `Score` / `Noul`. Parallel questions ≈ free. API, not local |
+| Jev | `langchain-typesafe` — real, but **pre-release** (0.0.1a3), so `pip index` cannot see it and a plain install is needed. `Choice.criteria` is a **mapping** of option to description, not a list of names; `Score.criteria` is a list. Parallel questions ≈ free. API, not local |
+| Jev keys | Must be native, from typesafe.ai. A Vercel AI Gateway key (`vck_...`) **does not work**: the gateway is OpenAI-compatible for chat completions, and Jev's System One endpoint is bespoke. Measured — api.typesafe.ai returns 401 for the key, the gateway returns 404 for `/v1/systemone`, and no `base_url` bridges the two |
 | `create_agent` | replaces deprecated `create_react_agent`; middleware system is where the risk gate plugs in |
 | Composio | `composio-langgraph`, managed OAuth, 250+ (to 1,500+) integrations |
 | STT latency | Deepgram Flux / ElevenLabs Scribe v2 lowest; AssemblyAI ~300ms+; local Whisper ~500ms |

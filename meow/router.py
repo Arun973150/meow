@@ -126,14 +126,21 @@ class JevRouter:
 
         self._classifier = TypeSafeClassifier(api_key=key)
         self._questions = {
+            # criteria is a MAPPING, not a list - each option carries its own
+            # description. That is better than a bare list of names: the
+            # difference between "show" and "act" is the whole confirmation
+            # gate, and it deserves a sentence rather than a label.
             "intent": Choice(
-                instructions=(
-                    "What does the user want? 'answer' to be told something, "
-                    "'show' to be shown where something is without it being "
-                    "touched, 'act' to have something pressed, typed or opened, "
-                    "'plan' for a task with several steps."
-                ),
-                criteria=["answer", "show", "act", "plan"],
+                instructions="What does the user want Meow to do?",
+                criteria={
+                    "answer": "Be told something. No screen, no action.",
+                    "show": ("Be shown where something is, without it being "
+                             "pressed or changed."),
+                    "act": ("Have something pressed, typed, opened or closed - "
+                            "a change to the machine."),
+                    "plan": ("A task with several steps that needs to be "
+                             "worked through in order."),
+                },
             ),
             "needs_screen": Noul(
                 instructions=(
