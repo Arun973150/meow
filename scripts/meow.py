@@ -46,7 +46,7 @@ from meow.cat.bubble import (
 from meow.cat.cursor import CatCursor
 from meow.cat.follow import CursorFollower, FollowSettings, target_beside_cursor
 from meow.config import MissingKey
-from meow.console import use_utf8_console
+from meow.console import quiet_library_warnings, use_utf8_console
 from meow.harness import Confirmation, Harness
 from meow.mind import Mind
 from meow.panic import DEFAULT_PANIC_KEY, Panic
@@ -101,6 +101,7 @@ def home_position(monitor, width: int, height: int) -> tuple[int, int]:
 
 def main() -> None:
     use_utf8_console()
+    quiet_library_warnings()
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--key", default="ctrl+m")
