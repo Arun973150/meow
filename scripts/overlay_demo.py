@@ -18,109 +18,23 @@ machine stays usable while it runs.
 from __future__ import annotations
 
 import argparse
-import ctypes
 import math
 import sys
 import time
-from ctypes import wintypes
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from meow.platform.capture import capture_region
 from meow.platform.dpi import enable_per_monitor_dpi_awareness
 from meow.platform.monitors import get_virtual_desktop
 from meow.platform.overlay import Bounds, Overlay, premultiply
-
-user32 = ctypes.WinDLL("user32", use_last_error=True)
-gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
-
-SRCCOPY = 0x00CC0020
-# Without CAPTUREBLT, BitBlt skips layered windows entirely - which would make
-# this test pass for the wrong reason.
-CAPTUREBLT = 0x40000000
-DIB_RGB_COLORS = 0
-BI_RGB = 0
 
 # A colour nothing else on a desktop is likely to be, so counting exact matches
 # is a reliable way to ask "is our window in this screenshot?"
 MARKER_BLUE, MARKER_GREEN, MARKER_RED = 255, 0, 255
 
 OVERLAY_SIZE = 240
-
-# Same 64-bit handle rule as overlay.py: without these, every HDC and HBITMAP
-# comes back truncated to 32 bits.
-user32.GetDC.restype = wintypes.HDC
-user32.GetDC.argtypes = [wintypes.HWND]
-user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
-gdi32.CreateCompatibleDC.restype = wintypes.HDC
-gdi32.CreateCompatibleDC.argtypes = [wintypes.HDC]
-gdi32.CreateCompatibleBitmap.restype = wintypes.HBITMAP
-gdi32.CreateCompatibleBitmap.argtypes = [wintypes.HDC, ctypes.c_int, ctypes.c_int]
-gdi32.DeleteDC.argtypes = [wintypes.HDC]
-gdi32.SelectObject.restype = wintypes.HGDIOBJ
-gdi32.SelectObject.argtypes = [wintypes.HDC, wintypes.HGDIOBJ]
-gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
-gdi32.BitBlt.argtypes = [
-    wintypes.HDC, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
-    wintypes.HDC, ctypes.c_int, ctypes.c_int, wintypes.DWORD,
-]
-
-
-class BITMAPINFOHEADER(ctypes.Structure):
-    _fields_ = [
-        ("biSize", wintypes.DWORD), ("biWidth", wintypes.LONG),
-        ("biHeight", wintypes.LONG), ("biPlanes", wintypes.WORD),
-        ("biBitCount", wintypes.WORD), ("biCompression", wintypes.DWORD),
-        ("biSizeImage", wintypes.DWORD), ("biXPelsPerMeter", wintypes.LONG),
-        ("biYPelsPerMeter", wintypes.LONG), ("biClrUsed", wintypes.DWORD),
-        ("biClrImportant", wintypes.DWORD),
-    ]
-
-
-class BITMAPINFO(ctypes.Structure):
-    _fields_ = [("bmiHeader", BITMAPINFOHEADER), ("bmiColors", wintypes.DWORD * 3)]
-
-
-gdi32.GetDIBits.argtypes = [
-    wintypes.HDC, wintypes.HBITMAP, wintypes.UINT, wintypes.UINT,
-    ctypes.c_void_p, ctypes.POINTER(BITMAPINFO), wintypes.UINT,
-]
-
-
-def capture_region(left: int, top: int, width: int, height: int) -> bytes:
-    """Screenshot a rectangle of the virtual desktop as raw top-down BGRA."""
-    screen_device_context = user32.GetDC(None)
-    memory_device_context = gdi32.CreateCompatibleDC(screen_device_context)
-    bitmap = gdi32.CreateCompatibleBitmap(screen_device_context, width, height)
-    previous = gdi32.SelectObject(memory_device_context, bitmap)
-
-    gdi32.BitBlt(
-        memory_device_context, 0, 0, width, height,
-        screen_device_context, left, top, SRCCOPY | CAPTUREBLT,
-    )
-
-    header = BITMAPINFOHEADER()
-    header.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-    header.biWidth = width
-    header.biHeight = -height  # top-down
-    header.biPlanes = 1
-    header.biBitCount = 32
-    header.biCompression = BI_RGB
-
-    info = BITMAPINFO()
-    info.bmiHeader = header
-
-    buffer = ctypes.create_string_buffer(width * height * 4)
-    gdi32.GetDIBits(
-        memory_device_context, bitmap, 0, height, buffer,
-        ctypes.byref(info), DIB_RGB_COLORS,
-    )
-
-    gdi32.SelectObject(memory_device_context, previous)
-    gdi32.DeleteObject(bitmap)
-    gdi32.DeleteDC(memory_device_context)
-    user32.ReleaseDC(None, screen_device_context)
-    return buffer.raw
 
 
 def count_marker_pixels(bgra: bytes) -> int:
@@ -207,20 +121,18 @@ def main() -> None:
         print("\n--- capture exclusion test ---")
         print(f"  WDA_EXCLUDEFROMCAPTURE applied: {overlay.is_capture_excluded}")
 
-        excluded_shot = capture_region(
+        excluded_count = count_marker_pixels(capture_region(
             bounds.left, bounds.top, bounds.width, bounds.height
-        )
-        excluded_count = count_marker_pixels(excluded_shot)
+        ).pixels)
         print(f"  marker pixels WITH exclusion:    {excluded_count:>6}   (want 0)")
 
         # Control: turn it off and confirm the capture path can see the window
         # at all. Without this, a broken capture would look like a pass.
         overlay.set_capture_excluded(False)
         wait_pumping(overlay, 0.8)
-        visible_shot = capture_region(
+        visible_count = count_marker_pixels(capture_region(
             bounds.left, bounds.top, bounds.width, bounds.height
-        )
-        visible_count = count_marker_pixels(visible_shot)
+        ).pixels)
         print(f"  marker pixels WITHOUT exclusion: {visible_count:>6}   (want > 0)")
 
         overlay.set_capture_excluded(True)

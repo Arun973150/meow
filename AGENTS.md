@@ -28,31 +28,41 @@ Personal study project. One developer, part-time. **Scope is the primary risk.**
 
 ## Status
 
-**Phase 0 in progress. 0.1, 0.2 and 0.4 done and verified.**
+**Phase 0 in progress. 0.1, 0.2, 0.4 and 0.5 done and verified.**
 
 ```
 meow/platform/dpi.py        PER_MONITOR_AWARE_V2, with two fallbacks
 meow/platform/monitors.py   virtual desktop, negative origins, per-monitor rects
 meow/platform/overlay.py    layered - click-through - topmost - no-activate
-scripts/overlay_demo.py     runs it, and A/B tests the capture exclusion
+meow/platform/capture.py    GDI BitBlt to raw BGRA, always CAPTUREBLT
+meow/cat/sprite.py          line-art cat, traced from image.png
+meow/cat/animation.py       7 states, cross-faded
+scripts/overlay_demo.py     A/B tests the capture exclusion
+scripts/cat_demo.py         the cat, live, cycling states
+scripts/cat_preview.py      all states to one PNG, light and dark
 ```
 
-Verified on this machine: `WDA_EXCLUDEFROMCAPTURE` applied, **0 overlay pixels
-in our own screenshot with it on, 16929 with it off.** Invariant 7 holds, and
-the control run proves the capture path was working rather than returning black.
+Verified: `WDA_EXCLUDEFROMCAPTURE` applied, **0 overlay pixels in our own
+screenshot with it on, 16929 with it off.** Invariant 7 holds, and the control
+run proves the capture path was working rather than returning black.
+
+The cat is drawn procedurally, not loaded from sprite sheets - expressions are
+numbers, so states cross-fade and the gaze can aim anywhere. It samples the
+screen beneath itself and inverts its ink over dark windows, which is only
+possible because the overlay is excluded from capture.
 
 Spikes, both run:
 
-- `spikes/uia_probe.py` — **everything on this machine is RICH.** VS Code 819
+- `spikes/uia_probe.py` - **everything on this machine is RICH.** VS Code 819
   actionable elements, Chrome 153, Explorer 74.
 - The earlier "VS Code is SKELETAL (6 elements)" result was a bug in the walker,
   not a platform limit: `MAX_DEPTH = 12` cut off content that Electron nests ~30
   levels deep. Cap is now 50.
-- `spikes/wake_probe.py` — `SPI_SETSCREENREADER` does nothing, and neither does
+- `spikes/wake_probe.py` - `SPI_SETSCREENREADER` does nothing, and neither does
   `editor.accessibilitySupport`. Both A/B tested. **No wake step is needed.**
 
-Next: 0.3 multi-monitor capture, then 0.5 the cat sprite, then 0.6 the voice
-loop. See [docs/05-phases.md](docs/05-phases.md).
+Next: 0.3 multi-monitor capture, then 0.6 the voice loop. See
+[docs/05-phases.md](docs/05-phases.md).
 
 ## Stack
 
@@ -134,6 +144,9 @@ Do not violate these without updating the relevant doc first.
   and return partial results on a deadline; never walk a window whole inside the
   voice loop.
 - Virtual desktop coordinates go **negative** left of / above the primary monitor.
+- **Every GDI handle needs an explicit ctypes `restype` on 64-bit Python.**
+  Unset, it truncates to 32 bits and surfaces as "OverflowError: int too long to
+  convert" several calls later, pointing at innocent code.
 
 ## Conventions
 
