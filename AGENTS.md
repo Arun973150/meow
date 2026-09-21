@@ -28,8 +28,20 @@ Personal study project. One developer, part-time. **Scope is the primary risk.**
 
 ## Status
 
-**Phase 0, not started.** Two spikes, both run, and the headline result reversed
-under investigation:
+**Phase 0 in progress. 0.1, 0.2 and 0.4 done and verified.**
+
+```
+meow/platform/dpi.py        PER_MONITOR_AWARE_V2, with two fallbacks
+meow/platform/monitors.py   virtual desktop, negative origins, per-monitor rects
+meow/platform/overlay.py    layered - click-through - topmost - no-activate
+scripts/overlay_demo.py     runs it, and A/B tests the capture exclusion
+```
+
+Verified on this machine: `WDA_EXCLUDEFROMCAPTURE` applied, **0 overlay pixels
+in our own screenshot with it on, 16929 with it off.** Invariant 7 holds, and
+the control run proves the capture path was working rather than returning black.
+
+Spikes, both run:
 
 - `spikes/uia_probe.py` — **everything on this machine is RICH.** VS Code 819
   actionable elements, Chrome 153, Explorer 74.
@@ -39,26 +51,39 @@ under investigation:
 - `spikes/wake_probe.py` — `SPI_SETSCREENREADER` does nothing, and neither does
   `editor.accessibilitySupport`. Both A/B tested. **No wake step is needed.**
 
-**UIA grounding works on Electron.** The open problem moved from availability to
-selection: 819 actionable elements against a ~150 digest budget, and a 1.18s
-full walk that does not fit a voice loop. See
-[docs/02-grounding.md](docs/02-grounding.md) § The real problem, relocated.
+Next: 0.3 multi-monitor capture, then 0.5 the cat sprite, then 0.6 the voice
+loop. See [docs/05-phases.md](docs/05-phases.md).
 
 ## Stack
 
 | | |
 |---|---|
-| Language | Python 3.12 (already installed) |
+| Language | Python 3.12 (installed) |
 | Agent framework | LangGraph + `create_agent` (**not** deprecated `create_react_agent`) |
+| Model | **OpenAI** |
+| STT | **AssemblyAI v3 streaming** — `wss://streaming.assemblyai.com/v3/ws` |
+| TTS | **ElevenLabs Flash v2.5** — `eleven_flash_v2_5` |
 | Tracing | LangSmith — a requirement, not optional |
 | Router | Jev via `langchain-typesafe` — non-generative classifier |
-| UIA | `uiautomation` |
-| Win32 | `pywin32` |
+| UIA | `uiautomation` (installed) |
+| Win32 | `pywin32` (installed) |
 | Connectors | `composio-langgraph` (Phase 4) |
-| Voice | provider interface; cloud vs local deferred |
 
 Target machine is **CPU-only** — no local GPU inference. Not yet installed:
 `ffmpeg` (needed for Phase 3), `uv`, `codex`, `aider`.
+
+**Latency rules that follow from this stack:**
+
+- STT must **stream**. Jev routes on interim transcripts, so text has to arrive
+  while the user is still talking.
+- Fire the model on AssemblyAI's `end_of_turn`, **not** on `turn_is_formatted`.
+  Formatting arrives later and buys nothing the model needs.
+- Keys never ship in the client. Clicky proxies through a Cloudflare Worker and
+  fetches a short-lived AssemblyAI token per session; copy that shape.
+
+`reference/clicky/` is a local clone of the original (gitignored). Worth reading:
+`AssemblyAIStreamingTranscriptionProvider.swift`, `ElevenLabsTTSClient.swift`,
+`CompanionScreenCaptureUtility.swift`, `ElementLocationDetector.swift`.
 
 ## Architecture in one picture
 
