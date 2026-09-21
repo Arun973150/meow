@@ -7,6 +7,7 @@ loop around it.
 
 from .microphone import Microphone, list_input_devices
 from .stt import AssemblyAIStreaming, NullTranscriber, Transcriber, Transcript
+from .tts import ElevenLabsSpeaker, SilentSpeaker, Speaker
 
 __all__ = [
     "Microphone",
@@ -15,4 +16,7 @@ __all__ = [
     "NullTranscriber",
     "Transcriber",
     "Transcript",
+    "ElevenLabsSpeaker",
+    "SilentSpeaker",
+    "Speaker",
 ]

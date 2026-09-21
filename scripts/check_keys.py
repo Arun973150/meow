@@ -21,6 +21,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from meow.config import ENV_PATH, describe
 
+# LANGSMITH_API_KEY is Phase 1 tracing. Reporting it as "still needed" during
+# Phase 0 trains the reader to ignore this script, which is the opposite of
+# what a setup check is for.
+OPTIONAL_KEYS = {"LANGSMITH_API_KEY"}
+
 # module name -> (what needs it, which phase)
 PACKAGES = [
     ("PIL", "the cat and screenshot downscaling", "0.5"),
@@ -57,16 +62,22 @@ def main() -> None:
     print("\nKEYS")
     missing_keys = []
     for status in describe():
-        if not status.present:
+        optional = status.name in OPTIONAL_KEYS
+        if not status.present and not optional:
             missing_keys.append(status)
-        mark = "ok     " if status.present else "not set"
-        print(f"  {mark}  {status.name:<22} {status.masked}")
-        if not status.present:
+
+        if status.present:
+            mark = "ok     "
+        else:
+            mark = "later  " if optional else "not set"
+        suffix = "   (phase 1, optional)" if optional and not status.present else ""
+        print(f"  {mark}  {status.name:<22} {status.masked}{suffix}")
+        if not status.present and not optional:
             print(f"           {status.purpose} - {status.source}")
 
     print()
     if not missing_packages and not missing_keys:
-        print("ready. 0.6 can be built against this.")
+        print("ready. the voice loop has everything it needs.")
         return
 
     if missing_packages:
@@ -79,9 +90,7 @@ def main() -> None:
             print(f"install for 0.6:  pip install {' '.join(later)}")
 
     if missing_keys:
-        required = [s.name for s in missing_keys if s.name != "LANGSMITH_API_KEY"]
-        if required:
-            print(f"\nstill need: {', '.join(required)}")
+        print(f"\nstill need: {', '.join(s.name for s in missing_keys)}")
         print(f"paste them into {ENV_PATH.name} and run this again.")
         if not ENV_PATH.exists():
             print("  the file does not exist yet:  cp .env.example .env")
