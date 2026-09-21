@@ -52,11 +52,14 @@ OUTPUT_FORMAT = "pcm_16000"
 # the canonical example in ElevenLabs docs, now returns 402 on free.
 DEFAULT_VOICE_ID = "pNInz6obpgDQGcFmaJgB"  # Adam
 
-# Tried in order if the configured voice is refused.
+# Tried in order if the configured voice is refused. Only these three survived
+# an audition against a real free account - Josh, Sam, Elli, Domi and Rachel
+# were all refused, so a fallback list built from the documented premade set
+# would mostly have been fallbacks that themselves fail.
 PREMADE_FALLBACKS = (
-    "pNInz6obpgDQGcFmaJgB",  # Adam
-    "EXAVITQu4vr4xnSDxMaL",  # Bella
-    "TxGEqnHWrfWFTfGW9XjX",  # Josh
+    "pNInz6obpgDQGcFmaJgB",  # Adam, deep and calm
+    "ErXwobaYiN019PkySvjV",  # Antoni, warm
+    "EXAVITQu4vr4xnSDxMaL",  # Bella, soft
 )
 
 PLAYBACK_BLOCK_FRAMES = 1024
