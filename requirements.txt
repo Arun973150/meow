@@ -1,0 +1,33 @@
+# Meow - Python 3.12 on Windows 11
+#
+#     python -m venv .venv
+#     .venv\Scripts\activate
+#     pip install -r requirements.txt
+#
+# Windows only. The whole project rests on Windows UI Automation and Win32
+# layered windows; there is no cross-platform path and none is planned.
+
+# --- Phase 0: what the code currently imports ------------------------------
+
+Pillow>=10.0            # cat sprite, screenshot downscaling, JPEG encoding
+pywin32>=306            # Win32 interop
+uiautomation>=2.0       # UIA tree walking (spikes/)
+
+# --- Phase 0.6: the voice loop ---------------------------------------------
+# Uncomment as each is wired up. Listed now so the intended stack is recorded
+# in one place rather than only in AGENTS.md.
+#
+# openai>=1.0           # the harness model
+# assemblyai>=0.30      # streaming STT - wss://streaming.assemblyai.com/v3/ws
+# elevenlabs>=1.0       # TTS - eleven_flash_v2_5
+# sounddevice>=0.4      # microphone capture and playback
+
+# --- Phase 1: the agent harness --------------------------------------------
+#
+# langgraph>=0.2        # create_agent, NOT the deprecated create_react_agent
+# langsmith>=0.1        # tracing - a requirement, not optional
+# langchain-typesafe    # Jev router, non-generative classifier
+
+# --- Phase 4: connectors ---------------------------------------------------
+#
+# composio-langgraph    # managed OAuth for gmail/calendar/slack/youtube

@@ -28,17 +28,18 @@ Personal study project. One developer, part-time. **Scope is the primary risk.**
 
 ## Status
 
-**Phase 0 in progress. 0.1, 0.2, 0.4 and 0.5 done and verified.**
+**Phase 0 in progress. 0.1 through 0.5 done and verified.**
 
 ```
 meow/platform/dpi.py        PER_MONITOR_AWARE_V2, with two fallbacks
 meow/platform/monitors.py   virtual desktop, negative origins, per-monitor rects
 meow/platform/overlay.py    layered - click-through - topmost - no-activate
-meow/platform/capture.py    GDI BitBlt to raw BGRA, always CAPTUREBLT
+meow/platform/capture.py    BitBlt to BGRA + per-monitor JPEG, cursor screen first
 meow/platform/hotkey.py     RegisterHotKey activation, single key, NOREPEAT
 meow/cat/sprite.py          line-art cat, traced from image.png
 meow/cat/animation.py       7 states, cross-faded
 meow/cat/follow.py          critically damped cursor follow
+meow/cat/bubble.py          small speech bubble - capped, never a transcript
 scripts/overlay_demo.py     A/B tests the capture exclusion
 scripts/cat_demo.py         the cat, live, cycling states
 scripts/cat_preview.py      all states to one PNG, light and dark
@@ -68,8 +69,9 @@ Spikes, both run:
 - `spikes/wake_probe.py` - `SPI_SETSCREENREADER` does nothing, and neither does
   `editor.accessibilitySupport`. Both A/B tested. **No wake step is needed.**
 
-Next: 0.3 proper multi-monitor capture, then 0.6 the voice loop. See
-[docs/05-phases.md](docs/05-phases.md).
+**Next: 0.6, the voice loop** - the first thing that needs API keys (OpenAI,
+AssemblyAI, ElevenLabs). Then 0.7 sentence-chunked TTS, 0.8 the `[POINT:x,y]`
+baseline, 0.9 history. See [docs/05-phases.md](docs/05-phases.md).
 
 ## Stack
 
@@ -166,6 +168,9 @@ Do not violate these without updating the relevant doc first.
 - Comments explain **why**, not what — especially around Win32 interop.
 - Voice output: lowercase, conversational, no markdown, no lists. Written for
   the ear. Never "simply" or "just". Never end on a yes/no question.
+- **The speech bubble is not a transcript.** Voice is the primary channel; the
+  bubble is a glanceable cue, hard-capped at 90 characters and 3 lines. If it
+  ever grows to hold whole replies, the cat has become a chat window.
 - Every tool that touches the filesystem or sends anything declares its risk
   level explicitly.
 

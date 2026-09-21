@@ -372,6 +372,16 @@ class Overlay:
 
     # --- position --------------------------------------------------------
 
+    def set_bounds(self, bounds: Bounds) -> None:
+        """Move and resize together.
+
+        Safe to change size every frame: draw() builds a fresh DIB section each
+        call, so there is no cached surface to invalidate. The speech bubble
+        relies on this - it is sized to its text, so it changes shape whenever
+        the text does.
+        """
+        self.bounds = bounds
+
     def move_to(self, left: int, top: int) -> None:
         """Reposition the window.
 

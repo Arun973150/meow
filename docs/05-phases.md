@@ -18,24 +18,27 @@ overlay → hide-from-capture → capture → coordinates → DPI
 
 | | Task | Notes |
 |---|---|---|
-| 0.1 | Transparent click-through overlay, all monitors | `WS_EX_LAYERED \| TRANSPARENT \| TOPMOST \| NOACTIVATE` |
-| 0.2 | **Hide overlay from its own screenshots** | `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)` — skip and the cat confuses the model |
-| 0.3 | Multi-monitor capture, labeled, cursor-screen first | 1280px max edge, JPEG q0.8 |
-| 0.4 | DPI-correct coordinate pipeline | `PER_MONITOR_AWARE_V2` — prerequisite for every click |
+| 0.1 | Transparent click-through overlay, all monitors | **Done.** `WS_EX_LAYERED \| TRANSPARENT \| TOPMOST \| NOACTIVATE` |
+| 0.2 | **Hide overlay from its own screenshots** | **Done, A/B verified** — 0 overlay pixels with `WDA_EXCLUDEFROMCAPTURE`, 16929 without |
+| 0.3 | Multi-monitor capture, labeled, cursor-screen first | **Done.** 1280px max edge, JPEG q80. Measured: 8.8 MB raw -> 63 KB. `ScreenShot.to_screen()` carries the scale back, which 0.8 needs |
+| 0.4 | DPI-correct coordinate pipeline | **Done.** `PER_MONITOR_AWARE_V2` — prerequisite for every click |
 | 0.5 | Cat sprite with animation states | idle · listening · thinking · speaking · pointing · working · sleeping. **Done** - line art, 7 states, follows the cursor when activated |
-| 0.6 | Voice loop: activation → STT → Claude → TTS | streaming both ends |
+| 0.6 | Voice loop: activation → STT → OpenAI → TTS | AssemblyAI v3 streaming in, ElevenLabs `eleven_flash_v2_5` out. Fire the model on `end_of_turn`, not `turn_is_formatted` |
 | 0.7 | Sentence-chunked TTS | speak sentence 1 while writing sentence 2 — biggest perceived-latency win |
 | 0.8 | Point at an element | the `[POINT:x,y]` baseline — also Claim 1's control condition |
 | 0.9 | Conversation history | last 10 turns |
 
 **Demo:** *"ask it what a button does — the cat flies over and explains."*
 
-⚠ **Activation is not push-to-talk.** A held two-key chord is hostile to tremor
-and arthritis. Wake word or single key. See [00-scope.md](00-scope.md).
+⚠ **Activation is tapped, never held.** The problem with a push-to-talk chord is
+that it is *sustained* for the whole utterance, which is hostile to tremor and
+arthritis — not that it has two keys. A tapped toggle is fine. Currently
+**Ctrl+M**. See [00-scope.md](00-scope.md).
 
 ⚠ `WH_KEYBOARD_LL` **stops firing when a Chromium window has focus** — Chrome,
-VS Code, Slack. Needs a `RegisterHotKey` fallback plus an in-page listener when
-our own window has focus. Electron's `globalShortcut` has no key-up at all.
+VS Code, Slack. Electron's `globalShortcut` has no key-up at all. **Resolved:**
+activation uses `RegisterHotKey`, which is immune to both and is also the only
+option that keeps Sticky Keys working.
 
 ---
 
