@@ -52,12 +52,12 @@ option that keeps Sticky Keys working.
 | | Task |
 |---|---|
 | 1.1 | **Done.** UIA extraction via native `FindAllBuildCache` — 23.5x faster than walking, and complete rather than truncated. 268ms |
-| 1.2 | `Grounding` protocol with all three strategies |
+| 1.2 | **Done.** `Grounding` protocol — `UIAGrounding` / `VisionGrounding` / `HybridGrounding` behind one interface, so the ablation needs one codebase |
 | 1.3 | Regime detection (RICH / DENSE / EMPTY) — and `TRUNCATED` as a refusal to classify |
 | 1.4 | **Largely dissolved.** Filtering to on-screen AND named turns 762 actionable into 120 usable — under budget without ranking. Scoring exists for windows where it is not |
-| 1.5 | `create_agent` harness, reactive mode, ~19 primitives |
+| 1.5 | **Started.** `meow/actions.py` — point, click, invoke, type, each declaring its risk. UIA `invoke()` presses a control with no pointer movement at all |
 | 1.6 | Jev router on interim transcripts |
-| 1.7 | Confirmation gate via `AutoModeMiddleware` |
+| 1.7 | **Done in shape.** Every action takes a `Confirmer`; `point_at` is SAFE, everything else asks. Middleware wiring comes with the harness |
 | 1.8 | Panic key — local, no network |
 | 1.9 | Visual verification loop: produce → screenshot → `look_at` → repair |
 | 1.10 | **Evaluation harness + 30-task suite** |

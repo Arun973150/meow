@@ -44,10 +44,20 @@ POINT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# How far the pointer may drift from where we put it before we conclude a human
-# is driving. Mouse movement is integral, so anything above a couple of pixels
-# is deliberate.
-USER_TAKEOVER_PIXELS = 12
+# How far the pointer may sit from where we put it before we suspect a hand on
+# the mouse - and how many samples in a row that has to hold before we believe
+# it.
+#
+# Both numbers are measured, not guessed. This machine is a ThinkPad, and its
+# TrackPoint drifts: over 120 samples at one position, the pointer moved a
+# median of 0px but spiked to 57px. A single-sample threshold of 12px therefore
+# aborted real glides constantly, blaming the user for hardware noise.
+#
+# The discriminator is not size, it is PERSISTENCE. Drift is a random walk that
+# cancels out - the longest run above 40px was exactly one sample. A hand moving
+# the mouse is directional and sustained, so it trips three in a row easily.
+USER_TAKEOVER_PIXELS = 40
+USER_TAKEOVER_SAMPLES = 3
 
 
 @dataclass(frozen=True)
@@ -119,15 +129,20 @@ def glide_to(target_x: int, target_y: int, seconds: float = 0.55,
     total_steps = max(2, int(duration * steps_per_second))
 
     expected_x, expected_y = start_x, start_y
+    consecutive_deviations = 0
+
     for step in range(1, total_steps + 1):
         progress = step / total_steps
         eased = progress * progress * (3.0 - 2.0 * progress)  # smoothstep
 
         current_x, current_y = get_cursor()
-        if (abs(current_x - expected_x) > USER_TAKEOVER_PIXELS
-                or abs(current_y - expected_y) > USER_TAKEOVER_PIXELS):
-            # The pointer is somewhere we did not put it, so a hand is on the
-            # mouse. Stop instantly and leave it where they want it.
+        deviated = (abs(current_x - expected_x) > USER_TAKEOVER_PIXELS
+                    or abs(current_y - expected_y) > USER_TAKEOVER_PIXELS)
+        consecutive_deviations = consecutive_deviations + 1 if deviated else 0
+
+        if consecutive_deviations >= USER_TAKEOVER_SAMPLES:
+            # Sustained, so a hand is on the mouse rather than the pointer
+            # drifting. Stop instantly and leave it where they want it.
             return False
 
         expected_x = int(round(start_x + (target_x - start_x) * eased))

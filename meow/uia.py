@@ -32,7 +32,7 @@ from __future__ import annotations
 import ctypes
 import time
 from ctypes import wintypes
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 import uiautomation as auto
@@ -83,6 +83,15 @@ class Element:
     right: int
     bottom: int
     enabled: bool = True
+
+    # The live UIA element. Kept so a control can be operated through the
+    # accessibility API - Invoke() presses a button without the pointer going
+    # anywhere, which works on a window that is not even in front. Vision can
+    # never do that, and it is a bigger difference than the hit rate.
+    #
+    # Excluded from equality and repr: it is a COM pointer, comparing two is
+    # meaningless and printing one is noise.
+    node: object | None = field(default=None, compare=False, repr=False)
 
     @property
     def width(self) -> int:
@@ -276,6 +285,7 @@ def query_elements(window) -> tuple[list[Element], int]:
                 left=int(rect.left), top=int(rect.top),
                 right=int(rect.right), bottom=int(rect.bottom),
                 enabled=bool(node.CachedIsEnabled),
+                node=node,
             ))
         except Exception:  # noqa: BLE001 - elements vanish mid-iteration
             continue

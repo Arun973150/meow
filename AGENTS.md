@@ -45,6 +45,8 @@ meow/vision.py              when to send a screenshot, and how much of one
 meow/mind.py                gpt-4o-mini call, streamed, sentence-chunked
 meow/pointing.py            [POINT:x,y] protocol, eased pointer glide
 meow/uia.py                 THE THESIS - accessibility tree digest, 268ms
+meow/grounding.py           UIA / vision / hybrid behind one protocol
+meow/actions.py             point, click, invoke, type - each with a risk level
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
@@ -89,7 +91,12 @@ about while wearing `cat_cursor.png`.
 Measured: ~2.5s to the first spoken sentence, ~$0.0005 per turn with an image,
 394ms to first audio, 634ms for a pointer glide across the screen.
 
-**Phase 1 started. 1.1 and 1.4 done.** `meow/uia.py` returns the foreground
+**Phase 1: 1.1, 1.2, 1.4 and 1.7 done, 1.5 started.** Meow can now name a
+control, find it exactly, and press it - `invoke()` goes through UIA with no
+pointer movement, which works on a window that is not even in front. Every
+action declares a risk level and the risky ones ask first.
+
+**1.1 and 1.4 detail.** `meow/uia.py` returns the foreground
 window as a ranked list of named, on-screen controls with exact coordinates, in
 **268ms** — via native `FindAllBuildCache`, which is 23.5x faster than walking
 the tree from Python and returns all of it rather than a truncated slice.
@@ -186,6 +193,10 @@ Do not violate these without updating the relevant doc first.
   real depth headroom. VS Code's deepest actionable elements sit at depth 39.
 - `WH_KEYBOARD_LL` **stops firing when a Chromium window has focus** (Chrome,
   VS Code, Slack). Needs a `RegisterHotKey` fallback.
+- **The pointer drifts on its own.** This ThinkPad's TrackPoint moved the
+  cursor a median of 0px but spiked to 57px while nothing touched it. Any
+  "did the user grab the mouse?" check must test PERSISTENCE, not magnitude —
+  drift never sustained past one sample, a hand trips three easily.
 - **Minimized windows cannot be walked** — they report a zero-size rect.
   Occluded windows read fine; minimized ones do not. Report them, never drop
   them silently, or an absent app reads as a negative result.
