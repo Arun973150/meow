@@ -251,3 +251,63 @@ RISK = {
     invoke: Risk.CONFIRM,
     type_text: Risk.CONFIRM,
 }
+
+
+# Virtual key codes for the keys people name out loud.
+KEY_CODES = {
+    "enter": 0x0D, "return": 0x0D, "tab": 0x09, "escape": 0x1B, "esc": 0x1B,
+    "space": 0x20, "backspace": 0x08, "delete": 0x2E, "home": 0x24,
+    "end": 0x23, "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
+    "pageup": 0x21, "pagedown": 0x22,
+}
+KEY_CODES.update({chr(c).lower(): c for c in range(ord("A"), ord("Z") + 1)})
+KEY_CODES.update({str(d): 0x30 + d for d in range(10)})
+KEY_CODES.update({f"f{n}": 0x6F + n for n in range(1, 13)})
+
+MODIFIER_CODES = {"ctrl": 0x11, "control": 0x11, "alt": 0x12,
+                  "shift": 0x10, "win": 0x5B}
+
+
+def press_shortcut(keys: str, confirm: Confirmer) -> Outcome:
+    """Press a keyboard shortcut like "ctrl+t" or "enter".
+
+    Some things have no control to click. A browser address bar is reached with
+    ctrl+L, a new tab with ctrl+T, a search submitted with Enter - and none of
+    them appear in an accessibility tree as something pressable. Without this
+    the agent can see a page and not use it.
+
+    Modifiers are released in reverse order, which is not fussiness: releasing
+    ctrl before t leaves the application seeing a bare 't' and typing a letter
+    into whatever had focus.
+    """
+    parts = [part.strip().lower() for part in keys.split("+") if part.strip()]
+    if not parts:
+        return Outcome(False, "no keys given")
+
+    modifiers = [MODIFIER_CODES[p] for p in parts[:-1] if p in MODIFIER_CODES]
+    if len(modifiers) != len(parts) - 1:
+        unknown = [p for p in parts[:-1] if p not in MODIFIER_CODES]
+        return Outcome(False, f"cannot press {unknown}; modifiers are "
+                              f"ctrl, alt, shift and win")
+
+    key = parts[-1]
+    if key not in KEY_CODES:
+        return Outcome(False, f"cannot press {key!r}")
+
+    if not confirm(f"press {keys}?"):
+        return Outcome(False, f"The user declined, so {keys} was not pressed.",
+                       refused=True)
+
+    def key_event(code: int, up: bool) -> _INPUT:
+        return _INPUT(type=INPUT_KEYBOARD, union=_INPUTUNION(
+            ki=_KEYBDINPUT(code, 0, KEYEVENTF_KEYUP if up else 0, 0, None)))
+
+    for code in modifiers:
+        _send(key_event(code, False))
+    _send(key_event(KEY_CODES[key], False))
+    time.sleep(0.02)
+    _send(key_event(KEY_CODES[key], True))
+    for code in reversed(modifiers):
+        _send(key_event(code, True))
+
+    return Outcome(True, f"pressed {keys}", method="sendinput")

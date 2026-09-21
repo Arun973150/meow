@@ -52,6 +52,7 @@ meow/router.py              Jev via langchain-typesafe, on interim transcripts
 meow/evaluation.py          THE ABLATION - UIA labels its own ground truth
 meow/jev.py                 Jev via the Vercel gateway, a LangChain Runnable
 meow/panic.py               the stop button - local, latched, no network
+meow/apps.py                open apps, switch windows, list what exists
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
@@ -113,6 +114,13 @@ LangSmith turns on by itself if `LANGSMITH_API_KEY` is in `.env`; currently off.
 Ctrl+M and talk, tap **Pause** to stop everything. Jev routes each sentence to
 answer / show / act / plan; act goes through the UIA harness and asks out loud
 before pressing anything.
+
+It reaches past the window in front: `open chrome` launches it, `switch to my
+chrome window` brings it forward, and `press_keys` covers the things that have
+no clickable control - ctrl+L for an address bar, Enter to submit a search.
+Control names are matched the way people speak them, degrading from exact to
+word overlap to close spelling, so "that terminal thing" and "minimise" both
+land.
 
 First ablation result, VS Code, one frozen screen:
 

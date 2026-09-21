@@ -30,6 +30,7 @@ silent click on the wrong thing.
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Iterator
 
@@ -43,7 +44,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
-from . import actions
+from . import actions, apps
 from .actions import Confirmer, Outcome, always_allow
 from .config import get, openai_api_key
 from .grounding import Target
@@ -58,6 +59,10 @@ MAX_MODEL_CALLS_PER_RUN = 8
 
 SYSTEM_PROMPT = """You are a cat that lives on the user's Windows desktop. You \
 can see the controls on their screen and you can operate them.
+
+You can also open applications, switch between open windows, and press \
+keyboard shortcuts. If what the user wants is not on screen, open it or switch \
+to it rather than saying you cannot see it.
 
 You are given a list of the controls currently on screen with their exact \
 names. To act on one, call a tool with the control's name EXACTLY as it appears \
@@ -151,6 +156,79 @@ class Harness:
             return outcome.detail
 
         @tool
+        def open_app(name: str) -> str:
+            """Open an application by name, such as chrome, word or notepad.
+
+            Use when what the user wants is not on screen at all.
+            """
+            application = apps.find_application(name)
+            if application is None:
+                installed = [a.name for a in apps.list_applications()]
+                near = [a for a in installed
+                        if any(w in a for w in name.lower().split() if len(w) > 2)]
+                suggestion = (f" Closest installed: {', '.join(near[:6])}."
+                              if near else "")
+                return f"No application called {name!r} is installed.{suggestion}"
+
+            if not self._inner_confirm(f"open {application.name}?"):
+                return (f"The user declined, so {application.name} was not "
+                        f"opened. Nothing is wrong.")
+
+            started = apps.launch(application)
+            outcome = Outcome(started,
+                              f"opened {application.name}" if started
+                              else f"could not open {application.name}",
+                              method="launch")
+            self.runs.append(ToolRun("open_app", name, outcome))
+            if started:
+                # An application takes a moment to put a window up, and the
+                # control list is read from whatever is in front. Reading it
+                # too early returns the OLD window and the next tool call acts
+                # on the wrong application entirely.
+                time.sleep(1.6)
+                self.digest = digest_foreground()
+            return outcome.detail
+
+        @tool
+        def switch_to_window(name: str) -> str:
+            """Bring an already-open window to the front, by name or app."""
+            window = apps.find_window(name)
+            if window is None:
+                open_now = [w.describe() for w in apps.list_windows()[:8]]
+                return (f"No open window matches {name!r}. Open windows: "
+                        f"{'; '.join(open_now)}")
+
+            came_forward = apps.focus_window(window)
+            outcome = Outcome(came_forward,
+                              f"switched to {window.title[:50]}" if came_forward
+                              else f"could not bring {window.title[:40]} forward",
+                              method="focus")
+            self.runs.append(ToolRun("switch_to_window", name, outcome))
+            if came_forward:
+                time.sleep(0.4)
+                self.digest = digest_foreground()
+            return outcome.detail
+
+        @tool
+        def list_open_windows() -> str:
+            """What windows are open, to switch between."""
+            windows = apps.list_windows()
+            if not windows:
+                return "No windows are open."
+            return "Open windows: " + "; ".join(w.describe() for w in windows[:14])
+
+        @tool
+        def press_keys(keys: str) -> str:
+            """Press a keyboard shortcut, such as "ctrl+t" or "enter".
+
+            Use for things with no clickable control - opening a new tab,
+            submitting a search, moving focus to an address bar.
+            """
+            outcome = actions.press_shortcut(keys, self._inner_confirm)
+            self.runs.append(ToolRun("press_keys", keys, outcome))
+            return outcome.detail
+
+        @tool
         def list_controls() -> str:
             """Re-read the controls on screen, after something has changed."""
             self.digest = digest_foreground()
@@ -164,6 +242,12 @@ class Harness:
         interrupts = {
             "click_control": True,
             "type_text": True,
+            "open_app": True,
+            "press_keys": True,
+            # switch_to_window is NOT here. Bringing a window forward changes
+            # nothing and the user can alt-tab straight back, so asking about
+            # it is the kind of prompt that teaches people to stop reading
+            # prompts.
         } if ask_before_acting else {}
 
         middleware = [ModelCallLimitMiddleware(
@@ -177,7 +261,8 @@ class Harness:
         self.agent = create_agent(
             model=ChatOpenAI(model=model, api_key=openai_api_key(),
                              max_completion_tokens=MAX_OUTPUT_TOKENS),
-            tools=[click_control, point_at_control, type_text, list_controls],
+            tools=[click_control, point_at_control, type_text, list_controls,
+                   open_app, switch_to_window, list_open_windows, press_keys],
             system_prompt=SYSTEM_PROMPT,
             middleware=middleware,
             checkpointer=InMemorySaver(),

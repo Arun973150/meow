@@ -150,22 +150,67 @@ class WindowDigest:
         return "\n".join(lines)
 
     def find(self, text: str) -> Element | None:
-        """Best element matching a description.
+        """Best element matching a description, however loosely phrased.
 
-        Exact, then prefix, then substring - ranked rather than first-hit,
-        because "save" should find Save before it finds "Save As...".
+        Nobody says "Terminal (Ctrl+`)" out loud. They say "the terminal", or
+        "that terminal thing", and a system that only does exact, prefix and
+        substring matching fails all three - the last one because the control
+        name contains the word, not the other way round.
+
+        So it degrades: exact, then prefix, then substring, then WORD OVERLAP,
+        which is what actually catches ordinary speech. "open the terminal"
+        shares "terminal" with "Terminal (Ctrl+`)" and matches; filler words
+        are ignored because they appear in no control name.
         """
         wanted = " ".join(text.lower().split())
         if not wanted:
             return None
+
         for test in (
             lambda name: name == wanted,
             lambda name: name.startswith(wanted),
             lambda name: wanted in name,
+            lambda name: name in wanted,   # "terminal" inside "open terminal"
         ):
             matches = [e for e in self.elements if test(e.name.lower())]
             if matches:
                 return min(matches, key=lambda e: len(e.name))
+
+        # Word overlap, ignoring words that carry no meaning here. Ranked by
+        # how much of the CONTROL is accounted for, so "save" prefers "Save"
+        # over "Save All Files In Workspace".
+        wanted_words = _meaningful(wanted)
+        if not wanted_words:
+            return None
+
+        best, best_score = None, 0.0
+        for element in self.elements:
+            name_words = _meaningful(element.name.lower())
+            if not name_words:
+                continue
+            shared = wanted_words & name_words
+            if not shared:
+                continue
+            score = len(shared) / len(name_words) + len(shared) * 0.1
+            if score > best_score:
+                best, best_score = element, score
+
+        # Half the control's words have to be accounted for. Below that it is
+        # matching on a stray "the" and pressing something unrelated, which is
+        # worse than admitting it cannot find the thing.
+        if best is not None and best_score >= 0.5:
+            return best
+
+        # Last resort: close spelling. This exists for "minimise", which shares
+        # no word with "Minimize" and is how most of the English-speaking world
+        # spells it. Also catches a transcription slip. The cutoff is high
+        # because a loose one starts matching unrelated short names.
+        import difflib
+        names = {element.name.lower(): element for element in self.elements}
+        for word in sorted(wanted_words, key=len, reverse=True):
+            close = difflib.get_close_matches(word, names, n=1, cutoff=0.82)
+            if close:
+                return names[close[0]]
         return None
 
     def suggest(self, text: str, limit: int = 6) -> list[str]:
@@ -354,6 +399,25 @@ def score(element: Element, cursor: tuple[int, int], window_area: int) -> float:
         points -= 1.0
 
     return points
+
+
+# Words that appear in requests and carry no information about which control
+# is meant. Kept short: over-filtering removes the word that mattered.
+_FILLER = frozenset((
+    "the", "a", "an", "my", "that", "this", "it", "please", "uh", "um",
+    "can", "you", "to", "go", "on", "in", "of", "for", "and", "button",
+    "control", "thing", "one", "me", "i", "want", "would", "like", "just",
+))
+
+
+def _meaningful(text: str) -> set[str]:
+    """Words worth matching on, stripped of punctuation."""
+    words = set()
+    for raw in text.split():
+        word = raw.strip("()[[]{}.,:;!?\"'`-").lower()
+        if word and word not in _FILLER:
+            words.add(word)
+    return words
 
 
 def classify(usable: int, total: int, query_seconds: float) -> Regime:
