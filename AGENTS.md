@@ -83,6 +83,7 @@ scripts/cat_preview.py      all states to one PNG, light and dark
 scripts/companion_demo.py   tap Ctrl+M, the cat wakes and follows the cursor
 scripts/listen_demo.py      tap Ctrl+M and talk - words appear in the bubble
 scripts/check_keys.py       what is installed, which keys are set
+scripts/check_connectors.py which services are CONNECTED, and connect one
 scripts/smoke.py           runs the REAL app and fails on any traceback
 scripts/stress.py          48 edge cases across every module
 scripts/meow.py             THE WHOLE LOOP - routes, answers, points, presses
