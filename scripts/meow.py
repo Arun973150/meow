@@ -114,8 +114,7 @@ MINIMUM_WORDS_FOR_A_PLAN = 4
 # the foreground with the thinking animation.
 BACKGROUND_WORDS = ("research", "find out", "look up", "read about",
                     "compare", "summarise", "summarize", "gather", "collect",
-                    "report on", "spreadsheet", "slides", "presentation",
-                    "write up", "search the web", "search online")
+                    "report on", "write up", "search the web", "search online")
 
 # Verbs that mean the user is pointing at their own screen. Bare "search" is
 # not in BACKGROUND_WORDS because it belongs to both worlds - searching the
@@ -128,6 +127,21 @@ HANDS_ON_WORDS = ("click", "press", "type", "minimise", "minimize", "maximise",
 # seriously. "SRIJA." and "H." are noise in isolation and are the whole point
 # when the cat has just said "spell it out for me".
 ANSWER_WINDOW_SECONDS = 20.0
+
+# After this long working with nothing said, the bubble stops being three dots
+# and says so in words. A long turn is not broken - a big window, a full
+# thread and a slow tool add up - but thirty seconds of identical dots reads as
+# frozen, and the difference between "thinking" and "stuck" is the only thing
+# the user actually wants to know.
+SLOW_TURN_SECONDS = 6.0
+
+# Producing a file ABOUT something is always at least two jobs: find out, then
+# write it. Routed as one action it runs in the foreground and blocks the voice
+# loop for half a minute with no icon and no way to watch it - which is what
+# "About GPU prices in India. Put it in a spreadsheet." did, purely because the
+# word "research" was never said.
+ARTEFACT_WORDS = ("spreadsheet", "document", "deck", "slides", "presentation",
+                  "report", "essay", "xlsx", "docx", "pptx")
 
 YES_WORDS = ("yes", "yeah", "yep", "sure", "go ahead", "do it", "okay", "ok",
              "please do", "confirm", "alright")
@@ -182,7 +196,11 @@ def wants_its_own_window(text: str) -> bool:
     lowered = spoken_words(text)
     if any(word in lowered.split() for word in HANDS_ON_WORDS):
         return False
-    return any(phrase in lowered for phrase in BACKGROUND_WORDS)
+    # Artefacts count as background work too, and the two lists have to agree:
+    # "deck" was in one and not the other, so "make a deck about the history of
+    # computing" planned correctly and then ran in the foreground anyway.
+    return (any(phrase in lowered for phrase in BACKGROUND_WORDS)
+            or any(word in lowered for word in ARTEFACT_WORDS))
 
 
 # Words that open a yes/no question. A reply ending in one invites a bare
@@ -337,6 +355,11 @@ def main() -> None:
     # the render loop, so a plain dict is enough.
     awaiting_answer = {"until": 0.0}
 
+    # When the current turn started working, so a long one can say so in words
+    # instead of showing the same three dots for half a minute.
+    working_since = 0.0
+    said_it_is_slow = False
+
     cat_cursor = None
     if not args.no_pointer:
         try:
@@ -390,6 +413,20 @@ def main() -> None:
 
             if panic.tripped:
                 return
+
+            # Upgraded before the plan branch. Jev calls this one action
+            # when the word "research" is missing, and it is two: find out,
+            # then write the file. Handled here rather than only in the
+            # criteria because the cost of being wrong is asymmetric - a
+            # misrouted act blocks the voice loop for half a minute with
+            # nothing on screen to watch.
+            if (route.intent is Intent.ACT
+                    and any(word in spoken_words(transcript)
+                            for word in ARTEFACT_WORDS)
+                    and len(spoken_words(transcript).split())
+                    >= MINIMUM_WORDS_FOR_A_PLAN):
+                print("          makes a file about something, so planning it")
+                route = replace(route, intent=Intent.PLAN)
 
             # A plan the user is watching does not need a window. Only work
             # they have walked away from does - which is what a window is FOR,
@@ -716,6 +753,8 @@ def main() -> None:
 
                         asked_at = elapsed
                         animator.set_state(CatState.THINKING, elapsed)
+                        working_since = elapsed
+                        said_it_is_slow = False
                         # Dots until there is something to say. Routing and
                         # planning take a second or two together, and an empty
                         # bubble for that long reads as nothing happening.
@@ -812,6 +851,16 @@ def main() -> None:
                     dock.draw(elapsed)
                 except Exception as error:  # noqa: BLE001 - see draw_fault
                     draw_fault("agent dock", error)
+
+                # A turn that has gone quiet for a while says so. In the
+                # bubble only - never spoken, because interrupting the user to
+                # tell them nothing has happened yet is worse than the silence.
+                if (working.is_set() and not said_it_is_slow
+                        and working_since
+                        and elapsed - working_since > SLOW_TURN_SECONDS):
+                    said_it_is_slow = True
+                    bubble_state.say("still working on that", elapsed,
+                                     seconds=SLOW_TURN_SECONDS * 2)
 
                 opened = dock.clicked()
                 if opened is not None:

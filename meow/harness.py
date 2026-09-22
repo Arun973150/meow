@@ -420,6 +420,31 @@ class Harness:
             refusal = self._explaining(f"opening {name}")
             if refusal:
                 return refusal
+
+            # Windows' own pages first. There is no Settings.exe, so the
+            # installed-application search cannot find Settings and WILL find
+            # something else with the word in it - on this machine, WSL
+            # Settings, which it opened twice while saying it had not.
+            shell = apps.find_shell_target(name)
+            if shell is not None:
+                if not self._gated("open_app", name)(f"open {name}?"):
+                    refused = Outcome(False, f"The user declined, so {name} "
+                                             f"was not opened.", refused=True)
+                    self.runs.append(ToolRun("open_app", name, refused))
+                    return refused.detail
+                before = verify.look()
+                started = apps.open_shell_target(shell)
+                self.runs.append(ToolRun(
+                    "open_app", name,
+                    Outcome(started, f"opened {name}" if started
+                            else f"could not open {name}", method="shell")))
+                if not started:
+                    return f"Could not open {name}."
+                time.sleep(1.6)
+                self.digest = digest_foreground()
+                verdict = verify.opened(before, verify.look(), name)
+                return f"Opened {name}. {verdict.phrase()}"
+
             application = apps.find_application(name)
             if application is None:
                 installed = [a.name for a in apps.list_applications()]

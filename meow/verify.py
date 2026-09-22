@@ -217,7 +217,16 @@ def opened(before: Snapshot, after: Snapshot, app_name: str) -> Verdict:
     """
     fresh = after.windows - before.windows
     if not fresh:
-        return Verdict(False, f"no new window appeared for {app_name}")
+        # Already running. Opening an application that is already open brings
+        # it forward rather than making a second window, and reporting that as
+        # a failure is wrong in the way that matters: what the user asked for
+        # - the thing being in front of them - is true.
+        front = switched(after, app_name)
+        if front.happened is True:
+            return Verdict(True, f"{app_name} was already open and is now "
+                                 f"in front")
+        return Verdict(False, f"no new window appeared for {app_name}, and "
+                              f"it did not come forward either")
 
     wanted = app_name.lower().replace(".exe", "").strip()
     for process, title in fresh:

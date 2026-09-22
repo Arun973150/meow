@@ -275,6 +275,22 @@ which starts the real app, lets the loop turn, and fails on a traceback. It has
 been verified to FAIL on that exact bug, because a check that cannot fail is
 not a check.
 
+⚠ **Windows' own pages are not executables.** There is no `Settings.exe`, so
+the installed-application search cannot find Settings and WILL confidently find
+something else containing the word — on this machine, **WSL Settings**, which
+it opened twice while insisting it had not. `apps.SHELL_TARGETS` maps spoken
+names to `ms-settings:` URIs and is checked BEFORE the installed search.
+
+⚠ **Opening something already open is success, not failure.** It comes forward
+instead of making a second window, so "no new window appeared" is true and
+useless. `verify.opened` falls back to asking whether it is in front now.
+
+⚠ **Producing a file ABOUT a topic is always a plan.** Find out, then write it —
+two jobs. Jev called "gpu prices in india, put it in a spreadsheet" one action
+purely because the word "research" was never said, so it ran in the foreground
+and blocked the voice loop for half a minute with no icon to watch. Upgraded
+structurally in `scripts/meow.py`, not left to the criteria alone.
+
 ⚠ **The agent icons are FIXED, not anchored to the cat.** They were stacked
 above it first, and the cat moves — it follows the pointer and goes home — so
 an icon was never twice in the same place and clicking one meant chasing it.

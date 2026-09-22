@@ -276,6 +276,76 @@ def list_applications() -> list[Application]:
     return [Application(name, path) for name, path in sorted(combined.items())]
 
 
+# Windows' own settings pages are not executables and are not in the Start menu
+# index, so nothing in `list_applications` can ever match them. Asked to "open
+# settings", the search found the only installed thing containing the word -
+# which on this machine is **WSL Settings** - and opened that instead, twice,
+# while insisting it had tried.
+#
+# These are URI protocols handled by the shell. `ms-settings:` opens Settings;
+# `ms-settings:personalization-colors` opens the page dark mode is on, which is
+# what "how do i turn on dark mode" should be able to reach directly.
+SHELL_TARGETS = {
+    "settings": "ms-settings:",
+    "windows settings": "ms-settings:",
+    "system settings": "ms-settings:",
+    "windows system settings": "ms-settings:",
+    "display settings": "ms-settings:display",
+    "sound settings": "ms-settings:sound",
+    "bluetooth": "ms-settings:bluetooth",
+    "bluetooth settings": "ms-settings:bluetooth",
+    "wifi": "ms-settings:network-wifi",
+    "wi-fi": "ms-settings:network-wifi",
+    "wifi settings": "ms-settings:network-wifi",
+    "network settings": "ms-settings:network",
+    "dark mode": "ms-settings:personalization-colors",
+    "colours": "ms-settings:personalization-colors",
+    "colors": "ms-settings:personalization-colors",
+    "personalisation": "ms-settings:personalization",
+    "personalization": "ms-settings:personalization",
+    "windows update": "ms-settings:windowsupdate",
+    "installed apps": "ms-settings:appsfeatures",
+    "default apps": "ms-settings:defaultapps",
+    "control panel": "control.exe",
+    "task manager": "taskmgr.exe",
+    "device manager": "devmgmt.msc",
+    "recycle bin": "shell:RecycleBinFolder",
+    "downloads": "shell:Downloads",
+    "documents": "shell:Personal",
+    "this pc": "shell:MyComputerFolder",
+}
+
+
+def find_shell_target(text: str) -> str | None:
+    """A Windows shell URI for this name, if there is one.
+
+    Checked BEFORE the installed-application search, because the installed
+    search will confidently return something wrong: there is no Settings.exe,
+    so "settings" matched "WSL Settings" and nothing about that reads as a
+    failure.
+    """
+    wanted = " ".join(str(text).lower().split()).strip()
+    wanted = wanted.removeprefix("open ").removeprefix("the ").strip(" .?!")
+    if not wanted:
+        return None
+    if wanted in SHELL_TARGETS:
+        return SHELL_TARGETS[wanted]
+    # "windows settings please", "settings app"
+    for name, target in SHELL_TARGETS.items():
+        if wanted == name + " app" or wanted == "the " + name:
+            return target
+    return None
+
+
+def open_shell_target(target: str) -> bool:
+    """Open a shell URI or a system tool. True if Windows accepted it."""
+    try:
+        os.startfile(target)  # noqa: S606 - opening a shell URI is the point
+        return True
+    except OSError:
+        return False
+
+
 def find_application(text: str) -> Application | None:
     """The best installed application matching a spoken name."""
     wanted = text.lower().strip().removeprefix("open ").strip()

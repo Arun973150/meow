@@ -174,7 +174,13 @@ class JevRouter:
                              "between applications - open something then do "
                              "things in it, gather something then put it "
                              "somewhere. If the sentence contains 'and' "
-                             "joining two different activities, it is a plan."),
+                             "joining two different activities, it is a plan. "
+                             "ALSO: producing a spreadsheet, document or deck "
+                             "ABOUT a topic is always a plan, because the "
+                             "information has to be found before it can be "
+                             "written - 'gpu prices in india, put it in a "
+                             "spreadsheet' is a plan even though the word "
+                             "research was never said."),
                 },
             ),
             "needs_screen": boolean(
