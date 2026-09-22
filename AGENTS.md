@@ -199,6 +199,34 @@ small window: the cat says "i am on it" and goes back to listening. Say
 "also ..." to queue something onto a running task, "close that" when it is
 finished. Two run at once. Pause stops them all.
 
+**A task can stop and ask, and only about what matters.** A handed-over job
+used to decline anything needing a decision and report the gap at the end.
+There is somewhere to put a question now: it goes into the task's own
+conversation with yes/no buttons, the icon turns **amber** and stops spinning,
+and the thread blocks. Nobody is interrupted - the question waits until it is
+convenient, which is what consent needs in order to mean anything. Answer it
+and the task carries on from exactly where it stopped, because it never
+unwound. After four minutes it expires: silence is not consent.
+
+⚠ **It asks ONLY about things that are hard to undo.** Delegating a job is
+consent to the ordinary steps of doing it, so an unattended harness goes ahead
+with opening an app, typing, clicking Save, ctrl+s. `Delete All Messages`,
+`shift+delete` and `Send` stop and wait. A task that asks permission for every
+step never finishes, and it takes back the walking-away that was the point of
+handing it over.
+
+⚠ **`TaskState.finished` lists its states rather than saying "not RUNNING".**
+Written the other way, adding WAITING made every waiting task instantly count
+as finished - icon retired, conversation closed, question discarded. For the
+same reason `TaskRunner.running` filters on `state.working`.
+
+**Plan state is durable.** `Documents/Meow/plans.db` via `SqliteSaver`. Every
+step is a checkpoint, which made a plan resumable *within one process* - and a
+plan interrupted by a crash was simply gone, at the moment its state was worth
+the most. Verified across a real process restart, not inside one: an in-memory
+saver passes every test that stays in a single process, which is how it went
+unnoticed.
+
 **An icon per running agent, pinned top right.** When Meow hands work over,
 that agent gets its own icon down the right edge, below the window buttons;
 clicking it opens the window straight onto that agent's conversation — what it is doing now and everything it has said. The icon goes

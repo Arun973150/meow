@@ -28,9 +28,12 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont
+from PySide6.QtGui import (
+    QAction, QColor, QCursor, QDesktopServices, QFont,
+)
 from PySide6.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QStyleOptionViewItem,
     QMainWindow, QMenu, QSplitter, QSystemTrayIcon, QVBoxLayout,
     QWidget,
 )
@@ -39,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from meow.chat import icons
 from meow.chat.bubbles import (
-    TEXT, WHO, MessageDelegate, file_path, is_file,
+    TEXT, WHO, MessageDelegate, file_path, hit_yes, is_ask, is_file,
 )
 from meow.chat.trays import AgentTrays
 from meow.conversations import Conversation, Store
@@ -259,11 +262,30 @@ class ChatWindow(QMainWindow):
         record holds .xlsx, .docx and .pptx, and whatever the user
         has set to open those is the right answer.
         """
+        if is_ask(index):
+            self._answer(index)
+            return
         if not is_file(index):
             return
         path = file_path(index)
         if path:
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+    def _answer(self, index) -> None:
+        """Answer a question a task is stopped on.
+
+        Written into the conversation as an ordinary message, because that is
+        the only channel the two processes share - the task is blocked in the
+        voice loop's process, polling this record for exactly this row.
+        """
+        option = QStyleOptionViewItem()
+        option.rect = self.transcript.visualRect(index)
+        point = self.transcript.viewport().mapFromGlobal(QCursor.pos())
+        said = hit_yes(index, point, option)
+        if said is None or self.showing is None:
+            return
+        self.store.add(self.showing, "answer", "yes" if said else "no")
+        self.refresh(force=True)
 
     def _on_search(self, text: str) -> None:
         self.filter_text = text.strip()

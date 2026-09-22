@@ -91,7 +91,7 @@ from .actions import Confirmer, Outcome, always_allow
 from .config import get, openai_api_key
 from .grounding import Target
 from .memory import Memory
-from .risk import judge
+from .risk import is_dangerous, judge
 from .uia import WindowDigest, digest_foreground
 
 MODEL = "gpt-4o-mini"
@@ -277,6 +277,9 @@ class Harness:
         # A prompt saying "do not click" is a request. A tool that
         # will not click is a guarantee.
         self.guiding = False
+        # Handed-over work, with nobody watching. It changes WHICH questions
+        # are worth stopping for - see _gated.
+        self.unattended = False
         # Read once at startup. Recipes are hand-edited between sessions, not
         # during one, and re-reading a folder before every turn would put disk
         # access on the path that can least afford it.
@@ -764,11 +767,32 @@ class Harness:
         a reason to skip the question. Anything the user named themselves does
         not ask, because repeating their sentence back and waiting is how a
         prompt becomes furniture.
+
+        A third rule when unattended. A handed-over task asks ONLY about
+        things that are hard to undo. Everything else it would normally ask
+        about, it does - because the user delegated the whole job, and
+        delegating a job is consent to the ordinary steps of doing it. A task
+        that stops to ask permission for each of those is a task that never
+        finishes, and it stops the user from having walked away, which was the
+        entire point of handing it over.
+
+        Dangerous still asks. That question is worth waiting for, and it is
+        the only kind that is.
         """
         decision = judge(tool, target, self.transcript, self.route_risky)
+        dangerous = is_dangerous(tool, target)
 
         def gate(question: str) -> bool:
             if not decision.should_ask:
+                return True
+            if self.unattended and not dangerous:
+                # Recorded, not silent. The work was delegated, but what was
+                # done under that delegation should still be readable
+                # afterwards.
+                self.runs.append(ToolRun(
+                    tool, target,
+                    Outcome(True, f"went ahead with {tool} (you handed this "
+                                  f"over, and it is not hard to undo)")))
                 return True
             return self.confirm(question)
 

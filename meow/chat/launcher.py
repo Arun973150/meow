@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from meow.conversations import Store, database_path
@@ -123,6 +124,45 @@ class ChatPanel:
             self.store.add(conversation, "file", path)
         except Exception:  # noqa: BLE001
             pass
+
+    def ask(self, conversation: int, question: str) -> int | None:
+        """Put a question in the conversation. Returns its message id, or None.
+
+        None means there is nowhere to ask - no record, no window - and the
+        caller must fall back to declining rather than blocking on an answer
+        that can never arrive.
+        """
+        if self.store is None or not conversation or not question.strip():
+            return None
+        try:
+            return self.store.add(conversation, "ask", question) or None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def wait_for_answer(self, conversation: int, after_id: int,
+                        seconds: float) -> bool | None:
+        """Block until somebody answers in the window, or give up.
+
+        Polled rather than pushed, for the same reason the window polls: the
+        two are separate processes and the record is the only thing they
+        share. A second between checks is imperceptible against a question
+        that has been sitting there waiting for a person.
+
+        None means nobody answered. Silence is not consent.
+        """
+        if self.store is None or not conversation:
+            return None
+        deadline = time.perf_counter() + seconds
+        while time.perf_counter() < deadline:
+            try:
+                for message in self.store.messages(conversation,
+                                                   after_id=after_id):
+                    if message.who == "answer":
+                        return message.text.strip().lower().startswith("y")
+            except Exception:  # noqa: BLE001
+                return None
+            time.sleep(1.0)
+        return None
 
     def end(self, conversation: int) -> None:
         if self.store is None or not conversation:

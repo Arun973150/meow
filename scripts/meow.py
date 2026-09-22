@@ -62,7 +62,7 @@ from meow.platform.hotkey import HotkeyListener, HotkeyUnavailable
 from meow.platform.monitors import get_cursor_position, get_virtual_desktop
 from meow.platform.overlay import Bounds, Overlay
 from meow.router import Intent, Router
-from meow.tasks import TaskRunner, TaskState, declining_confirmer
+from meow.tasks import TaskRunner, TaskState, asking_confirmer
 from meow.voice import AssemblyAIStreaming, ElevenLabsSpeaker, Microphone, SpeechQueue
 
 TARGET_FPS = 60
@@ -450,10 +450,25 @@ def main() -> None:
                     # got "open excel?" out of nowhere.
                     # Shares the memory, so a step can resolve "the one we
                     # were just looking at" against what was actually said.
-                    own = Harness(confirm=declining_confirmer(task),
+                    # It ASKS now rather than declining outright. The
+                    # question goes into its own conversation, its icon turns
+                    # amber, and the thread blocks until somebody answers or
+                    # four minutes pass. Nobody is interrupted - which is what
+                    # consent needs in order to mean anything.
+                    confirmer = asking_confirmer(
+                        task,
+                        ask=lambda question: panel.ask(thread, question),
+                        wait_for_answer=lambda marker, seconds:
+                            panel.wait_for_answer(thread, marker, seconds))
+                    # unattended: it asks ONLY about things that are hard
+                    # to undo. Handing work over is consent to the ordinary
+                    # steps of doing it, and a task that stops for each of
+                    # those never finishes.
+                    own = Harness(confirm=confirmer,
                                   ask_before_acting=False,
                                   memory=memory, actor=actor,
                                   budget=mind.screen.budget)
+                    own.unattended = True
                     # unattended: its confirmer declines without asking,
                     # so a refusal must not be reported as the user saying no.
                     worker = Planner(own, on_event=report, unattended=True,
@@ -788,7 +803,8 @@ def main() -> None:
                 # could not be clicked without chasing them first.
                 dock.sync([(task.conversation, task.title,
                             "magnifier" if wants_its_own_window(task.goal)
-                            else "gear")
+                            else "gear",
+                            task.state is TaskState.WAITING)
                            for task in tasks.running
                            if getattr(task, "conversation", 0)])
                 dock.layout(monitor)

@@ -47,13 +47,25 @@ from typing import Callable
 
 class TaskState(Enum):
     RUNNING = "running"
+    # Stopped on a question and waiting for an answer. Its thread is blocked,
+    # nothing is being spent, and it will carry on the moment somebody says
+    # yes or no.
+    WAITING = "waiting"
     DONE = "done"
     FAILED = "failed"
     STOPPED = "stopped"
 
     @property
     def finished(self) -> bool:
-        return self is not TaskState.RUNNING
+        # Listed rather than "not RUNNING". Written that way, adding WAITING
+        # would have made every waiting task instantly count as finished -
+        # its icon retired, its conversation closed, and the question it was
+        # waiting on thrown away.
+        return self in (TaskState.DONE, TaskState.FAILED, TaskState.STOPPED)
+
+    @property
+    def working(self) -> bool:
+        return self in (TaskState.RUNNING, TaskState.WAITING)
 
 
 @dataclass(frozen=True)
@@ -102,6 +114,8 @@ class Task:
         # icon on screen for it - so a task carries its own identity rather
         # than the two being matched up by number somewhere else.
         self.conversation = 0
+        # What it is stopped on, while it is stopped. Empty otherwise.
+        self.question = ""
 
         self._lines: list[Line] = []
         self._lock = threading.Lock()
@@ -148,6 +162,18 @@ class Task:
         self._instructions.put(text)
         self.log(f"queued: {text}", kind="queued")
 
+    def waiting_on(self, question: str) -> None:
+        """Stop on a question. The thread is already blocked when this runs."""
+        self.question = question
+        if self.state is TaskState.RUNNING:
+            self.state = TaskState.WAITING
+
+    def resumed(self) -> None:
+        self.question = ""
+        if self.state is TaskState.WAITING:
+            self.state = TaskState.RUNNING
+
+
     def take_instruction(self) -> str | None:
         try:
             return self._instructions.get_nowait()
@@ -170,6 +196,58 @@ class Task:
 
 # A worker is handed the task and does the work, logging as it goes.
 Worker = Callable[[Task], str]
+
+
+ANSWER_WAIT_SECONDS = 240.0
+
+
+def asking_confirmer(task: "Task", ask, wait_for_answer,
+                     seconds: float = ANSWER_WAIT_SECONDS
+                     ) -> Callable[[str], bool]:
+    """Permission for a task that can wait: ask, stop, and carry on.
+
+    `declining_confirmer` was the right answer while there was nowhere to put
+    a question. A background task must never interrupt the voice loop - it did
+    once, and the user, who had moved on because that is the point of handing
+    work over, got "open excel?" out of nowhere - so anything needing a
+    decision was declined and the work left half done.
+
+    There is somewhere to put it now. The question goes into the task's own
+    conversation, its icon turns amber, and the thread blocks. Nobody is
+    interrupted: the question sits there until it is convenient, which is what
+    consent needs in order to mean anything. Answer it and the task carries on
+    from exactly where it stopped, because it never unwound.
+
+    Silence is not consent. After four minutes the question expires, the
+    answer is no, and what was skipped is recorded and said at the end.
+    """
+    def confirm(question: str) -> bool:
+        wanted = question.rstrip("?").strip()
+        marker = ask(wanted)
+        if marker is None:
+            # Nowhere to ask - no record, no window. Falls back to the old
+            # behaviour rather than blocking on an answer that can never come.
+            task.log(f"skipped, needs you: {wanted}", kind="queued")
+            task.skipped.append(wanted)
+            return False
+
+        task.waiting_on(wanted)
+        try:
+            answer = wait_for_answer(marker, seconds)
+        finally:
+            task.resumed()
+
+        if answer is None:
+            task.log(f"no answer, so skipped: {wanted}", kind="queued")
+            task.skipped.append(wanted)
+            return False
+        task.log(f"you said {'yes' if answer else 'no'}: {wanted}",
+                 kind="queued")
+        if not answer:
+            task.skipped.append(wanted)
+        return answer
+
+    return confirm
 
 
 def declining_confirmer(task: "Task") -> Callable[[str], bool]:
@@ -216,7 +294,11 @@ class TaskRunner:
     @property
     def running(self) -> list[Task]:
         with self._lock:
-            return [task for task in self.tasks if task.state is TaskState.RUNNING]
+            # `working`, not `is RUNNING`. A task stopped on a question is
+            # still occupying a slot and still needs its icon on screen -
+            # written as `is RUNNING`, a waiting task vanished from the
+            # dock and let a fourth one start.
+            return [task for task in self.tasks if task.state.working]
 
     @property
     def visible(self) -> list[Task]:

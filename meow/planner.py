@@ -35,6 +35,7 @@ steps have to be written as standalone instructions.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Annotated, Any, Callable, TypedDict
@@ -215,6 +216,47 @@ def wants_narration(goal: str) -> bool:
     return any(phrase in lowered for phrase in EXPLAIN_WORDS)
 
 
+def checkpoint_path():
+    """Where plan state is written. Beside the conversations, not in temp.
+
+    A checkpoint in a temp folder is a checkpoint that is gone when it is
+    wanted - which is after a crash, a reboot, or a machine that went to sleep
+    in the middle of a long job.
+    """
+    from pathlib import Path
+    import os
+
+    folder = (Path(os.environ.get("USERPROFILE", Path.home()))
+              / "Documents" / "Meow")
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / "plans.db"
+
+
+def make_checkpointer():
+    """Durable if possible, in-memory if not. Never fails.
+
+    Every step of a plan is a checkpoint, which is what makes a plan
+    resumable - but only within one process while the saver is in memory. A
+    plan interrupted by a crash was simply gone, along with any record of what
+    it had already done, which is the moment the state is worth the most.
+
+    `check_same_thread=False` because plans run on task threads while the
+    voice loop holds the same saver. Falling back rather than raising: a plan
+    that keeps its state only in memory still works, and a cat that will not
+    start because a database file is locked does not.
+    """
+    try:
+        import sqlite3
+
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        connection = sqlite3.connect(str(checkpoint_path()),
+                                     check_same_thread=False)
+        return SqliteSaver(connection)
+    except Exception:  # noqa: BLE001
+        return InMemorySaver()
+
+
 class Planner:
     """A graph that plans, then runs each step as its own node visit."""
 
@@ -247,8 +289,25 @@ class Planner:
         graph.add_conditional_edges("step", self._after_step,
                                     {"step": "step", "end": END})
 
-        self.graph = graph.compile(checkpointer=InMemorySaver())
+        self.graph = graph.compile(checkpointer=make_checkpointer())
         self._runs = 0
+        # The id of the last plan run, so a caller can say which thread
+        # to look at afterwards. Without it the saved state exists and
+        # nothing knows what to call it.
+        self.thread = ""
+
+    def saved_state(self, thread: str | None = None):
+        """What a plan had done, read back from the checkpoint.
+
+        The point of persisting any of this: after a crash, "what had it
+        already finished" is answerable instead of guessed at.
+        """
+        try:
+            snapshot = self.graph.get_state(
+                {"configurable": {"thread_id": thread or self.thread}})
+            return Plan.from_state(snapshot.values) if snapshot.values else None
+        except Exception:  # noqa: BLE001
+            return None
 
     def _report(self, kind: str, text: str) -> None:
         if self.on_event is not None:
@@ -363,7 +422,10 @@ class Planner:
         """
         self.narrate = wants_narration(goal) if narrate is None else narrate
         self._runs += 1
-        config = {"configurable": {"thread_id": thread or f"plan-{self._runs}"},
+        # Unique per plan, and durable. Reusing an id would resume the
+        # previous plan's state into this one, which is worse than having none.
+        self.thread = thread or f"plan-{int(time.time())}-{self._runs}"
+        config = {"configurable": {"thread_id": self.thread},
                   # Every step is a node visit, so the default of 25 would cap
                   # a plan at far fewer steps than MAX_STEPS allows.
                   "recursion_limit": MAX_STEPS * 3 + 10}

@@ -31,6 +31,8 @@ TEXT = Qt.UserRole + 2
 MAX_WIDTH_SHARE = 0.72
 
 PADDING_X = 13
+BUTTON_WIDTH = 62
+BUTTON_HEIGHT = 26
 PADDING_Y = 9
 NAME_HEIGHT = 15
 GAP = 12
@@ -46,6 +48,10 @@ COLOURS = {
     # something anyone said - it is a thing that now exists, and
     # unlike every other row it can be pressed.
     "file": ("#2b332b", "#cfe6cd", "#7bc96f"),
+    # A task stopped on a question. Amber, because it is the one row in the
+    # window that something is actually waiting on.
+    "ask": ("#3a3327", "#f0e3c8", "#d8a76b"),
+    "answer": ("#2f3b44", "#dceaf5", "#7fa8c9"),
 }
 AGENT_COLOURS = ("#242a24", "#d7e4d5", "#7bc96f")
 
@@ -56,7 +62,41 @@ def _palette(who: str) -> tuple[str, str, str]:
 
 def _name_of(who: str) -> str:
     return {"user": "you", "meow": "meow",
-            "file": "made this - click to open"}.get(who, who)
+            "file": "made this - click to open",
+            "ask": "waiting on you - click yes or no",
+            "answer": "you"}.get(who, who)
+
+
+def is_ask(index) -> bool:
+    """Is this row a question a task is stopped on?"""
+    return str(index.data(WHO) or "") == "ask"
+
+
+def hit_yes(index, point, option) -> bool | None:
+    """Which button was clicked on a question row, if either.
+
+    The buttons are painted rather than being real widgets, so the hit test
+    lives beside the painting - two places computing the same rectangles is
+    how a button ends up half a pixel from where it looks.
+    """
+    if not is_ask(index):
+        return None
+    yes, no = _button_rects(option)
+    if yes.contains(point):
+        return True
+    if no.contains(point):
+        return False
+    return None
+
+
+def _button_rects(option):
+    """Yes and No, at the bottom left of a question row."""
+    area = option.rect
+    top = area.bottom() - BUTTON_HEIGHT - 8
+    left = area.left() + 14 + PADDING_X
+    yes = QRect(left, top, BUTTON_WIDTH, BUTTON_HEIGHT)
+    no = QRect(left + BUTTON_WIDTH + 8, top, BUTTON_WIDTH, BUTTON_HEIGHT)
+    return yes, no
 
 
 def is_file(index) -> bool:
@@ -100,6 +140,9 @@ class MessageDelegate(QStyledItemDelegate):
         text = self._shown(index)
         bounds = self._text_rect(text, self._wrap_width(option))
         height = bounds.height() + PADDING_Y * 2 + NAME_HEIGHT + GAP
+        if is_ask(index):
+            # Room for the buttons underneath the question.
+            height += BUTTON_HEIGHT + 10
         return QSize(option.rect.width(), height)
 
     def paint(self, painter: QPainter, option, index) -> None:
@@ -139,6 +182,17 @@ class MessageDelegate(QStyledItemDelegate):
         painter.drawText(
             QRect(left + PADDING_X, top + PADDING_Y, wrap_width, bounds.height()),
             Qt.TextWordWrap, text)
+
+        if who == "ask":
+            yes, no = _button_rects(option)
+            for rect, label, fill in ((yes, "yes", "#3d5c3a"),
+                                      (no, "no", "#4a3535")):
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QColor(fill))
+                painter.drawRoundedRect(QRectF(rect), 7, 7)
+                painter.setPen(QPen(QColor("#e8e6e3")))
+                painter.setFont(self.name_font)
+                painter.drawText(rect, Qt.AlignCenter, label)
 
         if who == "file":
             # Underlined, so it reads as something to press rather

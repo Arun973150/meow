@@ -66,12 +66,13 @@ class DockedAgent:
     conversation_id: int
     title: str
     kind: str                      # "magnifier" or "gear"
+    waiting: bool = False          # stopped on a question, needing an answer
     overlay: Overlay | None = None
     bounds: Bounds | None = None
 
 
 def draw_icon(kind: str, size: int = ICON_SIZE,
-              spin: float = 0.0) -> Image.Image:
+              spin: float = 0.0, waiting: bool = False) -> Image.Image:
     """The icon, drawn rather than loaded - the same argument as the cat.
 
     `spin` turns the mark slowly while the agent works, which is the only
@@ -85,9 +86,13 @@ def draw_icon(kind: str, size: int = ICON_SIZE,
     middle = edge // 2
 
     # A filled disc so the icon reads against any wallpaper, light or dark.
+    # Amber while stopped on a question, green while working. A colour
+    # rather than a second badge: the icon is 34 pixels across and another
+    # mark on it would be a smudge, while a ring that changes colour is
+    # legible from the other side of the screen.
+    ring = (216, 167, 107, 255) if waiting else (123, 201, 111, 255)
     draw.ellipse([2 * scale, 2 * scale, edge - 2 * scale, edge - 2 * scale],
-                 fill=(30, 30, 32, 235), outline=(123, 201, 111, 255),
-                 width=2 * scale)
+                 fill=(30, 30, 32, 235), outline=ring, width=2 * scale)
 
     ink = (232, 230, 227, 255)
     if kind == "magnifier":
@@ -143,17 +148,28 @@ class AgentDock:
         Takes plain tuples rather than a Store, so the caller decides where
         the truth lives and this stays testable without a database.
         """
-        wanted = {conversation_id: (title, kind)
-                  for conversation_id, title, kind in running}
+        # Rows may be (id, title, kind) or (id, title, kind, waiting). The
+        # shorter form is taken to mean not waiting, so callers that do not
+        # know about questions keep working.
+        wanted = {row[0]: (row[1], row[2], row[3] if len(row) > 3 else False)
+                  for row in running}
 
         for conversation_id in list(self.agents):
             if conversation_id not in wanted:
                 self._remove(conversation_id)
 
-        for conversation_id, (title, kind) in wanted.items():
-            if conversation_id not in self.agents:
+        for conversation_id, (title, kind, waiting) in wanted.items():
+            existing = self.agents.get(conversation_id)
+            if existing is None:
                 self.agents[conversation_id] = DockedAgent(
-                    conversation_id=conversation_id, title=title, kind=kind)
+                    conversation_id=conversation_id, title=title, kind=kind,
+                    waiting=waiting)
+            else:
+                # Updated in place. A task stops on a question and carries on
+                # afterwards, and rebuilding its icon each time would make it
+                # flicker every time it asked.
+                existing.waiting = waiting
+                existing.title = title
 
         if not self.agents:
             self._flushed = False
@@ -197,7 +213,11 @@ class AgentDock:
                 agent.overlay = Overlay(agent.bounds, click_through=False)
                 agent.overlay.show()
             agent.overlay.set_bounds(agent.bounds)
-            image = draw_icon(agent.kind, spin=phase * 1.2)
+            # A waiting icon does not spin. Nothing is happening, and an
+            # icon that spins while meaning "stopped" is a lie told sixty
+            # times a second.
+            image = draw_icon(agent.kind, waiting=agent.waiting,
+                              spin=0.0 if agent.waiting else phase * 1.2)
             agent.overlay.draw(rgba_to_premultiplied_bgra(image))
 
     # --- clicking --------------------------------------------------------
