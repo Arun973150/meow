@@ -850,6 +850,45 @@ def stress_connectors() -> None:
           recipient_cannot_change_after_approval)
 
 
+# ------------------------------------------------------------------ apps ---
+
+def stress_apps() -> None:
+    from meow import apps
+
+    def finding_never_raises():
+        for text in NASTY:
+            apps.find_application(text)
+            apps.find_shell_target(text)
+
+    def exact_beats_prefix():
+        """"photos" must not find Photoshop.
+
+        Ordered by source rather than by strength, the installed list was
+        asked first and photoshop starts with photos - so asking for Photos
+        opened a different program with a similar name.
+        """
+        for asked, wanted in (("photos", "photos"),
+                              ("camera", "camera"),
+                              ("calculator", "calculator")):
+            found = apps.find_application(asked)
+            assert found is not None, f"{asked!r} found nothing"
+            assert wanted in found.name, f"{asked!r} found {found.name!r}"
+
+    def store_apps_are_reachable():
+        """Camera and Calculator have no .exe anywhere."""
+        for name in ("camera", "calculator"):
+            found = apps.find_application(name)
+            assert found is not None and found.app_id,                 f"{name!r} has no app id, so it cannot be launched"
+
+    def nothing_is_invented():
+        assert apps.find_application("a program that does not exist") is None
+
+    check("apps: finding never raises", finding_never_raises)
+    check("apps: exact beats prefix", exact_beats_prefix)
+    check("apps: store apps reachable", store_apps_are_reachable)
+    check("apps: nothing is invented", nothing_is_invented)
+
+
 SUITES = {
     "memory": stress_memory,
     "store": stress_store,
@@ -862,6 +901,7 @@ SUITES = {
     "risk": stress_risk,
     "queries": stress_queries,
     "connectors": stress_connectors,
+    "apps": stress_apps,
     "planner": stress_planner,
     "harness": stress_harness,
     "tasks": stress_tasks,

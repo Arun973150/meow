@@ -288,6 +288,20 @@ right button sitting in the digest. `press_keys` sends those back to
 `click_control` rather than asking, because "press win+m?" cannot be answered
 usefully by someone who does not know it applies to everything.
 
+⚠ **A Store app is an AppUserModelID, not a file.** `App Paths` and the
+Start-menu `.lnk` walk between them found 211 applications and could not see
+Camera, Calculator, Photos, Clock, Xbox or WhatsApp, because a UWP app has no
+executable to find. `apps.start_apps()` reads `Get-StartApps` through
+PowerShell — 241 on this machine — and `launch` opens them with
+`explorer.exe shell:AppsFolder\<AppID>`, since `os.startfile` cannot resolve a
+virtual folder. It costs about a second, so it is consulted alongside the cheap
+sources rather than instead of them.
+
+⚠ **Match by STRENGTH, not by source.** Asking the installed list first meant
+"photos" found **Photoshop** — photoshop starts with photos, and a prefix hit
+from the first source beat an exact hit from the second. Exact beats prefix
+beats substring, whichever list it came from.
+
 ⚠ **Windows' own pages are not executables.** There is no `Settings.exe`, so
 the installed-application search cannot find Settings and WILL confidently find
 something else containing the word — on this machine, **WSL Settings**, which
