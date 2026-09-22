@@ -113,6 +113,59 @@ MAX_MODEL_CALLS_PER_RUN = 8
 # in every plan paid the worst case.
 SETTLE_SECONDS = 0.35
 
+# Injected on SHOW turns, where the job is to point rather than to describe.
+# Without it the model answered "where is the file menu" out of its own
+# memory - "top left, labelled File" - about a Notepad whose control list
+# contains no File menu at all. A remembered layout is exactly what this
+# project measured as wrong: the whole thesis is that the tree knows and the
+# model does not.
+def where_on_screen(target, monitor=None) -> str:
+    """Where a control is, in the words a person would use.
+
+    The model has the coordinates and no sense of them, so it invented the
+    description: it pointed correctly at Minimize in the top right and said
+    "at the bottom right corner of the window". The pointer went to the right
+    place and the sentence sent the user to the wrong one, which is worse than
+    saying nothing.
+
+    Thirds rather than halves, because "middle" is a real and common answer
+    and forcing everything into top/bottom makes a centred toolbar "top".
+    """
+    try:
+        from .platform.monitors import get_virtual_desktop
+
+        screen = monitor or get_virtual_desktop().primary
+        width = max(1, screen.right - screen.left)
+        height = max(1, screen.bottom - screen.top)
+        x, y = target.centre if hasattr(target, "centre") else (
+            (target.left + target.right) // 2, (target.top + target.bottom) // 2)
+        across = (x - screen.left) / width
+        down = (y - screen.top) / height
+    except Exception:  # noqa: BLE001 - a description is not worth a crash
+        return ""
+
+    vertical = "top" if down < 0.33 else ("bottom" if down > 0.66 else "middle")
+    horizontal = ("left" if across < 0.33
+                  else ("right" if across > 0.66 else "centre"))
+    if vertical == "middle" and horizontal == "centre":
+        return "in the middle of the screen"
+    if horizontal == "centre":
+        return f"at the {vertical} of the screen"
+    if vertical == "middle":
+        return f"on the {horizontal} of the screen"
+    return f"at the {vertical} {horizontal} of the screen"
+
+
+GUIDE_REMINDER = """This is a SHOW turn: the user wants to be shown where something is, not told what you remember about it.
+
+You MUST use a tool. Never describe a location from your own knowledge - applications change, and a remembered layout is how you point at a button that is not there.
+
+- If the thing is in the control list above, call point_at_control with its EXACT name. It tells you where the control actually is; repeat THAT, and do not describe a position from memory.
+- If it is NOT in the list, call find_how_to and read out the route it gives.
+- If neither finds it, say plainly that it is not on this screen. That is a useful answer; a guess is not.
+
+Change nothing. Every tool that would is refused on this turn anyway."""
+
 # Shortcuts that act on the WHOLE DESKTOP, and the control that does the same
 # thing to one window. Asked to minimise VS Code, the model reached for win+m -
 # which minimises everything the user has open, from a request about a single
@@ -490,7 +543,14 @@ class Harness:
                 return self._no_such_control(name)
             outcome = actions.point_at(target)
             self.runs.append(ToolRun("point_at_control", name, outcome, target))
-            return outcome.detail
+            if not outcome.ok:
+                return outcome.detail
+            # WHERE it is, in words, because the model has the coordinates and
+            # no sense of them. Without this it pointed correctly at Minimize
+            # in the top right and told the user it was at the bottom right.
+            place = where_on_screen(target)
+            return (f"{outcome.detail}. It is {place}." if place
+                    else outcome.detail)
 
         @tool
         def type_text(text: str) -> str:
@@ -1042,6 +1102,11 @@ class Harness:
         written_down = self.shelf.to_prompt(transcript)
         if written_down:
             messages.append(SystemMessage(written_down, additional_kwargs=tag))
+
+        if self.guiding:
+            # Last, so it is nearest the request. A SHOW turn that answers
+            # from memory has not shown anybody anything.
+            messages.append(SystemMessage(GUIDE_REMINDER, additional_kwargs=tag))
         messages.append(HumanMessage(transcript))
         messages.append(SystemMessage(STYLE_REMINDER, additional_kwargs=tag))
 

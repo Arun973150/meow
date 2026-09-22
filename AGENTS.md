@@ -441,6 +441,20 @@ and points at whatever step is on screen:
 > *network and internet, then advanced network settings, then dns server
 > assignment. edit is on screen now.*
 
+⚠ **A SHOW turn must POINT, not describe.** Refusing the acting tools was
+only half of it: asked "where is the file menu", the model answered out of its
+own memory and pointed at nothing. A remembered layout is precisely what this
+project measured as wrong — the tree knows and the model does not. `guiding`
+injects `GUIDE_REMINDER`, which says a tool MUST be used: `point_at_control`
+for anything in the list, `find_how_to` if it is not there, and "it is not on
+this screen" when neither finds it.
+
+⚠ **The model has coordinates and no sense of them.** It pointed correctly at
+Minimize in the top right and told the user it was "at the bottom right corner"
+— pointer in the right place, sentence sending them to the wrong one, which is
+worse than saying nothing. `point_at_control` returns `where_on_screen(target)`
+so there is a true answer to repeat instead of one to invent.
+
 ⚠ **Enforced in the tools, not the prompt.** A prompt saying "do not click" is a
 request; `Harness.guiding` makes `click_control`, `type_text`, `press_keys`,
 `open_app` and `make_document` return a refusal instead of acting. The
