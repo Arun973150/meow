@@ -155,6 +155,21 @@ DISCARD_WORDS = ("discard it", "discard that", "delete the draft",
 ARTEFACT_WORDS = ("spreadsheet", "document", "deck", "slides", "presentation",
                   "report", "essay", "xlsx", "docx", "pptx")
 
+# Mail, calendar and video live in the HARNESS as tools; the answer path has
+# no tools at all. So "what is in my inbox" - which is shaped exactly like a
+# question, and which Jev therefore calls ANSWER - reached a model that could
+# only talk, and it talked about the screenshot it was handed: "i'm not
+# looking at your screen right now, tell me what emails you see". Connected
+# accounts were reachable by script and unreachable by voice, which is the
+# only way anyone actually uses this.
+#
+# Structural rather than a router criterion, for the reason the artefact
+# upgrade is: a question about your inbox is a question NO model can answer
+# from its own knowledge, so there is nothing for a classifier to weigh.
+CONNECTOR_WORDS = ("inbox", "email", "emails", "e-mail", "mail", "gmail",
+                   "calendar", "agenda", "schedule", "meeting", "meetings",
+                   "appointment", "appointments", "youtube", "video")
+
 YES_WORDS = ("yes", "yeah", "yep", "sure", "go ahead", "do it", "okay", "ok",
              "please do", "confirm", "alright")
 NO_WORDS = ("no", "nope", "don't", "do not", "stop", "cancel", "leave it",
@@ -456,6 +471,17 @@ def main() -> None:
                     >= MINIMUM_WORDS_FOR_A_PLAN):
                 print("          makes a file about something, so planning it")
                 route = replace(route, intent=Intent.PLAN)
+
+            # Reaching a connected account needs a TOOL, and only the
+            # harness has them. Left as ANSWER, the cat replies out of its own
+            # knowledge, which for "what is in my inbox" is nothing at all.
+            # Only ANSWER is upgraded: SHOW is someone asking how to do it
+            # themselves, and PLAN and ACT already reach the harness.
+            if (route.intent is Intent.ANSWER
+                    and any(word in spoken_words(transcript).split()
+                            for word in CONNECTOR_WORDS)):
+                print("          that needs a connected account, so acting")
+                route = replace(route, intent=Intent.ACT)
 
             # A plan the user is watching does not need a window. Only work
             # they have walked away from does - which is what a window is FOR,

@@ -401,6 +401,18 @@ rather than assuming the obvious endpoint.
 ⚠ **Retry the login only on "not connected".** Opening a login tab in answer to
 a rate limit or a bad argument is answering the wrong question loudly.
 
+⚠ **A connected account is reachable only through a TOOL, so the sentence has
+to reach the harness.** "What's in my inbox" is shaped exactly like a
+question, Jev routed it to ANSWER, and the answer path holds no tools at all —
+so the cat replied out of its own knowledge and talked about the screenshot it
+had been handed: *"i'm not looking at your screen right now, tell me what
+emails you see in your inbox."* Every connector worked by script and none of
+them worked by voice, which is the only way anyone uses this. `CONNECTOR_WORDS`
+in `scripts/meow.py` upgrades ANSWER to ACT, structurally, for the same reason
+the artefact upgrade is structural: a question about your own inbox is one no
+model can answer from its own knowledge, so there is nothing for a classifier
+to weigh. SHOW is left alone — that is someone asking how to do it themselves.
+
 **The user never has an API key, and never should.** The Composio key belongs
 to whoever BUILT Meow — one key for the application — and the Google login
 belongs to whoever is running it. Those are different things held by different
