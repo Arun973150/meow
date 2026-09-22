@@ -534,7 +534,7 @@ def main() -> None:
 
     print(f"\n  tap {hotkey.display_name} and talk. Tap again to stop listening.")
     print(f"  tap {panic_key.display_name.upper()} to stop everything, instantly.")
-    print("  long jobs get an icon beside the cat - click it to watch them,")
+    print("  long jobs get an icon top right - click it to watch them,")
     print("  say \"also ...\" to add to one, \"close that\" when done.")
     print(f"  routing: {'jev' if router.using_jev else 'keywords'}"
           f"{'  (' + (router.unavailable_reason or '')[:60] + ')' if not router.using_jev else ''}")
