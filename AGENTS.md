@@ -817,6 +817,58 @@ app rather than at the previous run. It waits for the key now and names the
 real cause. Every intermittent smoke failure in one long session traced to a
 single stray background process.
 
+## Where things are kept
+
+Three places, because three different things were in one folder and they have
+different owners. `meow/storage/paths.py` decides all of them.
+
+```
+Documents/Meow          what the USER opens - .docx .xlsx, their recipes,
+                        contacts.txt. Explorer has to be able to reach it.
+%LOCALAPPDATA%/Meow     what the APP owns - conversations.db, plans.db,
+                        install-id, window.log. Never synced, never roamed.
+```
+
+> Measured on this machine: the whole store is **15,688 characters across 294
+> messages**. Any plan for hosting it is a sync and backup problem, not a
+> scale one.
+
+⚠ **Documents is NOT `%USERPROFILE%\Documents`.** Windows' Known Folder
+Move points it at OneDrive once backup is on, and on this machine it does: the
+shell says `C:\Users\ADMIN\OneDrive\Documents` while the code wrote to
+`C:\Users\ADMIN\Documents`. Both exist, so nothing ever failed - the app just
+saved spreadsheets into a Documents folder Explorer does not show, after
+announcing that everything lands in Documents/Meow. Ask the shell:
+`SHGetKnownFolderPath(FOLDERID_Documents)`.
+
+⚠ **A SQLite database must never live in a synced folder.** WAL is a second
+file that has to stay consistent with the first, and a sync service copies them
+independently and on its own schedule. The old path avoided this BY ACCIDENT,
+by writing to the un-synced twin - so fixing Documents correctly would have
+introduced the corruption the bug was hiding. Databases go to LOCALAPPDATA,
+which Windows guarantees is neither roamed nor synced.
+
+⚠ **A migration must never merge two databases.** Two conversation stores with
+overlapping autoincrement ids do not combine, so anything already at the
+destination is left alone and the old copy kept. And it must report what it
+could not move: the chat window is its own process holding `conversations.db`,
+so the file that matters most is the one most likely to be stuck, and two
+databases with no hint which is live is the worst outcome of a move.
+
+⚠ **Directories are not an afterthought in a migration.** Skipping them left
+the user's own recipes behind - the one feature whose whole point is that it
+belongs to them. Merged file by file, never folder-over-folder.
+
+**That split is the seam for hosting any of this later.** `documents()` is
+files and belongs to file sync; `app_data()` is state, and state is what a
+server would hold. Adding that does not have to move anybody's spreadsheets.
+
+⚠ **Syncing forces an identity decision.** `install-id` is per-MACHINE on
+purpose, after a shared `"default"` let one person's Gmail be read by every
+install. The moment conversations sync, identity has to become per-PERSON or
+the same human on two machines is two users and re-authorises everything -
+which means real accounts, a bigger step than storage.
+
 ## Invariants
 
 Do not violate these without updating the relevant doc first.
