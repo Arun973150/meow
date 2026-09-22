@@ -597,6 +597,96 @@ class Harness:
                     + "or open the window to read it. Never say it was sent.")
 
         @tool
+        def check_weather(location: str) -> str:
+            """The weather somewhere. Needs no login."""
+            found = self._reader().weather(location)
+            self.runs.append(ToolRun("check_weather", location,
+                                     Outcome(True, "read the weather")))
+            return found
+
+        @tool
+        def hacker_news(min_points: int = 100) -> str:
+            """The Hacker News front page. Needs no login."""
+            found = self._reader().hacker_news(min_points)
+            self.runs.append(ToolRun("hacker_news", str(min_points),
+                                     Outcome(True, "read the front page")))
+            return found
+
+        @tool
+        def my_tasks() -> str:
+            """The user's to-do list. Use for "what's on my list"."""
+            found = self._reader().my_tasks()
+            self.runs.append(ToolRun("my_tasks", "",
+                                     Outcome(True, "read the list")))
+            return found
+
+        @tool
+        def add_task(title: str, notes: str = "") -> str:
+            """Add one thing to the user's to-do list.
+
+            Goes straight in rather than becoming a draft: a task has no
+            recipient, so there is no destination for anything to choose.
+            """
+            done = self._reader().add_task(title, notes)
+            self.runs.append(ToolRun("add_task", title,
+                                     Outcome(not done.startswith("Could not"),
+                                             "added a task")))
+            return done
+
+        @tool
+        def read_google_doc(url_or_id: str) -> str:
+            """A Google Doc, by link or id."""
+            found = self._reader().read_document(url_or_id)
+            self.runs.append(ToolRun("read_google_doc", url_or_id[:40],
+                                     Outcome(True, "read a document")))
+            return found
+
+        @tool
+        def read_google_sheet(url_or_id: str, ranges: str = "A1:Z50") -> str:
+            """A Google Sheet, by link or id."""
+            found = self._reader().read_spreadsheet(url_or_id, ranges)
+            self.runs.append(ToolRun("read_google_sheet", url_or_id[:40],
+                                     Outcome(True, "read a spreadsheet")))
+            return found
+
+        @tool
+        def draft_event(title: str, when: str, hours: int = 1,
+                        attendees: str = "") -> str:
+            """Put an event in the user's REAL calendar. Does not create it yet.
+
+            Use for "put X in my calendar", "book a meeting on Tuesday". This
+            is their connected Google Calendar - do NOT open a calendar
+            application on screen and do NOT say you cannot see their
+            calendar. `when` is whatever they said: "the 25th of September",
+            "tomorrow at 3".
+            """
+            made = self._reader().compose_event(title, when, hours, attendees)
+            if isinstance(made, str):
+                self.runs.append(ToolRun("draft_event", when,
+                                         Outcome(False, "date not understood")))
+                return made
+            draft = self.outbox.add(made)
+            self.runs.append(ToolRun("draft_event", title,
+                                     Outcome(True, f"drafted {draft.id}")))
+            return (f"Drafted, NOT created. Draft {draft.id}:" + chr(10)
+                    + draft.describe() + chr(10) + chr(10)
+                    + "Say the FULL day and time back - a spoken date is easy "
+                    + "to mishear and an event on the wrong day is not found "
+                    + "until the day. Then they say 'send it' to create it.")
+
+        @tool
+        def draft_slack(channel: str, text: str) -> str:
+            """Write a Slack message for a channel. DOES NOT POST IT."""
+            draft = self.outbox.add(
+                self._reader().compose_message(channel, text))
+            self.runs.append(ToolRun("draft_slack", channel,
+                                     Outcome(True, f"drafted {draft.id}")))
+            return (f"Drafted, NOT posted. Draft {draft.id}:" + chr(10)
+                    + draft.describe() + chr(10) + chr(10)
+                    + "Say the channel and what it says. They post it by "
+                    + "saying 'send it'. Never say it has been posted.")
+
+        @tool
         def click_control(name: str) -> str:
             """Press a control on screen. Use its exact name from the list."""
             refusal = self._explaining(f"clicking {name}")
@@ -982,6 +1072,10 @@ class Harness:
                    # id. See meow/connectors/.
                    read_mail, read_message, my_agenda, explain_video,
                    find_contact,
+                   draft_event, draft_slack,
+                   check_weather, hacker_news, my_tasks,
+                   add_task, read_google_doc,
+                   read_google_sheet,
                    draft_reply,
                    open_app, switch_to_window, list_open_windows, press_keys,
                    write_about, look_up, make_document, make_spreadsheet,

@@ -269,7 +269,109 @@ class Reader:
         text = str(result.data.get("captions") or result.data)
         return UNTRUSTED + text[:MAX_BODY_CHARACTERS * 4]
 
+    # --- things that need no login at all ---------------------------------
+
+    def weather(self, location: str) -> str:
+        """The weather somewhere. NO_AUTH - nothing to sign into."""
+        result = self._call("WEATHERMAP_WEATHER",
+                            {"location": str(location).strip() or "London"})
+        if not result.ok:
+            return f"Could not get the weather: {result.error}"
+        return UNTRUSTED + str(result.data)[:MAX_BODY_CHARACTERS]
+
+    def hacker_news(self, min_points: int = 100) -> str:
+        """The Hacker News front page. NO_AUTH."""
+        result = self._call("HACKERNEWS_GET_FRONTPAGE",
+                            {"min_points": max(0, int(min_points or 0))})
+        if not result.ok:
+            return f"Could not read hacker news: {result.error}"
+        return UNTRUSTED + str(result.data)[:MAX_BODY_CHARACTERS * 2]
+
+    # --- lists and documents ----------------------------------------------
+
+    def my_tasks(self) -> str:
+        """What is on the to-do list."""
+        result = self._call("GOOGLETASKS_LIST_TASKS",
+                            {"tasklist_id": "@default", "maxResults": 40})
+        if not result.ok:
+            return f"Could not read the task list: {result.error}"
+        return UNTRUSTED + str(result.data)[:MAX_BODY_CHARACTERS]
+
+    def add_task(self, title: str, notes: str = "") -> str:
+        """Add one to-do.
+
+        A TOOL rather than a draft, unlike mail and Slack, and the line is
+        worth stating: a task has no recipient. It goes to the user's own
+        default list and nowhere else, so nothing a hostile page said can
+        choose a destination for it. Mail, Slack and calendar invitations all
+        take an address or a channel as an ARGUMENT - that argument is the
+        exfiltration channel, and that is what the draft-and-approve path
+        exists to put a person in front of.
+        """
+        result = self._call("GOOGLETASKS_INSERT_TASK",
+                            {"tasklist_id": "@default",
+                             "title": str(title).strip(),
+                             "status": "needsAction",
+                             "notes": str(notes)[:500]})
+        if not result.ok:
+            return f"Could not add it: {result.error}"
+        return f"Added '{title}' to the to-do list."
+
+    def read_document(self, url_or_id: str) -> str:
+        """A Google Doc, by link or id."""
+        result = self._call("GOOGLEDOCS_GET_DOCUMENT_BY_ID",
+                            {"id": _drive_id(url_or_id)})
+        if not result.ok:
+            return f"Could not read that document: {result.error}"
+        return UNTRUSTED + str(result.data)[:MAX_BODY_CHARACTERS * 3]
+
+    def read_spreadsheet(self, url_or_id: str, ranges: str = "A1:Z50") -> str:
+        """A Google Sheet, by link or id."""
+        result = self._call("GOOGLESHEETS_BATCH_GET",
+                            {"spreadsheet_id": _drive_id(url_or_id),
+                             "ranges": [r.strip() for r in ranges.split(",")]})
+        if not result.ok:
+            return f"Could not read that spreadsheet: {result.error}"
+        return UNTRUSTED + str(result.data)[:MAX_BODY_CHARACTERS * 2]
+
     # --- composing, which is NOT sending ----------------------------------
+
+    def compose_event(self, title: str, when: str, hours: int = 1,
+                      attendees: str = "") -> Draft | str:
+        """A calendar event as a DRAFT. Creates nothing.
+
+        The sender has always known how to deliver a calendar_event and
+        nothing could produce one, so "put an interview in my calendar on the
+        25th" fell through to the desktop and answered "i cannot see your
+        calendar, please open the calendar application" - about an account
+        that was connected the whole time.
+
+        Returns the draft, or a sentence saying why not.
+        """
+        moment = spoken_datetime(when)
+        if moment is None:
+            return (f"'{when}' is not a date I can pin down. Ask for the day "
+                    "and the time, and say the day as a date rather than "
+                    "'tomorrow-ish'.")
+
+        people = [address for address, _ in
+                  (_addresses(attendees) if attendees else [])]
+        return Draft(
+            kind="calendar_event",
+            payload={"title": str(title).strip() or "(no title)",
+                     "start": moment.strftime("%Y-%m-%dT%H:%M:%S"),
+                     "hours": max(0, min(24, int(hours or 1))),
+                     "attendees": people},
+            summary=f"{title} on {moment:%A %d %B at %H:%M}",
+            source=str(when))
+
+    def compose_message(self, channel: str, text: str) -> Draft:
+        """A Slack message as a DRAFT. Sends nothing."""
+        name = str(channel).strip().lstrip("#") or "general"
+        return Draft(kind="slack_message",
+                     payload={"channel": f"#{name}", "text": str(text)},
+                     summary=f"message to #{name}",
+                     source=str(text)[:80])
 
     def compose_reply(self, to: str, subject: str, body: str,
                       source: str = "") -> Draft:
@@ -294,6 +396,90 @@ _NAMED = re.compile(r'"?([^"<,;]*?)"?\s*<\s*(' + _MAILBOX + r')\s*>',
                     re.IGNORECASE)
 _BARE = re.compile(r"(?<![\w.%+-<])(" + _MAILBOX + r")(?![\w.%+-]*>)",
                    re.IGNORECASE)
+
+
+# A spoken date is the same problem as a spoken address: "25th of September"
+# has no year in it, and a microphone adds "the" and "of" and drops nothing
+# helpful. dateutil does the parsing; what it cannot decide is the year, and
+# guessing wrong books a meeting twelve months away that nobody sees until it
+# is missed.
+_WORDS_BEFORE_A_DATE = ("on ", "for ", "at ", "the ", "of ", "this ", "coming ")
+
+
+def _drive_id(url_or_id: str) -> str:
+    """The id out of a Docs/Sheets link, or the id if that is what was given."""
+    text = str(url_or_id).strip()
+    for marker in ("/document/d/", "/spreadsheets/d/", "/file/d/", "/d/"):
+        if marker in text:
+            text = text.split(marker, 1)[1]
+            break
+    for terminator in ("/", "?", "#"):
+        text = text.split(terminator, 1)[0]
+    return text
+
+
+def spoken_datetime(text: str, now=None):
+    """A datetime from something said out loud, or None.
+
+    None rather than a guess, for the reason an address is refused rather than
+    guessed: an event on the wrong day is worse than no event, because nobody
+    finds out until the day.
+    """
+    from datetime import datetime, timedelta
+
+    said = " ".join(str(text).lower().split())
+    for filler in ("please", "can you", "my calendar", "calendar"):
+        said = said.replace(filler, " ")
+    said = " ".join(said.split()).strip(" ,.")
+    if not said:
+        return None
+
+    reference = now or datetime.now()
+
+    # The relative ones dateutil will not do, and which people say constantly.
+    if said.startswith("tomorrow"):
+        base = reference + timedelta(days=1)
+        said = said[len("tomorrow"):].strip(" ,")
+        return _with_time(base, said)
+    if said.startswith("today") or said.startswith("tonight"):
+        said = said.split(" ", 1)[1] if " " in said else ""
+        return _with_time(reference, said)
+
+    try:
+        from dateutil import parser as _parser
+
+        # A default with the time zeroed, so "25th of September" comes back at
+        # a known hour rather than whatever o'clock it happens to be now.
+        parsed = _parser.parse(
+            said, fuzzy=True,
+            default=reference.replace(hour=9, minute=0, second=0,
+                                      microsecond=0))
+    except (ValueError, OverflowError, TypeError):
+        return None
+
+    # dateutil fills the year from the default, so a date already past this
+    # year comes back in the past. Nobody schedules into last week; a day or
+    # so of slack covers "this morning".
+    if parsed < reference - timedelta(days=1):
+        try:
+            parsed = parsed.replace(year=parsed.year + 1)
+        except ValueError:  # 29 February
+            parsed = parsed.replace(year=parsed.year + 1, day=28)
+    return parsed
+
+
+def _with_time(base, remainder: str):
+    """Put a spoken time onto a day, defaulting to nine in the morning."""
+    from dateutil import parser as _parser
+
+    if not remainder:
+        return base.replace(hour=9, minute=0, second=0, microsecond=0)
+    try:
+        return _parser.parse(remainder, fuzzy=True,
+                             default=base.replace(hour=9, minute=0, second=0,
+                                                  microsecond=0))
+    except (ValueError, OverflowError, TypeError):
+        return base.replace(hour=9, minute=0, second=0, microsecond=0)
 
 
 _MAILBOX_ONLY = re.compile(r"[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+",

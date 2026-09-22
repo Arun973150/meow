@@ -168,7 +168,16 @@ ARTEFACT_WORDS = ("spreadsheet", "document", "deck", "slides", "presentation",
 # from its own knowledge, so there is nothing for a classifier to weigh.
 CONNECTOR_WORDS = ("inbox", "email", "emails", "e-mail", "mail", "gmail",
                    "calendar", "agenda", "schedule", "meeting", "meetings",
-                   "appointment", "appointments", "youtube", "video")
+                   "appointment", "appointments", "youtube", "video",
+                   # Answerable only by asking a service. "What is the
+                   # weather" from the model's own memory is a guess about
+                   # today dressed as an answer.
+                   "weather", "forecast", "hacker", "hackernews",
+                   "todo", "to-do", "tasks")
+# Deliberately NOT here: "document" and "spreadsheet". They are ARTEFACT_WORDS
+# - they mean "make me one" far more often than "read my Google one" - and
+# upgrading them to ACT would skip the artefact upgrade that makes producing a
+# file about a topic a plan.
 
 YES_WORDS = ("yes", "yeah", "yep", "sure", "go ahead", "do it", "okay", "ok",
              "please do", "confirm", "alright")

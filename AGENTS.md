@@ -475,9 +475,32 @@ harness — it already holds private data and untrusted content, and gains no
 outbound channel from any of them. `draft_reply` composes and puts a draft in
 the outbox; the voice loop sends, after the user says so.
 
+⚠ **The sender could deliver three kinds of draft and only ONE could be
+made.** `compose_reply` was the only draft factory in the project, so
+`calendar_event` and `slack_message` were dead code in `_deliver` - and asked
+to put an interview in the calendar, the cat fell through to the desktop and
+said "i cannot see your calendar right now, please open the calendar
+application", about an account that was connected the whole time. A delivery
+path nothing can reach is worse than a missing one: it reads as finished.
+
+**The line between a tool and a draft is whether the DESTINATION is an
+argument.** Mail takes a recipient, Slack takes a channel, a calendar invite
+takes attendees - each of those arguments is an exfiltration channel, and the
+draft-and-approve path exists to put a person in front of it. A to-do has no
+recipient: it goes to the user's own default list and nowhere else, so nothing
+a hostile page said can choose a destination. `add_task` is therefore a plain
+tool and `draft_event` is not.
+
+⚠ **A spoken date is the same problem as a spoken address.** "25th of
+September" carries no year, and `reader.spoken_datetime` returns None rather
+than a guess for anything it cannot pin down - an event on the wrong day is
+worse than no event, because nobody finds out until the day. A date already
+past rolls forward a year, and the tool makes the model read the whole
+resolved day and time back.
+
 ⚠ **There is NO send tool in the harness, and there must never be one.** The
 harness holds the screen, which is private data and untrusted content both;
-one send tool closes the trifecta in a single move. 21 tools, none of them
+one send tool closes the trifecta in a single move. 32 tools, none of them
 send-shaped, and `scripts/stress.py` checks that.
 
 **Approval is explicit.** Saying "send it" sends the newest waiting draft, and
