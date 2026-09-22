@@ -149,6 +149,13 @@ an unverifiable action is reported as unverified and the cat says so.
 
 It found two real bugs within minutes of being wired up. See the traps.
 
+**Routing reads the conversation too.** Jev was classifying each sentence
+alone, so "can you type about Elon Musk" ten seconds after opening Notepad
+scored as a question ABOUT Elon Musk - which is exactly what it looks like,
+read by itself. The router takes the same Memory as everything else and sends
+recent turns with the sentence. Costs nothing measurable: 433ms with context
+against 564ms without, ranges overlapping.
+
 **Every path shares one memory.** `meow/memory.py` holds a short rolling
 transcript and an actor per running task, read before each reply and written
 after. The harness used to open a fresh LangGraph thread per turn, so it

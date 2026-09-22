@@ -112,6 +112,11 @@ def classify_locally(text: str) -> Route:
 
 # --- Jev --------------------------------------------------------------------
 
+# Built by concatenation rather than an escape, so the literal survives
+# being written through a shell heredoc.
+NEWLINE = chr(10)
+
+
 class JevRouter:
     """Jev, asked three questions at once, through LangChain."""
 
@@ -135,8 +140,10 @@ class JevRouter:
                 "What does the user want Meow to do?",
                 {
                     "answer": ("A question about facts, or about the user's "
-                               "own life. Nothing to do with what is on their "
-                               "screen right now."),
+                               "own life, where being TOLD the answer is all "
+                               "they want. If they want the answer PUT "
+                               "somewhere - typed, written, saved - it is act "
+                               "or plan, not answer."),
                     # "where is X" was landing on answer, because being TOLD
                     # where something is genuinely is an answer. It has to be
                     # show, or the reply is a description of where the button
@@ -151,7 +158,12 @@ class JevRouter:
                     # planner never ran for anything a person would call a
                     # multi-step task.
                     "act": ("ONE action, or two in the same application. "
-                            "Press, click, type, open or close something."),
+                            "Press, click, type, open or close something. "
+                            "Read the conversation above: a sentence that "
+                            "continues what Meow just did is act, even when "
+                            "it names no application. After Meow opens "
+                            "Notepad, 'write something about X' means write "
+                            "it IN Notepad."),
                     "plan": ("THREE OR MORE actions, or anything that moves "
                              "between applications - open something then do "
                              "things in it, gather something then put it "
@@ -167,9 +179,18 @@ class JevRouter:
                 "the user would find hard to undo?"),
         }
 
-    def route(self, text: str, partial: bool = False) -> Route:
+    def route(self, text: str, partial: bool = False,
+              context: str = "") -> Route:
+        # The conversation goes in with the sentence. Without it every
+        # sentence was classified alone, so "can you type about Elon Musk"
+        # ten seconds after opening Notepad scored as a question ABOUT Elon
+        # Musk - which is what it looks like, read by itself.
+        state = (("Conversation so far:" + NEWLINE + context + NEWLINE
+                  + "The user has just said: " + text)
+                 if context else text)
+
         evaluation = self._evaluator.invoke({
-            "state": text,
+            "state": state,
             "questions": self._questions,
         })
 
@@ -202,7 +223,12 @@ class Router:
     text" are not the same thing.
     """
 
-    def __init__(self, use_jev: bool = True) -> None:
+    def __init__(self, use_jev: bool = True, memory=None) -> None:
+        # The same Memory the harness and the answer path read. Routing was
+        # the one decision still made with no idea what had happened before,
+        # which is why a follow-up never resolved against the turn it
+        # followed.
+        self.memory = memory
         self.jev: JevRouter | None = None
         self.unavailable_reason: str | None = None
 
@@ -223,12 +249,21 @@ class Router:
     def using_jev(self) -> bool:
         return self.jev is not None
 
+    def _context(self) -> str:
+        """Recent turns, or nothing when there is no memory to read."""
+        return self.memory.recent() if self.memory is not None else ""
+
     def consider(self, partial_text: str) -> None:
         """Route an interim transcript in the background. Never blocks."""
         if not self.jev or len(partial_text.split()) < 3:
             # Two words is not enough to classify, and routing every keystroke
             # of a sentence spends requests to answer the same question.
             return
+
+        # Read once, outside the worker. The memory is written from the
+        # render loop, and a partial routed against context that changed
+        # mid-flight is worse than one routed against slightly stale context.
+        context = self._context()
 
         with self._lock:
             self._generation += 1
@@ -237,7 +272,8 @@ class Router:
 
         def run() -> None:
             try:
-                route = self.jev.route(partial_text, partial=True)
+                route = self.jev.route(partial_text, partial=True,
+                                       context=context)
             except Exception:  # noqa: BLE001 - a failed guess is not an error
                 return
             with self._lock:
@@ -267,7 +303,7 @@ class Router:
 
         if self.jev is not None:
             try:
-                return self.jev.route(final_text)
+                return self.jev.route(final_text, context=self._context())
             except Exception:  # noqa: BLE001
                 pass
         return classify_locally(final_text)

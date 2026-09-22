@@ -272,7 +272,7 @@ def main() -> None:
     except MissingKey as error:
         raise SystemExit(f"\n{error}\n")
 
-    router = Router(use_jev=not args.no_jev)
+    router = Router(use_jev=not args.no_jev, memory=memory)
     tasks = TaskRunner()
     # So "paste the results here" can reach what a task found. Without this the
     # harness had no idea a task had ever run, and answered that it could not

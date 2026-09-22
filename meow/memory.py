@@ -154,6 +154,18 @@ class Memory:
 
         return "\n\n".join(parts)
 
+    def recent(self, turns: int = 4) -> str:
+        """The last few exchanges, compact, for the router.
+
+        Shorter than `recall`: the router asks a classifier one small question
+        and needs only enough to resolve a follow-up. "Can you type about Elon
+        Musk" is a question about Elon Musk on its own and an instruction once
+        you know Notepad was opened ten seconds ago.
+        """
+        lines = [f"{'Meow' if turn.who == 'meow' else 'User'}: {turn.text}"
+                 for turn in self.turns()[-turns:]]
+        return chr(10).join(lines)
+
     def clear(self) -> None:
         with self._lock:
             self._turns.clear()
