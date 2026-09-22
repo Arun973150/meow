@@ -59,7 +59,16 @@ option that keeps Sticky Keys working.
 | 1.6 | **Done.** `meow/router.py` — Jev via `langchain-typesafe`, routed on interim transcripts so its latency lands off the critical path. Falls back to keywords with no key |
 | 1.7 | **Done in shape.** Every action takes a `Confirmer`; `point_at` is SAFE, everything else asks. Middleware wiring comes with the harness |
 | 1.8 | **Done.** `meow/panic.py` — Pause key, latched, no network on the path. Verified stopping a pointer glide mid-flight |
-| 1.9 | Visual verification loop: produce → screenshot → `look_at` → repair |
+| 1.9 | **Done, by a different route.** `meow/verify.py` - snapshot before,
+snapshot after, report what actually changed. Through UIA rather than the
+planned screenshot: 1.10's own ablation put vision at 0/6 for locating
+controls, so verifying with pixels would spend 2,833 tokens a turn asking
+the strategy that lost. 9ms per snapshot against 268ms for a digest, which
+is what makes it affordable on every action rather than at the end of a
+plan. Verdicts are yes / no / **could not tell**, and the third is load
+bearing - no observable change is not evidence of failure. Caught two real
+bugs on contact: typing corrupted above 20 cps, and focus not following a
+freshly launched application. |
 | 1.10 | **Done.** `scripts/evaluate.py` — UIA labels the ground truth, so the ablation is automatic. First result: UIA 6/6 at 0px, vision 0/6 at both detail levels |
 
 **Demo:** *"it uses your computer for you, while you watch, and asks before

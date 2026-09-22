@@ -58,6 +58,7 @@ meow/risk.py                when to ask, and when asking is just noise
 meow/documents.py           docx / xlsx / pptx into Documents/Meow
 meow/research.py            search + fetch ONLY - the trifecta split
 meow/memory.py              ONE memory - what was said, and who is working
+meow/verify.py              PHASE 1.9 - did the action actually happen?
 meow/tasks.py               handed-over work, on its own thread
 meow/taskwindow.py          the small window each task gets
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
@@ -128,6 +129,25 @@ no clickable control - ctrl+L for an address bar, Enter to submit a search.
 Control names are matched the way people speak them, degrading from exact to
 word overlap to close spelling, so "that terminal thing" and "minimise" both
 land.
+
+**Phase 1.9 done: actions are checked, not assumed.** The cat used to say
+"i typed your name in the document" whether or not a character arrived -
+`SendInput` returning means the input queue accepted the keystrokes, not
+that a field received them. `meow/verify.py` snapshots the desktop either
+side of an action and reports what actually changed.
+
+**Checked through UIA, not a screenshot** - a deviation from the phase plan
+that the project's own ablation justifies: vision scored 0/6 at locating
+controls, so verifying with pixels would cost 2,833 tokens a turn to
+consult the losing strategy. A snapshot is 9ms warm (130-260ms on the first
+call, while COM starts), so every action can afford one.
+
+**A verdict is yes, no, or could not tell, and the third matters most.**
+Clicking into a text box changes nothing observable; that is not failure.
+A verifier that only ever confirms is a more confident liar than none, so
+an unverifiable action is reported as unverified and the cat says so.
+
+It found two real bugs within minutes of being wired up. See the traps.
 
 **Every path shares one memory.** `meow/memory.py` holds a short rolling
 transcript and an actor per running task, read before each reply and written
@@ -266,6 +286,17 @@ Do not violate these without updating the relevant doc first.
   real depth headroom. VS Code's deepest actionable elements sit at depth 39.
 - `WH_KEYBOARD_LL` **stops firing when a Chromium window has focus** (Chrome,
   VS Code, Slack). Needs a `RegisterHotKey` fallback.
+- **`SendInput` accepting keystrokes is not the application receiving
+  them.** At 90 characters per second - the old default - Notepad got
+  "hello rrom rrrrrrobe" for "hello from the probe"; at 60 it dropped a
+  third of a pangram; at 30 it still mangled. **20 cps came back
+  byte-identical** and is the default now. The call reports success at
+  every speed, so nothing surfaces this except reading the text back.
+- **Launching an application does not give it focus.** A freshly opened
+  Notepad left focus on a button, on a group, and once on an entirely
+  unrelated window - so text typed straight after a launch lands somewhere
+  nobody predicted. `type_text` checks what has focus and refuses controls
+  that cannot hold text.
 - **The pointer drifts on its own.** This ThinkPad's TrackPoint moved the
   cursor a median of 0px but spiked to 57px while nothing touched it. Any
   "did the user grab the mouse?" check must test PERSISTENCE, not magnitude —

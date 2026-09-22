@@ -86,7 +86,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command
 
-from . import actions, apps, documents
+from . import actions, apps, documents, verify
 from .actions import Confirmer, Outcome, always_allow
 from .config import get, openai_api_key
 from .grounding import Target
@@ -100,6 +100,13 @@ MAX_OUTPUT_TOKENS = 220
 # An agent that keeps deciding to click is the failure this project can least
 # afford. A hard cap is cheaper than cleverness and cannot be talked out of.
 MAX_MODEL_CALLS_PER_RUN = 8
+
+# How long to wait after an action before checking whether it worked. An effect
+# is not on screen the instant the call returns - a dialog takes a moment to
+# appear, a window a moment to close - and checking too early reads the old
+# world and reports a working click as unverified. Short enough that five
+# actions in a plan cost under two seconds of waiting between them.
+SETTLE_SECONDS = 0.35
 
 SYSTEM_PROMPT = """You are a cat that lives on the user's Windows desktop. You \
 can see the controls on their screen and you can operate them.
@@ -285,9 +292,19 @@ class Harness:
             target = self._resolve(name)
             if target is None:
                 return self._no_such_control(name)
+            before = verify.look()
             outcome = actions.invoke(target, self._gated("click_control", name))
             self.runs.append(ToolRun("click_control", name, outcome, target))
-            return outcome.detail
+            if not outcome.ok:
+                return outcome.detail
+            # A short settle. A button's effect is not on screen the instant
+            # Invoke returns - a dialog takes a moment to appear and a window
+            # a moment to close - and checking too early reads the old world
+            # and reports a working click as unverified.
+            time.sleep(SETTLE_SECONDS)
+            verdict = verify.anything_changed(before, verify.look(),
+                                              f"pressing {name}")
+            return f"{outcome.detail}. {verdict.phrase()}"
 
         @tool
         def point_at_control(name: str) -> str:
@@ -302,9 +319,14 @@ class Harness:
         @tool
         def type_text(text: str) -> str:
             """Type text into whatever currently has keyboard focus."""
+            before = verify.look()
             outcome = actions.type_text(text, self._gated("type_text", text))
             self.runs.append(ToolRun("type_text", text, outcome))
-            return outcome.detail
+            if not outcome.ok:
+                return outcome.detail
+            time.sleep(SETTLE_SECONDS)
+            verdict = verify.typed(before, verify.look(), text)
+            return f"{outcome.detail}. {verdict.phrase()}"
 
         @tool
         def open_app(name: str) -> str:
@@ -332,6 +354,7 @@ class Harness:
                 self.runs.append(ToolRun("open_app", name, refusal))
                 return refusal.detail
 
+            before = verify.look()
             started = apps.launch(application)
             outcome = Outcome(started,
                               f"opened {application.name}" if started
@@ -345,6 +368,8 @@ class Harness:
                 # on the wrong application entirely.
                 time.sleep(1.6)
                 self.digest = digest_foreground()
+                verdict = verify.opened(before, verify.look(), application.name)
+                return f"{outcome.detail}. {verdict.phrase()}"
             return outcome.detail
 
         @tool
@@ -365,6 +390,12 @@ class Harness:
             if came_forward:
                 time.sleep(0.4)
                 self.digest = digest_foreground()
+                # focus_window returning True is not proof. Windows refuses
+                # foreground changes from a process that is not already in
+                # front, and the refusal is silent - it flashes the taskbar
+                # button instead, which reports as success here.
+                verdict = verify.switched(verify.look(), window.title)
+                return f"{outcome.detail}. {verdict.phrase()}"
             return outcome.detail
 
         @tool
@@ -382,9 +413,15 @@ class Harness:
             Use for things with no clickable control - opening a new tab,
             submitting a search, moving focus to an address bar.
             """
+            before = verify.look()
             outcome = actions.press_shortcut(keys, self._gated("press_keys", keys))
             self.runs.append(ToolRun("press_keys", keys, outcome))
-            return outcome.detail
+            if not outcome.ok:
+                return outcome.detail
+            time.sleep(SETTLE_SECONDS)
+            verdict = verify.anything_changed(before, verify.look(),
+                                              f"pressing {keys}")
+            return f"{outcome.detail}. {verdict.phrase()}"
 
         @tool
         def write_about(topic: str, sentences: int = 4) -> str:

@@ -214,16 +214,62 @@ def _click_without_asking(target: Target, why: str) -> Outcome:
     return Outcome(True, f"clicked {target.name} ({why})", method="click")
 
 
+# Controls that cannot hold text. Typing a sentence into a button does
+# nothing useful and is a sign the keystrokes are going somewhere nobody
+# intended - which is the failure worth catching, because it is silent.
+# A deny-list rather than an allow-list on purpose: Pane, Custom and Group
+# are ambiguous and are let through, since refusing a real text field is
+# worse than typing into an odd one.
+NOT_TEXT_FIELDS = {
+    "ButtonControl", "CheckBoxControl", "RadioButtonControl", "MenuItemControl",
+    "TabItemControl", "TreeItemControl", "ListItemControl", "ImageControl",
+    "HyperlinkControl", "ScrollBarControl", "SliderControl", "MenuControl",
+    "TitleBarControl", "ToolBarControl",
+}
+
+# Measured, not guessed. At 90 characters per second - the old default -
+# Notepad received "hello rrom rrrrrrobe" for "hello from the probe", and at
+# 60 it dropped a third of a pangram. 20 came back byte-identical. The
+# keystrokes are accepted by the input queue either way, which is why this
+# went unnoticed: SendInput reports success and the application quietly loses
+# characters.
+DEFAULT_CHARACTERS_PER_SECOND = 20
+
+
+def _focused_control_description() -> tuple[str, str]:
+    """(role, name) of whatever has keyboard focus. Empty when unreadable."""
+    try:
+        import uiautomation
+
+        element = uiautomation.GetFocusedControl()
+        return (str(element.ControlTypeName or ""), str(element.Name or ""))
+    except Exception:  # noqa: BLE001 - not knowing is a valid answer
+        return ("", "")
+
+
 def type_text(text: str, confirm: Confirmer,
-              characters_per_second: int = 90) -> Outcome:
+              characters_per_second: int = DEFAULT_CHARACTERS_PER_SECOND
+              ) -> Outcome:
     """Type into whatever has focus.
 
     Unicode scan codes rather than virtual keys, so this is independent of the
     user's keyboard layout - a virtual-key approach types garbage on anything
     but the layout it was written for.
+
+    Checks what has focus first. Launching an application does not reliably
+    give it focus - measured on this machine, a freshly opened Notepad left
+    focus on a button, a group, and once on an unrelated window entirely - and
+    without this the text lands somewhere nobody can predict. Where it lands is
+    reported either way, so the caller can say where it went.
     """
     if not text:
         return Outcome(False, "nothing to type")
+
+    role, focused_name = _focused_control_description()
+    if role in NOT_TEXT_FIELDS:
+        return Outcome(False, f"nothing was typed: keyboard focus is on "
+                              f'{role} "{focused_name[:40]}", which cannot hold '
+                              f"text. Put the cursor in a text field first.")
 
     preview = text if len(text) <= 40 else text[:40] + "..."
     if not confirm(f'type "{preview}"?'):
@@ -239,7 +285,9 @@ def type_text(text: str, confirm: Confirmer,
             ki=_KEYBDINPUT(0, code, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, None))))
         time.sleep(delay)
 
-    return Outcome(True, f"typed {len(text)} characters", method="sendinput")
+    where = f' into {role} "{focused_name[:40]}"' if role else ""
+    return Outcome(True, f"typed {len(text)} characters{where}",
+                   method="sendinput")
 
 
 # What each action costs if it was not what the user meant. Referenced by the
