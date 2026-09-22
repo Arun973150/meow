@@ -157,6 +157,13 @@ against; it is one thread for the session now, trimmed to twelve messages.
 Actors retire when a task is **dismissed**, not when it finishes - what the
 task produced stays reachable, only its status line goes.
 
+**A window means "walk away", not "multi-step".** A plan the user is watching
+runs in the foreground with the thinking animation; only work they have left
+running gets its own window. Deciding on sentence length got this wrong - a
+four-step desktop job was handed a window to narrate what was already on
+screen - so it is decided by what the job needs, and a hands-on verb (click,
+type, press) means the user is watching whatever else the sentence says.
+
 **Long work is handed over.** A plan becomes a background task with its own
 small window: the cat says "i am on it" and goes back to listening. Say
 "also ..." to queue something onto a running task, "close that" when it is

@@ -136,7 +136,7 @@ class AssemblyAIStreaming:
                     # transcription failure in the log, which is what makes it
                     # expensive to find.
                     speech_model=v3.SpeechModel.universal_streaming_english,
-                    language_code=self._language,
+                    language_codes=[self._language],
                     # And do not reconsider per turn. Detection drifting on
                     # one noisy sentence is exactly the failure above.
                     language_detection=False,
@@ -144,7 +144,9 @@ class AssemblyAIStreaming:
                     # speaker. It suppresses the room rather than the person,
                     # which is the complaint - a conversation across the room
                     # was being transcribed as if it were the user.
-                    noise_suppression_model=self._noise_model,
+                    # voice_focus only. Setting noise_suppression_model
+                    # too is deprecated and the library warns that it ignores
+                    # one of them, which is worse than picking.
                     voice_focus=self._noise_model,
                     # How loud something must be before it counts as speech at
                     # all. Raised from the default, which is tuned for a

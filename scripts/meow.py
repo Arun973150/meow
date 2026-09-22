@@ -105,6 +105,28 @@ MEANINGFUL_ALONE = {"stop", "cancel", "close", "dismiss", "pause", "undo",
 # and a misroute that opens a window is worse than one that does not.
 MINIMUM_WORDS_FOR_A_PLAN = 4
 
+# Work that earns its own window: it runs for a while and the user is meant to
+# walk away from it. Everything else multi-step - open this, click that, type
+# there - is a sequence the user is watching happen, and putting a window in
+# front of them to narrate what they can already see is clutter. Those run in
+# the foreground with the thinking animation.
+BACKGROUND_WORDS = ("research", "find out", "look up", "read about",
+                    "compare", "summarise", "summarize", "gather", "collect",
+                    "report on", "spreadsheet", "slides", "presentation",
+                    "write up", "search the web", "search online")
+
+# Verbs that mean the user is pointing at their own screen. Bare "search" is
+# not in BACKGROUND_WORDS because it belongs to both worlds - searching the
+# web is work to walk away from, searching in Chrome is four clicks someone
+# is watching - so a hands-on verb anywhere in the sentence decides it.
+HANDS_ON_WORDS = ("click", "press", "type", "minimise", "minimize", "maximise",
+                  "maximize", "scroll", "select", "tab", "paste", "copy")
+
+# How long after the cat asks a question that a short answer is taken
+# seriously. "SRIJA." and "H." are noise in isolation and are the whole point
+# when the cat has just said "spell it out for me".
+ANSWER_WINDOW_SECONDS = 20.0
+
 YES_WORDS = ("yes", "yeah", "yep", "sure", "go ahead", "do it", "okay", "ok",
              "please do", "confirm", "alright")
 NO_WORDS = ("no", "nope", "don't", "do not", "stop", "cancel", "leave it",
@@ -146,6 +168,19 @@ def starts_with_any(text: str, phrases) -> bool:
     lowered = spoken_words(text)
     return any(lowered.startswith(phrase) or f" {phrase} " in f" {lowered} "
                for phrase in phrases)
+
+
+def wants_its_own_window(text: str) -> bool:
+    """Is this long work, or steps the user is watching?
+
+    Matched on what the job NEEDS rather than how long the sentence is. A
+    short sentence can start half an hour of research, and a long one can be
+    four clicks.
+    """
+    lowered = spoken_words(text)
+    if any(word in lowered.split() for word in HANDS_ON_WORDS):
+        return False
+    return any(phrase in lowered for phrase in BACKGROUND_WORDS)
 
 
 def is_noise(text: str) -> bool:
@@ -260,6 +295,11 @@ def main() -> None:
         should_stop=panic.should_stop,
     )
 
+    # When a short reply should be taken seriously, because the cat asked for
+    # one. Written on the reply side, read on the transcript side; both run in
+    # the render loop, so a plain dict is enough.
+    awaiting_answer = {"until": 0.0}
+
     cat_cursor = None
     if not args.no_pointer:
         try:
@@ -306,6 +346,17 @@ def main() -> None:
             replies.put(("route", route.describe()))
 
             if panic.tripped:
+                return
+
+            # A plan the user is watching does not need a window. Only work
+            # they have walked away from does - which is what a window is FOR,
+            # and putting one in front of a four-step desktop job made the cat
+            # narrate something already on screen in front of them.
+            if route.intent is Intent.PLAN and not wants_its_own_window(transcript):
+                print("          multi-step, doing it here rather than handing over")
+                plan = planner.run(transcript)
+                if plan.abandoned:
+                    replies.put(("say", "i could not break that into steps."))
                 return
 
             # Downgraded before the plan branch, not inside it, so it falls
@@ -524,7 +575,12 @@ def main() -> None:
                             continue
 
                         said = transcript.text
-                        if is_noise(said):
+                        # A question just asked suspends the noise filter. The
+                        # cat said "spell it out for me" and then ignored
+                        # "SRIJA.", "Es." and "H." - every letter of the answer
+                        # it had asked for.
+                        answering = elapsed < awaiting_answer["until"]
+                        if is_noise(said) and not answering:
                             # Not spoken to, not remembered, not routed.
                             print(f"  {elapsed:5.1f}s  (ignored: {said})")
                             continue
@@ -588,6 +644,8 @@ def main() -> None:
                         else:
                             print(f"          says: {payload}")
                         memory.said("meow", payload)
+                        if payload.rstrip().endswith("?"):
+                            awaiting_answer["until"] = elapsed + ANSWER_WINDOW_SECONDS
                         bubble_state.say(payload, elapsed, seconds=REPLY_LINE_SECONDS)
                         animator.set_state(CatState.SPEAKING, elapsed)
                         if speech is not None:
