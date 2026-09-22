@@ -20,6 +20,8 @@ record of something that ran.
 
 from __future__ import annotations
 
+import os
+import time
 from typing import Callable
 
 from PySide6.QtGui import QAction
@@ -31,6 +33,23 @@ from meow.conversations import Conversation, Store
 # How long a finishing notification stays up. Long enough to read a sentence,
 # short enough not to sit over someone's work.
 NOTIFICATION_MILLISECONDS = 6000
+
+# The window runs detached with no console, so when an icon does not appear
+# there is nowhere for it to say why. Set MEOW_TRAY_LOG to a path and it
+# records whether the icon was never created, was created and then hidden by
+# Windows, or the process never saw the agent at all - three very different
+# problems that look identical from the taskbar.
+LOG = os.environ.get("MEOW_TRAY_LOG", "")
+
+
+def note(text: str) -> None:
+    if not LOG:
+        return
+    try:
+        with open(LOG, "a", encoding="utf-8") as handle:
+            handle.write(time.strftime("%H:%M:%S") + "  " + text + chr(10))
+    except Exception:  # noqa: BLE001
+        pass
 
 
 class AgentTrays:
@@ -76,6 +95,9 @@ class AgentTrays:
             self.reveal(cid) if reason == QSystemTrayIcon.Trigger else None)
 
         tray.show()
+        note(f"built icon for {conversation_id} ({conversation.title!r}) "
+             f"visible={tray.isVisible()} "
+             f"available={QSystemTrayIcon.isSystemTrayAvailable()}")
         # The menu is kept too. Qt does not take ownership of a context menu,
         # so dropping the reference leaves the icon with a right-click that
         # does nothing.
@@ -95,6 +117,7 @@ class AgentTrays:
             tray.showMessage("Meow", f"{title} - finished",
                              icons.cat_icon(icons.LIVE),
                              NOTIFICATION_MILLISECONDS)
+        note(f"retired icon for {conversation_id} finished={finished}")
         tray.hide()
         tray.setContextMenu(None)
 
@@ -107,6 +130,8 @@ class AgentTrays:
 
         running = {c.id: c for c in conversations
                    if c.kind == "task" and c.live}
+        if LOG and (running or self.trays):
+            note(f"refresh: live={sorted(running)} icons={sorted(self.trays)}")
 
         for conversation_id, conversation in running.items():
             if conversation_id not in self.trays:

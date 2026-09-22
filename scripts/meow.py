@@ -47,6 +47,7 @@ from meow.cat.bubble import (
 )
 from meow.cat.cursor import CatCursor
 from meow.cat.follow import CursorFollower, FollowSettings, target_beside_cursor
+from meow.agentdock import AgentDock
 from meow.chat.launcher import ChatPanel
 from meow.config import MissingKey
 from meow.console import quiet_library_warnings, use_utf8_console
@@ -348,6 +349,12 @@ def main() -> None:
     bubble_state = BubbleState()
     follow_settings = FollowSettings()
 
+    # An icon beside the cat for each running agent. In the tray first,
+    # which does not work: Windows 11 hides new tray icons behind the
+    # chevron and remembers that per icon, so every agent's icon would
+    # start hidden and need un-hiding by hand, forever.
+    dock = AgentDock()
+
     home_x, home_y = home_position(monitor, renderer.width, renderer.height)
     follower = CursorFollower(home_x, home_y, follow_settings)
     animator = Animator(state=CatState.SLEEPING)
@@ -422,6 +429,9 @@ def main() -> None:
                         task.title, kind="task",
                         icon="magnifier" if wants_its_own_window(task.goal)
                         else "gear")
+                    # Hung on the task so the render loop can put an icon on
+                    # screen for it and know which conversation to open.
+                    task.conversation = thread
 
                     def report(kind, text):
                         task.log(text, kind="error" if kind == "error"
@@ -524,7 +534,7 @@ def main() -> None:
 
     print(f"\n  tap {hotkey.display_name} and talk. Tap again to stop listening.")
     print(f"  tap {panic_key.display_name.upper()} to stop everything, instantly.")
-    print("  long jobs get their own tray icon - click it to watch them,")
+    print("  long jobs get an icon beside the cat - click it to watch them,")
     print("  say \"also ...\" to add to one, \"close that\" when done.")
     print(f"  routing: {'jev' if router.using_jev else 'keywords'}"
           f"{'  (' + (router.unavailable_reason or '')[:60] + ')' if not router.using_jev else ''}")
@@ -747,6 +757,24 @@ def main() -> None:
 
                 follower.update(target_x, target_y, timestep)
                 overlay.move_to(follower.x, follower.y)
+
+                # The dock follows the cat, so the icons stay with it whether
+                # it is at home or beside the pointer.
+                dock.sync([(task.conversation, task.title,
+                            "magnifier" if wants_its_own_window(task.goal)
+                            else "gear")
+                           for task in tasks.running
+                           if getattr(task, "conversation", 0)])
+                dock.layout(int(follower.x), int(follower.y))
+                try:
+                    dock.draw(elapsed)
+                except Exception as error:  # noqa: BLE001 - see draw_fault
+                    draw_fault("agent dock", error)
+
+                opened = dock.clicked()
+                if opened is not None:
+                    print(f"          opening the chat window on {opened}")
+                    dock.open_conversation(opened)
                 animator.travel_x = follower.travel_direction_x
                 animator.travel_y = follower.travel_direction_y
 
@@ -818,6 +846,7 @@ def main() -> None:
             # The session is over, so the record says so and the window goes.
             # Leaving it open would show a live conversation that nothing is
             # writing to any more, with no way to tell by looking.
+            dock.close()
             panel.end(session)
             panel.stop()
 

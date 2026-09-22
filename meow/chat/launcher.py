@@ -14,11 +14,12 @@ banner rather than raised into a turn.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-from meow.conversations import Store
+from meow.conversations import Store, database_path
 
 WINDOW_SCRIPT = Path(__file__).resolve().parent / "window.py"
 
@@ -36,6 +37,7 @@ class ChatPanel:
         self.store: Store | None = None
         self.state = "not started"
         self.stale_closed = 0
+        self.log_path: Path | None = None
         self._named: set[int] = set()
 
     def start(self) -> None:
@@ -54,9 +56,17 @@ class ChatPanel:
             # No --show: it starts in the tray and waits to be clicked, which
             # is what was asked for. DETACHED so closing the terminal that
             # started the cat does not take the window with it.
+            # The window's own output goes to a log rather than nowhere.
+            # It runs detached with no console, so a traceback in it was
+            # previously invisible - the only symptom being an icon that
+            # never appeared.
+            self.log_path = Path(database_path()).parent / "window.log"
+            handle = open(self.log_path, "a", encoding="utf-8")
+            environment = dict(os.environ)
+            environment.setdefault("MEOW_TRAY_LOG", str(self.log_path))
             self.process = subprocess.Popen(
                 [sys.executable, str(WINDOW_SCRIPT)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdout=handle, stderr=handle, env=environment,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self.state = "in the tray - click the cat to open it"
         except Exception as error:  # noqa: BLE001

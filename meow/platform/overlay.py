@@ -239,13 +239,28 @@ class CaptureExclusionUnavailable(RuntimeError):
 class Overlay:
     """A click-through, always-on-top, capture-excluded layered window."""
 
-    def __init__(self, bounds: Bounds, exclude_from_capture: bool = True) -> None:
+    def __init__(self, bounds: Bounds, exclude_from_capture: bool = True,
+                 click_through: bool = True) -> None:
         self.bounds = bounds
         _register_window_class()
 
+        # WS_EX_TRANSPARENT is what makes the cat click-through, and it is
+        # right for the cat: it sits over the user's work and must never
+        # intercept a click meant for what is underneath. An overlay that is
+        # meant to BE clicked - an agent's icon - has to leave it off, or the
+        # click passes straight through to whatever is behind it and the icon
+        # is decoration.
+        #
+        # WS_EX_NOACTIVATE stays either way. Taking focus would pull it away
+        # from whatever the user is typing in, which is worse than any benefit.
+        style = (WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_NOACTIVATE
+                 | WS_EX_TOOLWINDOW)
+        if click_through:
+            style |= WS_EX_TRANSPARENT
+
+        self.click_through = click_through
         self.handle = user32.CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST
-            | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+            style,
             _WINDOW_CLASS_NAME,
             "Meow",
             WS_POPUP,

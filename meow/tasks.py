@@ -93,6 +93,11 @@ class Task:
         # work exists only as sentences that have already been spoken.
         self.result = ""
         self.skipped: list[str] = []
+        # Which conversation in the record this task writes into. Set by the
+        # caller once the task starts, and read by the render loop to put an
+        # icon on screen for it - so a task carries its own identity rather
+        # than the two being matched up by number somewhere else.
+        self.conversation = 0
 
         self._lines: list[Line] = []
         self._lock = threading.Lock()

@@ -196,12 +196,24 @@ small window: the cat says "i am on it" and goes back to listening. Say
 "also ..." to queue something onto a running task, "close that" when it is
 finished. Two run at once. Pause stops them all.
 
-**An icon per running agent.** When Meow hands work over, that agent gets its
-own tray icon; clicking it opens the window straight onto that agent's
-conversation — what it is doing now and everything it has said. The icon goes
+**An icon per running agent, beside the cat.** When Meow hands work over, that
+agent gets its own icon stacked above the cat; clicking it opens the window
+straight onto that agent's conversation — what it is doing now and everything it has said. The icon goes
 when the work finishes, with a notification. A tray that accumulates an icon
 per job ever run is a tray people stop looking at; the conversation itself is
 never lost.
+
+⚠ **Windows 11 hides new tray icons, per icon, forever.** The agent icons were
+in the system tray first and it cannot work: a `QSystemTrayIcon` created fresh
+per agent is one Windows has never seen, so it starts behind the chevron and
+the user would have to un-hide every agent by hand. The diagnostics were
+unambiguous that the code was right — `built icon ... visible=True
+available=True` — and it was still not on screen. `meow/agentdock.py` draws
+them beside the cat instead, where Meow owns the pixels.
+
+⚠ **The agent icons are the ONE overlay that is not click-through.** Everything
+else passes clicks to the window underneath; an icon whose whole purpose is
+being clicked cannot. `Overlay(click_through=False)`.
 
 ⚠ **A conversation still marked live belongs to a process that is gone.** A
 crash, a Ctrl+C or a sleeping machine leaves them open forever, and the tray
