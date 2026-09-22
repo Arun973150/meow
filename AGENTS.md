@@ -410,6 +410,29 @@ rather than assuming the obvious endpoint.
 ⚠ **Retry the login only on "not connected".** Opening a login tab in answer to
 a rate limit or a bad argument is answering the wrong question loudly.
 
+⚠ **Being asked to look something up is a statement that the model's own
+knowledge is not the answer.** "Do a research on gpu prices in india" and
+"look up the best laptops under fifty thousand" both scored ANSWER - which is
+what they look like, and is the one thing they must not be. The answer path
+holds no tools, so the cat replied out of training data: confident, fluent, a
+year out of date, and with nothing in the reply to suggest it never looked.
+`wants_the_web` now lives in `meow/language/phrases.py` and is used TWICE -
+the router promotes ANSWER to ACT, and the harness withholds the digest. It
+was in the harness alone, which could not help: a turn routed to ANSWER never
+reaches the harness at all.
+
+⚠ **SHOW is promoted when the question asks WHAT rather than HOW.** Jev
+called "what's in my inbox" SHOW on one run and ANSWER on another - genuinely
+ambiguous read as a sentence - and SHOW refuses every tool that could reach an
+account, so that run answered with a route nobody asked for.
+`asks_how_rather_than_what` draws the line: "how do i check my mail" and
+"where is the bluetooth setting" stay SHOW, "show me my inbox" does not. This
+is the ONLY rule that touches SHOW, and it is narrow on purpose.
+
+**Routing measured, not assumed: 18/19 on real sentences**, up from 16/18
+before these two rules. The failures it fixed were both research requests
+being answered from memory.
+
 ⚠ **A connected account is reachable only through a TOOL, so the sentence has
 to reach the harness.** "What's in my inbox" is shaped exactly like a
 question, Jev routed it to ANSWER, and the answer path holds no tools at all —
@@ -582,6 +605,11 @@ is what a recipe is for, and `meow/recipes/camera-photos-video.md` lists the
 vocabulary: photo, picture, selfie, snap, capture, webcam, video, record,
 recording, film, shoot. A bare "video" otherwise matches the **VideoLAN
 website** in the installed-application search.
+
+**Ten shipped recipes, four of them multi-step workflows.** The workflow ones
+carry the knowledge that ORDER is the answer: find out then write, draft then
+approve, switch then type. `research-into-a-document` exists because doing
+those two jobs the wrong way round produces a confident file full of nothing.
 
 **Phase 2.6 done: a new capability is a markdown file.** A heading, a
 `when:` line, a paragraph. Drop it in `recipes/` or `Documents/Meow/Recipes`

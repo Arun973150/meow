@@ -180,3 +180,34 @@ def is_noise(text: str) -> bool:
         # in any language.
         return words[0] not in MEANINGFUL_ALONE
     return len(words) <= 3 and all(word in NOISE_WORDS for word in words)
+
+
+# Sentences that want the WEB, not the window in front. A research question
+# asked while Chrome happens to be focused was answered by reaching into
+# Chrome - clicking the address bar, typing a query - because the turn injects
+# a digest of the foreground window and a browser's digest is full of
+# plausible things to press. The user asked what GPU prices ARE; driving their
+# browser is a different act that happens to involve the same words.
+#
+# The digest is withheld for these, rather than the model being asked nicely
+# to ignore it. A list of clickable controls sitting next to a question is not
+# something a prompt reliably outranks - the same reasoning as `guiding`
+# refusing in the tools rather than in the prompt.
+WEB_PHRASES = ("research", "look up", "look it up", "find out", "google",
+               "search for", "search up", "find information", "find me info",
+               "what are the latest", "read up on", "gather information")
+
+# ...unless they named the desktop themselves. "Search for it in chrome" and
+# "click the address bar and search" are requests to drive the browser, and
+# the screen is exactly what those need.
+DESKTOP_WORDS = ("chrome", "browser", "edge", "firefox", "address bar", "tab",
+                 "click", "press", "type", "open", "window", "notepad",
+                 "word", "excel", "on screen", "on my screen", "this page")
+
+
+def wants_the_web(transcript: str) -> bool:
+    """True when the question is about the world, not about this window."""
+    lowered = f" {str(transcript).lower().strip()} "
+    if not any(phrase in lowered for phrase in WEB_PHRASES):
+        return False
+    return not any(word in lowered for word in DESKTOP_WORDS)

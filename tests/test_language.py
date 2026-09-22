@@ -138,3 +138,50 @@ def test_make_a_spreadsheet_is_not_a_connector_question():
     # "document" and "spreadsheet" are kept OUT of CONNECTOR_WORDS: promoting
     # them to ACT would skip the artefact rule that makes this a plan.
     assert not needs_a_connected_account("make me a spreadsheet about gpus")
+
+
+@pytest.mark.parametrize("said", [
+    "do a research on gpu prices in india",
+    "look up the best laptops under fifty thousand",
+    "find out what time the shop closes",
+    "google the population of brazil",
+])
+def test_being_asked_to_look_something_up_reaches_a_tool(said):
+    """The answer path holds no tools, so a research question routed to ANSWER
+    is answered from training data: confident, fluent, a year out of date, and
+    with nothing in the reply to suggest it never looked.
+    """
+    route, why = correct(Route(Intent.ANSWER, False, False, "jev"), said)
+    assert route.intent is Intent.ACT, f"{said!r} stayed {route.intent}"
+    assert why
+
+
+@pytest.mark.parametrize("said", [
+    "search for it in chrome",
+    "click the address bar and search for cats",
+])
+def test_naming_the_desktop_keeps_it_on_the_desktop(said):
+    """Driving somebody's browser is a different act that happens to use the
+    same words as asking what something is.
+    """
+    route, _ = correct(Route(Intent.ANSWER, False, False, "jev"), said)
+    assert route.intent is Intent.ANSWER
+
+
+@pytest.mark.parametrize("said, expected", [
+    ("what is in my inbox", Intent.ACT),
+    ("show me my inbox", Intent.ACT),
+    ("whats on my calendar", Intent.ACT),
+    ("how do i check my mail", Intent.SHOW),
+    ("show me how to check my mail", Intent.SHOW),
+    ("where is the bluetooth setting", Intent.SHOW),
+    ("take me to my calendar settings", Intent.SHOW),
+])
+def test_asking_how_stays_show_and_asking_what_does_not(said, expected):
+    """Jev called "what's in my inbox" SHOW on one run and ANSWER on another -
+    genuinely ambiguous read as a sentence. SHOW refuses every tool that could
+    reach an account, so that run answered with a route nobody asked for. The
+    distinction is method versus content, and it is a real one.
+    """
+    route, _ = correct(Route(Intent.SHOW, False, False, "jev"), said)
+    assert route.intent is expected, f"{said!r} -> {route.intent}"

@@ -116,3 +116,47 @@ def test_a_sentence_title_does_not_donate_generic_triggers(shelf):
 def test_a_half_written_file_is_skipped_not_guessed_at():
     assert recipes.parse("# title only\n") is None
     assert recipes.parse("no heading at all\n") is None
+
+
+@pytest.mark.parametrize("said, expected", [
+    ("reply to that email", "send mail"),
+    ("send a mail to arun", "send mail"),
+    ("check my mail", "send mail"),
+    ("book a meeting on thursday", "calendar"),
+    ("schedule an interview on the 25th", "calendar"),
+    ("research gpu prices and put it in a spreadsheet", "put it in a file"),
+    ("write a report on solar panels", "put it in a file"),
+    ("copy that into notepad", "copy text"),
+    ("paste it into word", "copy text"),
+])
+def test_the_workflow_recipes_match_their_work(shelf, said, expected):
+    """Multi-step jobs where the ORDER is the knowledge - find out then write,
+    draft then approve, switch then type.
+    """
+    found = shelf.find(said)
+    assert found, f"{said!r} matched no recipe"
+    assert expected in found[0].title, f"{said!r} -> {found[0].title!r}"
+
+
+@pytest.mark.parametrize("said", [
+    "minimise this window", "close that window", "click save", "open notepad",
+])
+def test_a_generic_word_in_a_title_does_not_drag_a_recipe_in(shelf, said):
+    """Third time this pattern bit: a title written as a sentence donates its
+    words as triggers. "take what is in one window and put it in another" gave
+    away "window" and matched "minimise this window". "window" cannot be
+    filler - new-document needs the phrase "new window" - so the title lost
+    the word instead.
+    """
+    found = shelf.find(said)
+    assert not any("copy text" in recipe.title for recipe in found), \
+        f"{said!r} pulled in {[r.title for r in found]}"
+
+
+def test_a_request_can_match_two_recipes(shelf):
+    """"Move it to excel" is both an Excel question and a copy-between-apps
+    question, and the model is better off with both than with a guess about
+    which one was meant.
+    """
+    found = shelf.find("move it to excel")
+    assert len(found) == 2

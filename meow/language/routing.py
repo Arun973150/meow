@@ -15,7 +15,12 @@ from __future__ import annotations
 from dataclasses import replace
 
 from ..agent.router import Intent, Route
-from .phrases import ARTEFACT_WORDS, MINIMUM_WORDS_FOR_A_PLAN, spoken_words
+from .phrases import (
+    ARTEFACT_WORDS,
+    MINIMUM_WORDS_FOR_A_PLAN,
+    spoken_words,
+    wants_the_web,
+)
 
 # Mail, calendar, weather and the rest live in the HARNESS as tools; the answer
 # path has no tools at all. So "what is in my inbox" - which is shaped exactly
@@ -45,6 +50,26 @@ def needs_a_connected_account(transcript: str) -> bool:
                for word in CONNECTOR_WORDS)
 
 
+# What a genuine SHOW turn asks. The intent is to be TAUGHT - the user wants
+# to do it themselves next time - and every one of these frames a question
+# about method rather than about content.
+ASKS_HOW = ("how do", "how can", "how to", "how would", "how does",
+            "where is", "where are", "where do", "where can", "where would",
+            "show me how", "teach me", "walk me through", "take me to",
+            "guide me", "what is the way", "whats the way")
+
+
+def asks_how_rather_than_what(transcript: str) -> bool:
+    """Is this a request for instructions, or for the thing itself?
+
+    "How do I check my mail" wants to be shown. "What's in my inbox" wants the
+    mail. Jev calls both SHOW often enough to matter, and the difference is
+    not a shade of meaning - one hands back a route to read out and the other
+    has to reach an account.
+    """
+    return any(phrase in spoken_words(transcript) for phrase in ASKS_HOW)
+
+
 def makes_a_file_about_something(transcript: str) -> bool:
     """Two jobs wearing one sentence: find out, then write it."""
     words = spoken_words(transcript)
@@ -71,9 +96,28 @@ def correct(route: Route, transcript: str) -> tuple[Route, str]:
         return (replace(route, intent=Intent.PLAN),
                 "makes a file about something, so planning it")
 
-    if route.intent is Intent.ANSWER and needs_a_connected_account(transcript):
+    if (route.intent in (Intent.ANSWER, Intent.SHOW)
+            and needs_a_connected_account(transcript)
+            and not asks_how_rather_than_what(transcript)):
+        # SHOW is included here and nowhere else in this module, narrowly.
+        # Jev called "what's in my inbox" SHOW on one run and ANSWER on
+        # another - it is genuinely ambiguous read as a sentence - and SHOW
+        # refuses every tool that could reach an account, so that run answered
+        # with a route nobody asked for. Asking HOW still stays SHOW, which is
+        # the case the refusal exists to protect.
         return (replace(route, intent=Intent.ACT),
                 "that needs a connected account, so acting")
+
+    if route.intent is Intent.ANSWER and wants_the_web(transcript):
+        # "Do a research on gpu prices in india" and "look up the best laptops
+        # under fifty thousand" both scored ANSWER - which is what they look
+        # like, and is the one thing they must not be. The answer path holds
+        # no tools, so the cat replies out of training data: confident, fluent
+        # and a year out of date, with nothing in the reply to suggest it
+        # never looked. Being asked to find something out is, structurally, a
+        # statement that the model's own knowledge is not the answer.
+        return (replace(route, intent=Intent.ACT),
+                "that needs looking up, so acting")
 
     return (route, "")
 
