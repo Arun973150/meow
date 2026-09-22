@@ -370,7 +370,15 @@ class Planner:
             # looks successful. The tool record is the only place it shows -
             # without this check, a plan the user declined reported as done.
             refused = any(run.outcome.refused for run in self.harness.runs)
-            failed = bool(self.harness.last_error) or refused
+            # Checked and found NOT to have happened. A could-not-tell is
+            # deliberately not in here: clicking into a text box changes
+            # nothing observable, and a plan that stopped on every unverifiable
+            # step would stop constantly. A definite no is different, and
+            # continuing past one is how four steps ran against a Chrome
+            # profile picker - no tab opened, nothing typed, Enter pressed at
+            # nothing - and then reported on what they had done.
+            denied = self.harness.denied_by_the_verifier()
+            failed = bool(self.harness.last_error) or refused or bool(denied)
             step.state = StepState.FAILED if failed else StepState.DONE
 
             if failed:
@@ -380,6 +388,13 @@ class Planner:
                                  "not here, so i left it."
                                  if self.unattended
                                  else "you said no, so i have stopped here.")
+                elif denied and not self.harness.last_error:
+                    # Say what was checked, not just that something went
+                    # wrong. "The new tab did not open" is something the user
+                    # can look at and act on; "that step failed" is not.
+                    self._report("say",
+                                 f"{denied}, so i stopped rather than "
+                                 f"carrying on as if it had.")
                 else:
                     self._report("error",
                                  self.harness.last_error or "that step failed")

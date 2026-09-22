@@ -84,3 +84,37 @@ def test_every_tool_group_is_reachable():
     harness = _harness()
     total = sum(len(module.build(harness)) for module in tools.ORDER)
     assert total == len(tools.build(harness)) == 30
+
+
+def test_a_verdict_of_no_is_visible_to_the_planner():
+    """The three-way verdict lived only in the sentence handed to the model,
+    so a step the verifier had positively determined did NOT happen left
+    last_error clear and nothing refused - marked done, plan continues.
+    """
+    from meow.desktop.actions import Outcome
+    from meow.desktop.verify import Verdict
+    from meow.tools.record import ToolRun
+
+    harness = _harness()
+    harness.runs.append(ToolRun("press_keys", "ctrl+t", Outcome(True, "sent")))
+
+    harness.record_verdict(Verdict(True, "a tab appeared"))
+    assert harness.denied_by_the_verifier() == ""
+
+    harness.record_verdict(Verdict(False, "nothing changed"))
+    assert "press_keys" in harness.denied_by_the_verifier()
+
+
+def test_could_not_tell_is_not_treated_as_failure():
+    """Clicking into a text box changes nothing observable, and that is not
+    failure. A plan stopping on every unverifiable step would stop constantly,
+    which is why unknown and no have to stay different.
+    """
+    from meow.desktop.actions import Outcome
+    from meow.desktop.verify import Verdict
+    from meow.tools.record import ToolRun
+
+    harness = _harness()
+    harness.runs.append(ToolRun("click_control", "Name", Outcome(True, "ok")))
+    harness.record_verdict(Verdict(None, "nothing observable to check"))
+    assert harness.denied_by_the_verifier() == ""

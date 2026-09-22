@@ -160,3 +160,18 @@ def test_a_request_can_match_two_recipes(shelf):
     """
     found = shelf.find("move it to excel")
     assert len(found) == 2
+
+
+@pytest.mark.parametrize("said", [
+    "open youtube and search campus x there",
+    "which profile", "open the watermelon profile", "go to youtube",
+])
+def test_the_chrome_recipe_covers_the_profile_picker(shelf, said):
+    """Chrome opened on "Who's using Chrome?" and the plan pressed ctrl+t,
+    typed, and pressed Enter into a window with no tab strip and no address
+    bar. All three correctly reported "nothing changed visibly"; the plan ran
+    to the end anyway and then described what it had done.
+    """
+    found = shelf.find(said)
+    assert found, f"{said!r} matched no recipe"
+    assert "Chrome" in found[0].title

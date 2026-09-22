@@ -63,6 +63,7 @@ def build(harness) -> list:
             SETTLE_SECONDS)
         verdict = verify.anything_changed(before, verify.look(),
                                           f"pressing {name}")
+        harness.record_verdict(verdict)
         return f"{outcome.detail}. {verdict.phrase()}"
 
 
@@ -100,6 +101,7 @@ def build(harness) -> list:
                                  text).happened is True,
             SETTLE_SECONDS)
         verdict = verify.typed(before, verify.look(), text)
+        harness.record_verdict(verdict)
         return f"{outcome.detail}. {verdict.phrase()}"
 
 
@@ -135,6 +137,7 @@ def build(harness) -> list:
             harness._wait_for_app(name)
             harness.digest = digest_foreground()
             verdict = verify.opened(before, verify.look(), name)
+            harness.record_verdict(verdict)
             return f"Opened {name}. {verdict.phrase()}"
 
         application = apps.find_application(name)
@@ -174,6 +177,7 @@ def build(harness) -> list:
             harness._wait_for_app(application.name)
             harness.digest = digest_foreground()
             verdict = verify.opened(before, verify.look(), application.name)
+            harness.record_verdict(verdict)
             return f"{outcome.detail}. {verdict.phrase()}"
         return outcome.detail
 
@@ -204,6 +208,7 @@ def build(harness) -> list:
             # front, and the refusal is silent - it flashes the taskbar
             # button instead, which reports as success here.
             verdict = verify.switched(verify.look(), window.title)
+            harness.record_verdict(verdict)
             return f"{outcome.detail}. {verdict.phrase()}"
         return outcome.detail
 
@@ -254,6 +259,7 @@ def build(harness) -> list:
             SETTLE_SECONDS)
         verdict = verify.anything_changed(before, verify.look(),
                                           f"pressing {keys}")
+        harness.record_verdict(verdict)
         return f"{outcome.detail}. {verdict.phrase()}"
 
 

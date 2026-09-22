@@ -227,6 +227,28 @@ when the work finishes, with a notification. A tray that accumulates an icon
 per job ever run is a tray people stop looking at; the conversation itself is
 never lost.
 
+⚠ **A plan carried on past steps the verifier had already denied.** Chrome
+opened on its "Who's using Chrome?" PROFILE PICKER - no tab strip, no address
+bar, nothing to type into - and the plan pressed ctrl+t, typed, and pressed
+Enter into it. All three correctly reported "nothing changed visibly"; the
+plan ran to the end anyway and then described what it had achieved. The
+three-way verdict existed only inside the sentence handed to the model, so
+`last_error` stayed clear, nothing was refused, and every step was marked
+DONE. `ToolRun.verified` carries it now and
+`Harness.denied_by_the_verifier()` reports it.
+
+⚠ **Only a definite NO stops a plan. Could-not-tell must not.** Clicking
+into a text box changes nothing observable, and a plan that stopped on every
+unverifiable step would stop constantly. The distinction is the whole reason
+the verdict has three values rather than two.
+
+⚠ **Opening an application is not the same as having somewhere to type.**
+Chrome's profile picker, its post-update relaunch prompt and a fresh profile's
+welcome screen are all windows that are open and not browsable. Check the
+control list before reaching for a shortcut. And a profile is identified by
+its NAME in the tree, never by its picture - somebody looking at the screen
+says "the watermelon one", and no control is called watermelon.
+
 ⚠ **A handed-over task must never report that the user said no.** Its confirmer
 declines without asking anybody — that is the whole point of
 `declining_confirmer` — so "you said no, so i have stopped here" is a plain

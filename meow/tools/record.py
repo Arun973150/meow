@@ -21,3 +21,16 @@ class ToolRun:
     argument: str
     outcome: Outcome
     target: Target | None = None
+    # True, False, or None for could-not-tell - the same three-way verdict
+    # `verify` produces, recorded rather than only spoken.
+    #
+    # It used to live solely in the string handed back to the model, so a step
+    # the verifier had positively determined DID NOT HAPPEN was invisible to
+    # the planner: last_error stayed clear, nothing was refused, and the step
+    # was marked DONE. A four-step plan ran to the end reporting "nothing
+    # changed visibly" three times and then described what it had achieved.
+    #
+    # None must stay non-failing. Clicking into a text box changes nothing
+    # observable and that is not failure - a verifier that treats unknown as
+    # no is as useless as one that treats it as yes.
+    verified: bool | None = None

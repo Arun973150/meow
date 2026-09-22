@@ -483,6 +483,29 @@ class Harness:
             return ""
         return " ".join(str(reply.content).split())
 
+    def record_verdict(self, verdict) -> None:
+        """Hang a verifier's verdict on the run that was just recorded.
+
+        It used to exist only inside the sentence handed to the model, which
+        meant the PLANNER could not see it: a step the verifier had positively
+        determined did not happen left `last_error` clear and nothing refused,
+        so it was marked done and the plan carried on. Chrome opened on its
+        profile picker once and the next three steps - a new tab, typing, and
+        Enter - all reported "nothing changed visibly" while the plan ran to
+        the end and then described what it had achieved.
+        """
+        if self.runs:
+            self.runs[-1].verified = verdict.happened
+
+    def denied_by_the_verifier(self) -> str:
+        """The first step this turn that was checked and found NOT to have
+        happened, or "". A could-not-tell is not one of these.
+        """
+        for run in self.runs:
+            if run.verified is False:
+                return f"{run.tool} did not take effect"
+        return ""
+
     def _resolve(self, name: str) -> Target | None:
         if self.digest is None:
             return None
