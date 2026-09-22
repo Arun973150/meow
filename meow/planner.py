@@ -220,9 +220,15 @@ class Planner:
 
     def __init__(self, harness, model: str = MODEL,
                  on_event: Callable[[str, str], None] | None = None,
+                 unattended: bool = False,
                  should_stop: Callable[[], bool] | None = None) -> None:
         self.harness = harness
         self.on_event = on_event
+        # True when this is a handed-over task. Its confirmer declines without
+        # asking anyone, so a refusal here is NOT the user having said no -
+        # and saying they did is a plain untruth about something they never
+        # saw.
+        self.unattended = unattended
         self.should_stop = should_stop
         # Set per run. Quiet by default: the thinking dots already say that
         # something is happening, and saying it out loud as well delays it.
@@ -314,7 +320,11 @@ class Planner:
 
             if failed:
                 if refused and not self.harness.last_error:
-                    self._report("say", "you said no, so i have stopped here.")
+                    self._report("say",
+                                 "that needed your permission and you were "
+                                 "not here, so i left it."
+                                 if self.unattended
+                                 else "you said no, so i have stopped here.")
                 else:
                     self._report("error",
                                  self.harness.last_error or "that step failed")

@@ -108,6 +108,22 @@ class ChatPanel:
         except Exception:  # noqa: BLE001
             return False
 
+    def produced(self, conversation: int, path: str) -> None:
+        """Record a file the agent wrote, so the window can open it.
+
+        Stored as an ordinary message with `who` set to "file", rather than a
+        table of its own. A produced file belongs in the conversation at the
+        point it was produced - after the step that made it and before
+        whatever came next - and a separate list would lose that ordering for
+        no benefit.
+        """
+        if self.store is None or not conversation or not path:
+            return
+        try:
+            self.store.add(conversation, "file", path)
+        except Exception:  # noqa: BLE001
+            pass
+
     def end(self, conversation: int) -> None:
         if self.store is None or not conversation:
             return

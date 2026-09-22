@@ -454,7 +454,9 @@ def main() -> None:
                                   ask_before_acting=False,
                                   memory=memory, actor=actor,
                                   budget=mind.screen.budget)
-                    worker = Planner(own, on_event=report,
+                    # unattended: its confirmer declines without asking,
+                    # so a refusal must not be reported as the user saying no.
+                    worker = Planner(own, on_event=report, unattended=True,
                                      should_stop=lambda: (panic.should_stop()
                                                           or task.should_stop))
                     plan = worker.run(task.goal)
@@ -479,6 +481,14 @@ def main() -> None:
 
                     last = next((s.said for s in reversed(plan.steps)
                                  if s.said.strip()), "")
+                    # Whatever it wrote, recorded as a file the window can
+                    # offer to open. The sentence already says "saved as
+                    # gpu_prices_india", which is not something anyone can
+                    # click.
+                    made = getattr(own, "_last_document", None)
+                    if made is not None:
+                        panel.produced(thread, str(made.path))
+
                     panel.end(thread)
                     return last or ("done" if plan.succeeded else "stopped early")
 

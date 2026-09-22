@@ -204,6 +204,19 @@ when the work finishes, with a notification. A tray that accumulates an icon
 per job ever run is a tray people stop looking at; the conversation itself is
 never lost.
 
+⚠ **A handed-over task must never report that the user said no.** Its confirmer
+declines without asking anybody — that is the whole point of
+`declining_confirmer` — so "you said no, so i have stopped here" is a plain
+untruth about something they never saw. `Planner(unattended=True)` says "that
+needed your permission and you were not here, so i left it" instead.
+
+⚠ **`GetAsyncKeyState`'s was-pressed bit accumulates while nothing is docked.**
+The first poll after an agent appears covers however long the dock was empty,
+so a click from minutes earlier gets consumed then — and if the pointer happens
+to sit over the new icon, a window opens that nobody asked for. Seen live:
+"opening the chat window on 19" in the instant the task was handed over. The
+first read after the dock fills is discarded.
+
 ⚠ **Windows 11 hides new tray icons, per icon, forever.** The agent icons were
 in the system tray first and it cannot work: a `QSystemTrayIcon` created fresh
 per agent is one Windows has never seen, so it starts behind the chevron and

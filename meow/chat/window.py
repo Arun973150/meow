@@ -27,8 +27,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QColor, QFont
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMainWindow, QMenu, QSplitter, QSystemTrayIcon, QVBoxLayout,
@@ -38,7 +38,9 @@ from PySide6.QtWidgets import (
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from meow.chat import icons
-from meow.chat.bubbles import TEXT, WHO, MessageDelegate
+from meow.chat.bubbles import (
+    TEXT, WHO, MessageDelegate, file_path, is_file,
+)
 from meow.chat.trays import AgentTrays
 from meow.conversations import Conversation, Store
 
@@ -133,6 +135,7 @@ class ChatWindow(QMainWindow):
         self.transcript.setObjectName("transcript")
         self.transcript.setItemDelegate(MessageDelegate(self.transcript))
         self.transcript.setSelectionMode(QListWidget.NoSelection)
+        self.transcript.clicked.connect(self._on_transcript_click)
         self.transcript.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.transcript.setVerticalScrollMode(QListWidget.ScrollPerPixel)
         self.transcript.setSpacing(0)
@@ -248,6 +251,19 @@ class ChatWindow(QMainWindow):
         if current is None:
             return
         self.show_conversation(int(current.data(Qt.UserRole)))
+
+    def _on_transcript_click(self, index) -> None:
+        """Open a produced file when its row is clicked.
+
+        Through the shell rather than a named application: the
+        record holds .xlsx, .docx and .pptx, and whatever the user
+        has set to open those is the right answer.
+        """
+        if not is_file(index):
+            return
+        path = file_path(index)
+        if path:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _on_search(self, text: str) -> None:
         self.filter_text = text.strip()

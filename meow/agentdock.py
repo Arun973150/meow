@@ -125,6 +125,13 @@ class AgentDock:
 
     def __init__(self, window_script: Path | None = None) -> None:
         self.agents: dict[int, DockedAgent] = {}
+        # Whether a click has been discarded since the dock last filled. The
+        # was-pressed bit is process-wide and accumulates while nothing is
+        # docked, so the first poll after an agent appears would consume a
+        # press from minutes earlier - and if the pointer happened to be over
+        # the new icon, open a window nobody asked for. Seen live: "opening
+        # the chat window on 19" in the same instant the task was handed over.
+        self._flushed = False
         self.window_script = window_script or (
             Path(__file__).resolve().parent / "chat" / "window.py")
 
@@ -147,6 +154,9 @@ class AgentDock:
             if conversation_id not in self.agents:
                 self.agents[conversation_id] = DockedAgent(
                     conversation_id=conversation_id, title=title, kind=kind)
+
+        if not self.agents:
+            self._flushed = False
 
     def _remove(self, conversation_id: int) -> None:
         agent = self.agents.pop(conversation_id, None)
@@ -211,8 +221,13 @@ class AgentDock:
             return None
 
         # Low bit: pressed since the last call. Polled at 60fps from the render
-        # loop, so "since last call" is one frame.
+        # loop, so "since last call" is one frame - EXCEPT on the first poll
+        # after the dock fills, where it covers however long the dock was
+        # empty. That first read is thrown away.
         pressed = user32.GetAsyncKeyState(0x01) & 0x0001  # VK_LBUTTON
+        if not self._flushed:
+            self._flushed = True
+            return None
         if not pressed:
             return None
 

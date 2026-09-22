@@ -42,6 +42,10 @@ CORNER = 11
 COLOURS = {
     "user": ("#2f3b44", "#dceaf5", "#7fa8c9"),
     "meow": ("#2a2927", "#e8e6e3", "#d8a76b"),
+    # A file the agent wrote. Its own colour because it is not
+    # something anyone said - it is a thing that now exists, and
+    # unlike every other row it can be pressed.
+    "file": ("#2b332b", "#cfe6cd", "#7bc96f"),
 }
 AGENT_COLOURS = ("#242a24", "#d7e4d5", "#7bc96f")
 
@@ -51,7 +55,17 @@ def _palette(who: str) -> tuple[str, str, str]:
 
 
 def _name_of(who: str) -> str:
-    return {"user": "you", "meow": "meow"}.get(who, who)
+    return {"user": "you", "meow": "meow",
+            "file": "made this - click to open"}.get(who, who)
+
+
+def is_file(index) -> bool:
+    """Is this row a produced file rather than something said?"""
+    return str(index.data(WHO) or "") == "file"
+
+
+def file_path(index) -> str:
+    return str(index.data(TEXT) or "")
 
 
 class MessageDelegate(QStyledItemDelegate):
@@ -70,15 +84,27 @@ class MessageDelegate(QStyledItemDelegate):
         return metrics.boundingRect(QRect(0, 0, width, 10_000),
                                     Qt.TextWordWrap, text)
 
-    def sizeHint(self, option, index) -> QSize:  # noqa: N802 - Qt's name
+    def _shown(self, index) -> str:
+        """The text as it will actually be painted.
+
+        sizeHint and paint MUST agree. They did not: a file row measured its
+        full path and painted only the name, so the row was sized for text
+        twice as long as what appeared in it.
+        """
         text = str(index.data(TEXT) or "")
+        if str(index.data(WHO) or "") == "file":
+            return text.replace(chr(92), "/").rsplit("/", 1)[-1]
+        return text
+
+    def sizeHint(self, option, index) -> QSize:  # noqa: N802 - Qt's name
+        text = self._shown(index)
         bounds = self._text_rect(text, self._wrap_width(option))
         height = bounds.height() + PADDING_Y * 2 + NAME_HEIGHT + GAP
         return QSize(option.rect.width(), height)
 
     def paint(self, painter: QPainter, option, index) -> None:
         who = str(index.data(WHO) or "meow")
-        text = str(index.data(TEXT) or "")
+        text = self._shown(index)
         background, foreground, name_colour = _palette(who)
 
         painter.save()
@@ -113,5 +139,14 @@ class MessageDelegate(QStyledItemDelegate):
         painter.drawText(
             QRect(left + PADDING_X, top + PADDING_Y, wrap_width, bounds.height()),
             Qt.TextWordWrap, text)
+
+        if who == "file":
+            # Underlined, so it reads as something to press rather
+            # than something to read.
+            painter.setPen(QPen(QColor(foreground), 1))
+            baseline = top + bubble_height - 7
+            painter.drawLine(left + PADDING_X, baseline,
+                             left + PADDING_X + bounds.width(),
+                             baseline)
 
         painter.restore()
