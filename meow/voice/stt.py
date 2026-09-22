@@ -38,6 +38,12 @@ from .microphone import SAMPLE_RATE
 # How long the user may pause before Meow decides they have finished. A second
 # and a quarter is long enough to think of the next word and short enough that
 # a finished sentence does not sit there.
+# How loud audio must be to count as speech. The library's default assumes a
+# headset in a quiet room; a laptop microphone in a shared one picks up
+# conversation two metres away and transcribes it as the user. Tunable by ear -
+# raise it if the cat hears the room, lower it if it misses a quiet sentence.
+VAD_THRESHOLD = 0.55
+
 PATIENCE_SECONDS = 1.25
 
 
@@ -75,12 +81,21 @@ class AssemblyAIStreaming:
 
     def __init__(self, api_key: str | None = None,
                  format_turns: bool = True,
-                 patience_seconds: float = PATIENCE_SECONDS) -> None:
+                 patience_seconds: float = PATIENCE_SECONDS,
+                 language: str = "en",
+                 microphone_distance: str = "near-field",
+                 vad_threshold: float = VAD_THRESHOLD) -> None:
         # Resolved now rather than at connect time, so a missing key fails
         # immediately with instructions instead of inside a handshake.
         self._api_key = api_key or assemblyai_api_key()
         self._format_turns = format_turns
         self._patience = patience_seconds
+        self._language = language
+        self._vad_threshold = vad_threshold
+        # Resolved once. The enum rejects a bad string here, at construction,
+        # rather than inside the websocket handshake where the error arrives
+        # as a connection failure with no hint of the cause.
+        self._noise_model = v3.NoiseSuppressionModel(microphone_distance)
 
         self._client: v3.StreamingClient | None = None
         self._worker: threading.Thread | None = None
@@ -110,6 +125,31 @@ class AssemblyAIStreaming:
             try:
                 self._client.connect(v3.StreamingParameters(
                     sample_rate=SAMPLE_RATE,
+                    # The English model, explicitly. The default is the
+                    # MULTILINGUAL one, which hears accented English and
+                    # renders it in the script of whichever language it
+                    # settles on - "open notepad then type hi my name is
+                    # srijaa" arrived as Devanagari transliteration. The words
+                    # were right and the script was not, so the harness got a
+                    # sentence it could not act on and would have typed
+                    # Devanagari into Notepad. Nothing about it reads as a
+                    # transcription failure in the log, which is what makes it
+                    # expensive to find.
+                    speech_model=v3.SpeechModel.universal_streaming_english,
+                    language_code=self._language,
+                    # And do not reconsider per turn. Detection drifting on
+                    # one noisy sentence is exactly the failure above.
+                    language_detection=False,
+                    # Near-field: a laptop microphone a forearm from the
+                    # speaker. It suppresses the room rather than the person,
+                    # which is the complaint - a conversation across the room
+                    # was being transcribed as if it were the user.
+                    noise_suppression_model=self._noise_model,
+                    voice_focus=self._noise_model,
+                    # How loud something must be before it counts as speech at
+                    # all. Raised from the default, which is tuned for a
+                    # headset in a quiet room.
+                    vad_threshold=self._vad_threshold,
                     # Ask for the formatted turn as well. It arrives after the
                     # unformatted one and is nicer to display; we simply do not
                     # WAIT for it before acting.

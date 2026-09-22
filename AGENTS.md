@@ -327,6 +327,17 @@ Do not violate these without updating the relevant doc first.
 - **The transcriber emits noise as sentences.** "Oh." was routed to plan and
   given its own background task and window. Drop short all-filler
   utterances before routing, not after.
+- **AssemblyAI's default streaming model is MULTILINGUAL.** It hears
+  accented English and renders it in the script of whichever language it
+  settles on: "open notepad then type hi my name is srijaa" arrived as
+  Devanagari transliteration - right words, wrong script - so the harness
+  got a sentence it could not act on and would have typed Devanagari into
+  Notepad. Nothing in the log reads as a transcription failure. Pin
+  `speech_model=universal_streaming_english` and `language_detection=False`.
+- **A word list cannot filter noise in a language you did not plan for.**
+  A Hindi "haan" was routed to plan and given its own background window.
+  The rule that survives translation is structural: one word is not an
+  instruction, and three words are not a multi-step task.
 - **The Windows console is cp1252 and cannot print what a speech API returns.**
   Formatted transcripts carry curly quotes and ellipses, and printing one raises
   `UnicodeEncodeError` *in the print*, so the traceback blames innocent code.

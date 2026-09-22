@@ -29,6 +29,7 @@ loop draws the cat at 60fps and never waits for anything.
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import queue
 import sys
 import threading
@@ -91,6 +92,19 @@ NOISE_WORDS = {"oh", "uh", "um", "hmm", "hm", "mm", "mhm", "ah", "eh",
                "hey", "you", "thanks", "thank", "bye", "a", "the", "i",
                "and", "like", "just", "its", "it", "is", "that"}
 
+# Single words that really are requests. Everything else said alone is
+# treated as noise, whatever language it is in - a word-list cannot cover
+# every language the transcriber might produce, but "one word is not a task"
+# holds in all of them. A Hindi "haan" was routed to plan and handed its own
+# background window, which no English filler list would ever have caught.
+MEANINGFUL_ALONE = {"stop", "cancel", "close", "dismiss", "pause", "undo",
+                    "help", "wait", "quiet", "mute", "back", "enter", "escape"}
+
+# A background task is a window, a thread and a plan. Three words cannot
+# describe one, so anything shorter is a misroute rather than a small job -
+# and a misroute that opens a window is worse than one that does not.
+MINIMUM_WORDS_FOR_A_PLAN = 4
+
 YES_WORDS = ("yes", "yeah", "yep", "sure", "go ahead", "do it", "okay", "ok",
              "please do", "confirm", "alright")
 NO_WORDS = ("no", "nope", "don't", "do not", "stop", "cancel", "leave it",
@@ -150,6 +164,11 @@ def is_noise(text: str) -> bool:
     words = spoken_words(text).split()
     if not words:
         return True
+    if len(words) == 1:
+        # Language-independent. The transcriber emits single words constantly
+        # from breaths and background talk, and one word is not an instruction
+        # in any language.
+        return words[0] not in MEANINGFUL_ALONE
     return len(words) <= 3 and all(word in NOISE_WORDS for word in words)
 
 
@@ -288,6 +307,17 @@ def main() -> None:
 
             if panic.tripped:
                 return
+
+            # Downgraded before the plan branch, not inside it, so it falls
+            # through to the ordinary path instead of spawning anything.
+            # Handled here rather than in the router because the cost of the
+            # mistake is asymmetric: a misrouted plan opens a window and a
+            # thread, a misrouted act just answers.
+            if (route.intent is Intent.PLAN
+                    and len(spoken_words(transcript).split())
+                    < MINIMUM_WORDS_FOR_A_PLAN):
+                print("          too short to hand over, doing it here")
+                route = replace(route, intent=Intent.ACT)
 
             if route.intent is Intent.PLAN:
                 if not tasks.can_start():
