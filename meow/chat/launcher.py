@@ -30,6 +30,35 @@ WINDOW_SCRIPT = Path(__file__).resolve().parent / "window.py"
 TITLE_CHARACTERS = 48
 
 
+def _window_already_running() -> int:
+    """The pid of a chat window that is already up, or 0.
+
+    Asked of the operating system rather than tracked in a file: a pid file
+    written by a process that was killed says the window is running when it is
+    not, and one deleted by a crash says the opposite. The question is "is
+    there a python running window.py", and Windows can answer it directly.
+    """
+    ours = os.getpid()
+    try:
+        import subprocess as _subprocess
+
+        finished = _subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" "
+             "| Where-Object { $_.CommandLine -like '*chat*window.py*' } "
+             "| Select-Object -ExpandProperty ProcessId"],
+            capture_output=True, text=True, timeout=10,
+            creationflags=getattr(_subprocess, "CREATE_NO_WINDOW", 0))
+    except Exception:  # noqa: BLE001 - never block startup on this
+        return 0
+
+    for line in finished.stdout.splitlines():
+        line = line.strip()
+        if line.isdigit() and int(line) != ours:
+            return int(line)
+    return 0
+
+
 class ChatPanel:
     """The window process, and the record it displays."""
 
@@ -51,6 +80,17 @@ class ChatPanel:
             self.stale_closed = self.store.close_stale()
         except Exception as error:  # noqa: BLE001
             self.state = f"no record ({type(error).__name__})"
+            return
+
+        # The window is DETACHED, so it survives the cat dying - and a crash,
+        # a Ctrl+C or a killed smoke test never reaches stop(). Every run then
+        # spawned another one: 30 orphaned Qt processes were found live on this
+        # machine, each holding a tray icon for a session that ended days ago.
+        # The old ones are not merely wasteful, they are wrong - they show
+        # conversations nothing is writing to any more.
+        already = _window_already_running()
+        if already:
+            self.state = f"already open (pid {already})"
             return
 
         try:

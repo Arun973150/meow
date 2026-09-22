@@ -335,6 +335,16 @@ bar and a tab strip.
 else passes clicks to the window underneath; an icon whose whole purpose is
 being clicked cannot. `Overlay(click_through=False)`.
 
+⚠ **The chat window is DETACHED, so it outlives a crash - and every run
+spawned another one.** `stop()` only runs on a clean quit, so a Ctrl+C, a
+crash or a killed smoke test leaves the window up, and the next launch starts a
+second. **30 orphaned Qt processes were live on this machine**, each holding a
+tray icon for a session that ended days ago and showing a conversation nothing
+writes to any more. The launcher asks the OS whether a window is already
+running before spawning - asked of Windows rather than tracked in a pid file,
+since a file written by a killed process claims a window that is not there.
+Costs ~580ms, once, at startup only.
+
 ⚠ **A conversation still marked live belongs to a process that is gone.** A
 crash, a Ctrl+C or a sleeping machine leaves them open forever, and the tray
 then shows an agent icon for work that stopped days ago and can never finish.
