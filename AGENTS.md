@@ -59,6 +59,7 @@ meow/documents.py           docx / xlsx / pptx into Documents/Meow
 meow/research.py            search + fetch ONLY - the trifecta split
 meow/memory.py              ONE memory - what was said, and who is working
 meow/verify.py              PHASE 1.9 - did the action actually happen?
+meow/lookup.py              PHASE 2.5 - look up how, then point at the real thing
 meow/tasks.py               handed-over work, on its own thread
 meow/taskwindow.py          the small window each task gets
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
@@ -175,6 +176,28 @@ type, press) means the user is watching whatever else the sentence says.
 small window: the cat says "i am on it" and goes back to listening. Say
 "also ..." to queue something onto a running task, "close that" when it is
 finished. Two run at once. Pause stops them all.
+
+**Phase 2.5 done: it can point at settings nobody told it about.** Ask
+"where is the bluetooth setting" and `meow/lookup.py` searches for what it is
+*called*, then finds that exact name in the window in front. Measured against
+real Windows Settings: dark mode -> `Personalization`, bluetooth ->
+`Bluetooth & devices`, dns -> `Network & internet`.
+
+**The containment rule is the whole design.** A web page is untrusted, so it is
+never allowed to say what to DO - only what to LOOK FOR. Candidates are mined
+as label-shaped strings, anything opening with an imperative verb is dropped
+whole rather than trimmed, and a surviving name must match the tree
+**exactly**. Then the cat POINTS. Pointing is `Risk.SAFE`, so the worst a
+hostile page achieves is drawing attention to a button already on screen;
+pressing it needs the user to say so, which goes through `meow/risk.py` where
+the instruction comes from the person.
+
+⚠ **Use `lookup.strict_match`, never `digest.find`, for a web-derived name.**
+`find` degrades to substring and word-overlap matching, which is right for
+speech and wrong here: the candidate "Settings" matched a VS Code GitLens
+button whose 900-character name contains the word, and the cat announced it as
+the setting. Under fuzzy matching, everything "exists" and the containment
+claim is false.
 
 **Phase 2.1–2.4 done.** `find research on solar panel costs and put it in a
 spreadsheet` produces a real .xlsx with sources in ~30s. Research is a separate

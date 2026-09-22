@@ -95,7 +95,7 @@ choosing which elements the model actually sees.
 | 2.2 | **Done.** The plan reports "step 2 of 4, press ctrl+t" into the bubble and the voice as it goes |
 | 2.3 | **Done.** `meow/research.py` — search + fetch and **nothing else**. No files, no desktop, no outbound. The trifecta stays open by construction |
 | 2.4 | **Done.** `meow/documents.py` — docx, xlsx, pptx into `Documents/Meow`. Never overwrites; a repeat name gets numbered |
-| 2.5 | **Search-augmented pointing** — look up how, *then* point |
+| 2.5 | **Done.** `meow/lookup.py` — searches for what a setting is *called*, then finds that exact name in the live tree. The web chooses what to LOOK FOR; the tree decides what EXISTS; the output is a point, never a press |
 | 2.6 | Recipe folder + retrieval |
 
 2.5 is a genuine improvement over Clicky, which can only point from model
