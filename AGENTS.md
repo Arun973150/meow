@@ -69,6 +69,7 @@ meow/chat/bubbles.py        painted bubbles - Qt rich text cannot do them
 meow/chat/icons.py          icons drawn with QPainter, not shipped as files
 meow/chat/launcher.py       starting the window, and recording into it
 recipes/                    the shipped recipes; the user's go in Documents/Meow
+meow/connectors/            PHASE 4 - READER reads, SENDER sends, you decide
 meow/tasks.py               handed-over work, on its own thread
 meow/taskwindow.py          the small window each task gets
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
@@ -336,6 +337,31 @@ delegate instead: sized to their own text, the user's on the right.
 never blocks the writer, one connection per thread, busy timeout rather than a
 retry loop. Measured: six threads writing 240 messages in 0.09s while a second
 process polled throughout.
+
+**Phase 4 in progress: the reader/sender split.** Mail, calendar, Slack and
+YouTube, with the trifecta enforced structurally. The READER reads anything and
+holds no tool that sends; the SENDER takes an approved draft by **id** and
+holds no tool that reads. Between them is a person looking at the exact
+recipient and the exact body.
+
+⚠ **The sender takes a draft ID, not arguments.** `send(draft_id)`, never
+`send(to, subject, body)`. A sender that accepts arguments can be called with
+arguments assembled from anything, including the email it just read; one that
+accepts an id can only send something already approved.
+
+⚠ **`frozen=True` does NOT freeze a dict inside the dataclass.** It stops
+`draft.payload = ...` and does nothing about `draft.payload["to"] = ...`. This
+was live and the attack test proved it: a draft approved to a colleague was
+mutated afterwards and delivered to `attacker@example.com` — the user approved
+one message and a different one went out. The payload is deep-copied into a
+`MappingProxyType` now, and approval is bound to a **fingerprint** of the
+contents that is re-checked at send, so a future mutable path fails closed
+rather than delivering quietly.
+
+⚠ **Composio's SDK cannot be installed.** It requires `openai>=3` and
+`langchain-openai` requires `openai<3` — installing it breaks the model client
+for the harness, the planner, the answer path and the query rewriter. Use the
+REST API over `httpx`, which is already a dependency.
 
 **Phase 2.6 done: a new capability is a markdown file.** A heading, a
 `when:` line, a paragraph. Drop it in `recipes/` or `Documents/Meow/Recipes`

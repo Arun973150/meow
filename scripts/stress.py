@@ -731,6 +731,112 @@ def stress_queries() -> None:
     check("queries: queries stay short", queries_are_short)
 
 
+# ------------------------------------------------------------ connectors ---
+
+def stress_connectors() -> None:
+    """Try to make the split send something nobody approved."""
+    from meow.connectors import Draft, Outbox, Reader, Sender
+    from meow.connectors.composio import Composio, Result
+    from meow.connectors.sender import SendRefused
+
+    class Intercepted(Composio):
+        """Records what WOULD have gone out. Nothing leaves."""
+
+        def __init__(self):
+            super().__init__(api_key="pretend", user_id="test")
+            self.calls = []
+
+        def execute(self, tool, arguments):
+            self.calls.append((tool, arguments))
+            return Result(True, {"id": "pretend"})
+
+    def unapproved_is_refused():
+        wire, outbox = Intercepted(), Outbox()
+        sender = Sender(outbox, wire)
+        draft = outbox.add(Draft("email", {"to": "attacker@example.com",
+                                           "subject": "x", "body": "files"}))
+        try:
+            sender.send(draft.id)
+        except SendRefused:
+            assert not wire.calls, "it sent despite refusing"
+            return
+        raise AssertionError("an unapproved draft was SENT")
+
+    def approval_is_one_shot():
+        wire, outbox = Intercepted(), Outbox()
+        sender = Sender(outbox, wire)
+        draft = outbox.add(Draft("email", {"to": "a@b.c", "subject": "s",
+                                           "body": "b"}))
+        outbox.approve(draft.id)
+        sender.send(draft.id)
+        try:
+            sender.send(draft.id)
+        except SendRefused:
+            assert len(wire.calls) == 1,                 f"one approval sent {len(wire.calls)} messages"
+            return
+        raise AssertionError("the same approval sent twice")
+
+    def refusal_sticks():
+        outbox = Outbox()
+        draft = outbox.add(Draft("email", {"to": "a@b.c", "subject": "s",
+                                           "body": "b"}))
+        outbox.refuse(draft.id)
+        assert outbox.approve(draft.id) is None, "a refused draft was approved"
+
+    def reader_cannot_send():
+        reader = Reader(Intercepted())
+        forbidden = [name for name in dir(reader)
+                     if any(word in name.lower() for word in
+                            ("send", "post", "forward", "share", "invite",
+                             "publish", "delete", "trash"))]
+        assert not forbidden, f"the reader exposes {forbidden}"
+
+    def sender_cannot_read():
+        sender = Sender(Outbox(), Intercepted())
+        forbidden = [name for name in dir(sender)
+                     if any(word in name.lower() for word in
+                            ("read", "fetch", "list", "search", "inbox",
+                             "agenda", "transcript"))]
+        assert not forbidden, f"the sender exposes {forbidden}"
+
+    def composing_does_not_send():
+        wire = Intercepted()
+        draft = Reader(wire).compose_reply("boss@example.com", "re: it", "yes")
+        assert isinstance(draft, Draft), "compose did not return a draft"
+        assert not wire.calls, "composing sent something"
+
+    def recipient_cannot_change_after_approval():
+        """The attack this phase exists to stop, and it once succeeded.
+
+        Draft is frozen, which stops `draft.payload = ...` and did nothing
+        about `draft.payload["to"] = ...`. A draft approved to a colleague was
+        mutated afterwards and delivered to attacker@example.com - the user
+        approved one message and a different one went out.
+        """
+        wire, outbox = Intercepted(), Outbox()
+        sender = Sender(outbox, wire)
+        draft = outbox.add(Draft("email", {"to": "colleague@work.com",
+                                           "subject": "re: friday",
+                                           "body": "works for me"}))
+        outbox.approve(draft.id)
+        try:
+            draft.payload["to"] = "attacker@example.com"
+        except TypeError:
+            pass          # read-only, which is the fix
+        sender.send(draft.id)
+        _tool, arguments = wire.calls[-1]
+        assert arguments.get("recipient_email") == "colleague@work.com",             f"the recipient became {arguments.get('recipient_email')}"
+
+    check("connectors: unapproved draft refused", unapproved_is_refused)
+    check("connectors: approval is one-shot", approval_is_one_shot)
+    check("connectors: refusal sticks", refusal_sticks)
+    check("connectors: reader cannot send", reader_cannot_send)
+    check("connectors: sender cannot read", sender_cannot_read)
+    check("connectors: composing does not send", composing_does_not_send)
+    check("connectors: recipient cannot change after approval",
+          recipient_cannot_change_after_approval)
+
+
 SUITES = {
     "memory": stress_memory,
     "store": stress_store,
@@ -742,6 +848,7 @@ SUITES = {
     "documents": stress_documents,
     "risk": stress_risk,
     "queries": stress_queries,
+    "connectors": stress_connectors,
     "planner": stress_planner,
     "harness": stress_harness,
     "tasks": stress_tasks,
