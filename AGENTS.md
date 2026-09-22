@@ -396,6 +396,43 @@ rather than assuming the obvious endpoint.
 ⚠ **Retry the login only on "not connected".** Opening a login tab in answer to
 a rate limit or a bad argument is answering the wrong question loudly.
 
+**The user never has an API key, and never should.** The Composio key belongs
+to whoever BUILT Meow — one key for the application — and the Google login
+belongs to whoever is running it. Those are different things held by different
+people, and the only question a user is ever asked is the login. Shipping this
+means the key moves behind a proxy like the AssemblyAI token does; it is in
+`.env` today because this runs on one machine.
+
+⚠ **`user_id` was the literal string `"default"`, for everybody.** Composio
+separates one person's connected accounts from another's by `user_id` and
+nothing else, so a shared default plus one developer key is one inbox between
+every install — person B says "what's in my inbox" and reads person A's mail.
+`composio.this_install()` writes a random id to `Documents/Meow/install-id`
+once and reuses it. Verified by the connection disappearing: YouTube connected
+under the old default is invisible to the new identity, which is the isolation
+being real rather than nominal.
+
+⚠ **`YOUTUBE_LOAD_CAPTIONS` takes a CAPTION TRACK id, not a video id.** Both
+are called `id`. Passing the video id returns "Following fields are missing:
+{'id'}", which reads as an absent argument rather than a wrong one, and sent
+this looking in the wrong place. It is two calls:
+`YOUTUBE_LIST_CAPTION_TRACK` first, then load a track from it. The argument
+spellings differ per tool — `videoId` there, `id` for `YOUTUBE_VIDEO_DETAILS`
+— so read each schema from `/api/v3/tools/{slug}` rather than assuming.
+
+⚠ **Composio's shared OAuth app has a shared Google quota, and it is
+exhaustible.** `YOUTUBE_VIDEO_DETAILS` returned a 403 `quotaExceeded` on a
+freshly connected account that had made one call. Nothing is wrong with the
+connection when this happens. Real use needs your own Google OAuth client in
+the auth config, which is also what stops one noisy install from spending
+everyone's quota.
+
+⚠ **Connecting a toolkit grants its WRITE scopes too.** The YouTube toolkit
+holds `UPLOAD_VIDEO`, `UPDATE_VIDEO`, `UPDATE_THUMBNAIL` and
+`SUBSCRIBE_CHANNEL` alongside the reads. The containment is that `Reader`
+names only read tools — there is no path from a spoken sentence to a tool slug
+— so the grant is broad and the reachable surface is not.
+
 **Reading is a harness tool; sending is not.** `read_mail`,
 `read_message`, `my_agenda`, `explain_video` and `draft_reply` are in the
 harness — it already holds private data and untrusted content, and gains no

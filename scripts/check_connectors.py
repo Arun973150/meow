@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from meow.config import get
 from meow.connectors import Connector, Reader
-from meow.connectors.composio import Composio
+from meow.connectors.composio import Composio, this_install
 from meow.console import quiet_library_warnings, use_utf8_console
 
 # The ones Meow has tools for. YouTube first because it is the safe one to try:
@@ -47,7 +47,7 @@ def main() -> None:
     arguments = parser.parse_args()
 
     key = get("COMPOSIO_API_KEY")
-    user = get("COMPOSIO_USER_ID") or "default"
+    user = get("COMPOSIO_USER_ID") or this_install()
     print(f"\n  key    {'set (' + str(len(key)) + ' chars)' if key else 'NOT SET'}")
     print(f"  user   {user}")
 

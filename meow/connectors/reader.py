@@ -139,9 +139,27 @@ class Reader:
         data, and nothing to send. It is where this phase should be tried
         first.
         """
-        result = self._call("YOUTUBE_LOAD_CAPTIONS", {
-            "video_id": _video_id(url_or_id),
-        })
+        video = _video_id(url_or_id)
+
+        # TWO calls, because LOAD_CAPTIONS wants a CAPTION TRACK id and not a
+        # video id - they are both called "id" and they are not the same
+        # thing. Passing the video id returns "Following fields are missing:
+        # {'id'}", which reads like the argument is absent rather than wrong.
+        # Note the spelling too: this tool takes `videoId`, VIDEO_DETAILS
+        # takes `id`, and neither takes the `video_id` that was here before.
+        listed = self._call("YOUTUBE_LIST_CAPTION_TRACK",
+                            {"videoId": video, "part": "snippet"})
+        if not listed.ok:
+            return f"Could not get the captions: {listed.error}"
+
+        track = _first_caption_track(listed.data)
+        if not track:
+            # A video with captions disabled is a fact about the video, not a
+            # failure of the connector, and the difference matters to whoever
+            # hears the answer.
+            return f"That video has no captions to read ({video})."
+
+        result = self._call("YOUTUBE_LOAD_CAPTIONS", {"id": track})
         if not result.ok:
             return f"Could not get the captions: {result.error}"
         text = str(result.data.get("captions") or result.data)
@@ -161,6 +179,32 @@ class Reader:
         return Draft(kind="email",
                      payload={"to": to, "subject": subject, "body": body},
                      summary=f"reply to {to}", source=source)
+
+
+def _first_caption_track(data: dict) -> str:
+    """The id of a caption track to download, preferring English.
+
+    Shape-tolerant on purpose: this walks somebody else's JSON, and the
+    alternative to a defensive read is a KeyError inside a voice turn.
+    """
+    items = []
+    if isinstance(data, dict):
+        items = data.get("items") or (data.get("data") or {}).get("items") or []
+    if not isinstance(items, list):
+        return ""
+
+    english = ""
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        identifier = str(item.get("id") or "")
+        if not identifier:
+            continue
+        language = str((item.get("snippet") or {}).get("language") or "")
+        if language.lower().startswith("en"):
+            return identifier
+        english = english or identifier
+    return english
 
 
 def _video_id(url_or_id: str) -> str:

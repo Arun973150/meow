@@ -15,7 +15,10 @@ enforced.
 from __future__ import annotations
 
 import json
+import os
+import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 BASE_URL = "https://backend.composio.dev/api/v3"
 
@@ -60,18 +63,52 @@ class Result:
         return f"[connector failed: {self.error}]"
 
 
+def this_install() -> str:
+    """A stable id for this installation, made once and kept.
+
+    The API key belongs to whoever BUILT Meow; the connected accounts belong
+    to whoever is running it. Composio separates them by `user_id`, so this is
+    the only thing keeping one person's mail out of another person's session -
+    and the old default, the literal string "default", gave every install on
+    every machine the same one. Two people, one developer key, one inbox
+    between them.
+
+    A random id rather than a username or an email: it needs to be unique and
+    stable, and nothing else. It is not a secret and it identifies nobody.
+    """
+    folder = (Path(os.environ.get("USERPROFILE", Path.home()))
+              / "Documents" / "Meow")
+    folder.mkdir(parents=True, exist_ok=True)
+    stored = folder / "install-id"
+    try:
+        existing = stored.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except OSError:
+        pass  # First run, or unreadable - either way, make one.
+
+    fresh = f"meow-{uuid.uuid4().hex[:16]}"
+    try:
+        stored.write_text(fresh, encoding="utf-8")
+    except OSError:
+        # Unwritable disk. A per-process id still beats a shared one: the
+        # login is asked for again next run, which is annoying and correct.
+        pass
+    return fresh
+
+
 class Composio:
     """Authenticated calls to Composio's tool-execution API."""
 
     def __init__(self, api_key: str | None = None,
-                 user_id: str = "default") -> None:
+                 user_id: str | None = None) -> None:
         from ..config import get
 
         self.api_key = api_key or get("COMPOSIO_API_KEY") or ""
         # Composio scopes connections to an "entity"; one person on one machine
         # is one entity, and naming it rather than defaulting keeps the
         # connection findable when there is more than one.
-        self.user_id = user_id
+        self.user_id = user_id or get("COMPOSIO_USER_ID") or this_install()
 
     @property
     def configured(self) -> bool:
