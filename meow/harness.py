@@ -166,6 +166,40 @@ You MUST use a tool. Never describe a location from your own knowledge - applica
 
 Change nothing. Every tool that would is refused on this turn anyway."""
 
+RESEARCH_REMINDER = """This is a RESEARCH turn: the answer is on the web, not on the screen.
+
+Call look_up. Do not click, type or open anything - the user asked what something IS, not for a browser to be driven. There is deliberately no control list on this turn, because the window in front has nothing to do with the question."""
+
+# Sentences that want the WEB, not the window in front. A research question
+# asked while Chrome happens to be focused was answered by reaching into
+# Chrome - clicking the address bar, typing a query - because the turn injects
+# a digest of the foreground window and a browser's digest is full of
+# plausible things to press. The user asked what GPU prices ARE; driving their
+# browser is a different act that happens to involve the same words.
+#
+# The digest is withheld for these, rather than the model being asked nicely
+# to ignore it. A list of clickable controls sitting next to a question is not
+# something a prompt reliably outranks - the same reasoning as `guiding`
+# refusing in the tools rather than in the prompt.
+WEB_PHRASES = ("research", "look up", "look it up", "find out", "google",
+               "search for", "search up", "find information", "find me info",
+               "what are the latest", "read up on", "gather information")
+
+# ...unless they named the desktop themselves. "Search for it in chrome" and
+# "click the address bar and search" are requests to drive the browser, and
+# the screen is exactly what those need.
+DESKTOP_WORDS = ("chrome", "browser", "edge", "firefox", "address bar", "tab",
+                 "click", "press", "type", "open", "window", "notepad",
+                 "word", "excel", "on screen", "on my screen", "this page")
+
+
+def wants_the_web(transcript: str) -> bool:
+    """True when the question is about the world, not about this window."""
+    lowered = f" {str(transcript).lower().strip()} "
+    if not any(phrase in lowered for phrase in WEB_PHRASES):
+        return False
+    return not any(word in lowered for word in DESKTOP_WORDS)
+
 # Shortcuts that act on the WHOLE DESKTOP, and the control that does the same
 # thing to one window. Asked to minimise VS Code, the model reached for win+m -
 # which minimises everything the user has open, from a request about a single
@@ -393,6 +427,7 @@ class Harness:
         # is looked up rather than required.
         self.task_results = None
         self.digest: WindowDigest | None = None
+        self.researching = False
         self.runs: list[ToolRun] = []
         self.last_error: str | None = None
         self.tracing = enable_tracing()
@@ -1079,7 +1114,14 @@ class Harness:
         self.transcript = transcript
         # Handed in when the caller started reading the screen while routing
         # was still going. Read here only when nobody did.
-        self.digest = digest if digest is not None else digest_foreground()
+        # Withheld entirely for a research question. See wants_the_web: a
+        # browser's control list beside "what are gpu prices" is an invitation
+        # to drive the browser instead of answering.
+        self.researching = wants_the_web(transcript)
+        if self.researching:
+            self.digest = None
+        else:
+            self.digest = digest if digest is not None else digest_foreground()
 
         # ONE thread for the whole session, not one per turn. A new id
         # each turn meant the checkpointer never had anything to resume,
@@ -1112,6 +1154,9 @@ class Harness:
             # Last, so it is nearest the request. A SHOW turn that answers
             # from memory has not shown anybody anything.
             messages.append(SystemMessage(GUIDE_REMINDER, additional_kwargs=tag))
+        if self.researching:
+            messages.append(SystemMessage(RESEARCH_REMINDER,
+                                          additional_kwargs=tag))
         messages.append(HumanMessage(transcript))
         messages.append(SystemMessage(STYLE_REMINDER, additional_kwargs=tag))
 
@@ -1145,7 +1190,16 @@ class Harness:
             for mode, data in self.agent.stream(
                     payload, config=config, stream_mode=["messages", "updates"]):
                 if mode == "messages":
-                    chunk, _metadata = data
+                    chunk, metadata = data
+                    # "messages" streams EVERY model in the graph, including
+                    # one a tool builds for itself - and look_up builds a
+                    # query rewriter. Its three search queries were streamed
+                    # to the user and spoken aloud: "GPU price trends India
+                    # 2024, Nvidia GPU cost India..." read out before the
+                    # answer. A model running inside a tool is not the cat
+                    # talking, whatever it produces.
+                    if metadata.get("langgraph_node") == "tools":
+                        continue
                     piece = self._streamed_text(chunk)
                     if not piece:
                         continue

@@ -563,6 +563,24 @@ Measured: 6 findings across 6 distinct domains, and a spoken citation.
 anything is fetched, on the user's own words only. A page that could influence
 the next search could walk the research anywhere it liked.
 
+⚠ **A research turn gets NO control list.** Asked to research GPU prices with
+Chrome focused, the cat reached into Chrome - the turn injects a digest of the
+foreground window, and a browser's digest is full of plausible things to press
+next to a question about prices. Worse after any Chrome work earlier in the
+session, because the router's own act criterion says a sentence continuing what
+Meow just did is an act. `harness.wants_the_web` withholds the digest entirely
+rather than asking the model to ignore it, the same way `guiding` refuses in
+the tools rather than in the prompt. Naming the desktop yourself opts back in:
+"search for it in chrome" and "click the address bar and search" still get the
+screen.
+
+⚠ **`stream_mode="messages"` streams EVERY model in the graph, including one a
+tool builds for itself.** `look_up` builds a query rewriter, so its three
+generated search queries were streamed to the user and SPOKEN - "GPU price
+trends India 2024, Nvidia GPU cost India 2024..." read aloud before the answer.
+Skip chunks whose `langgraph_node` is `tools`: a model running inside a tool is
+not the cat talking, whatever it produces.
+
 ⚠ **Use a small model, not a new one.** Query rewriting is the lightest job
 here, and `gpt-4.1-nano` does it in 1,467ms against 4o-mini's 1,606ms at a
 fraction of the price. A gpt-5 *nano* is a reasoning model and spends a 90
