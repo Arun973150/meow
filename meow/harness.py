@@ -86,7 +86,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command
 
-from . import actions, apps, documents, lookup, verify
+from . import actions, apps, documents, lookup, recipes, verify
 from .actions import Confirmer, Outcome, always_allow
 from .config import get, openai_api_key
 from .grounding import Target
@@ -264,6 +264,10 @@ class Harness:
         # Set when this harness IS one of the actors, so it does not read
         # its own status line back as if it were somebody else.
         self.actor = actor
+        # Read once at startup. Recipes are hand-edited between sessions, not
+        # during one, and re-reading a folder before every turn would put disk
+        # access on the path that can least afford it.
+        self.shelf = recipes.load()
         # Shared with the answer path, which was the only thing counting.
         # A session spent entirely on act and show reported $0.0000 while
         # spending real money - the worst possible reading on a prepaid
@@ -750,6 +754,13 @@ class Harness:
         recalled = self.memory.recall(without=self.actor)
         if recalled:
             messages.append(SystemMessage(recalled, additional_kwargs=tag))
+
+        # What the user wrote down about doing this. Tagged like the rest of
+        # the turn's context so last turn's recipe does not linger into a
+        # request about something else entirely.
+        written_down = self.shelf.to_prompt(transcript)
+        if written_down:
+            messages.append(SystemMessage(written_down, additional_kwargs=tag))
         messages.append(HumanMessage(transcript))
         messages.append(SystemMessage(STYLE_REMINDER, additional_kwargs=tag))
 

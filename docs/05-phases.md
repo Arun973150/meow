@@ -96,7 +96,7 @@ choosing which elements the model actually sees.
 | 2.3 | **Done.** `meow/research.py` — search + fetch and **nothing else**. No files, no desktop, no outbound. The trifecta stays open by construction |
 | 2.4 | **Done.** `meow/documents.py` — docx, xlsx, pptx into `Documents/Meow`. Never overwrites; a repeat name gets numbered |
 | 2.5 | **Done.** `meow/lookup.py` — searches for what a setting is *called*, then finds that exact name in the live tree. The web chooses what to LOOK FOR; the tree decides what EXISTS; the output is a point, never a press |
-| 2.6 | Recipe folder + retrieval |
+| 2.6 | **Done.** `meow/recipes.py` — a capability is a markdown file: a heading, a `when:` line, a paragraph. Retrieval is word overlap, model-free, so it costs nothing on the latency path. Shipped recipes in `recipes/`, the user's own in `Documents/Meow/Recipes`, theirs winning on a clash |
 
 2.5 is a genuine improvement over Clicky, which can only point from model
 memory.

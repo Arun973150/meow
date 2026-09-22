@@ -60,6 +60,8 @@ meow/research.py            search + fetch ONLY - the trifecta split
 meow/memory.py              ONE memory - what was said, and who is working
 meow/verify.py              PHASE 1.9 - did the action actually happen?
 meow/lookup.py              PHASE 2.5 - look up how, then point at the real thing
+meow/recipes.py             PHASE 2.6 - a capability is a file, not a release
+recipes/                    the shipped recipes; the user's go in Documents/Meow
 meow/tasks.py               handed-over work, on its own thread
 meow/taskwindow.py          the small window each task gets
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
@@ -176,6 +178,22 @@ type, press) means the user is watching whatever else the sentence says.
 small window: the cat says "i am on it" and goes back to listening. Say
 "also ..." to queue something onto a running task, "close that" when it is
 finished. Two run at once. Pause stops them all.
+
+**Phase 2.6 done: a new capability is a markdown file.** A heading, a
+`when:` line, a paragraph. Drop it in `recipes/` or `Documents/Meow/Recipes`
+and the cat knows how to do the thing — no code, no release. That is invariant
+1 made mechanical: when it cannot do something, write the paragraph.
+
+Retrieval is **word overlap, model-free** — the target is CPU-only and this
+runs before every act turn, so an embedding hop is wrong twice over. A recipe
+must match on a **trigger** word to be considered at all; body words then raise
+the score but never create a match on their own. Without that rule "what time
+is it" scored 0.50 against the Settings recipe because "Time & language"
+appears in a list of sidebar entries.
+
+Verified it reaches the model with a recipe about an invented application:
+without it, "click the export option in the toolbar" (confidently wrong); with
+it, "tap the three-dot menu at the bottom left and select send out".
 
 **Phase 2.5 done: it can point at settings nobody told it about.** Ask
 "where is the bluetooth setting" and `meow/lookup.py` searches for what it is
