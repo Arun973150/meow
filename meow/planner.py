@@ -54,14 +54,22 @@ MAX_STEPS = 8
 
 PLANNER_PROMPT = """You break a spoken request into the fewest steps that actually do it, for a cat that operates a Windows desktop.
 
-It can: open applications, switch between open windows, minimise and maximise them, click controls by name, type exact text, WRITE text about a topic, and press keyboard shortcuts.
+It can:
+- open applications, switch between open windows, minimise and maximise them
+- click controls by name, type exact text, press keyboard shortcuts
+- LOOK UP a topic on the web and read the top pages
+- WRITE text about a topic, in its own words
+- MAKE a Word document, a spreadsheet or a slide deck, saved to Documents/Meow
+- OPEN the document it just made
+- FIND HOW a setting works when it is not on screen, then point at it
 
 Rules:
 - Each step says WHAT to achieve, not which keys to hit. "minimise vs code" is a step; "press alt+space" then "click minimize" is you guessing at how, and guessing wrong. It works out how.
 - Say "write about X" when the user wants something composed, and "type X" only when they gave you the exact words. "Write about Elon Musk" means write several sentences about him, NOT type his name.
 - Do not add steps nobody asked for. No pressing enter at the end, no saving, no closing, no tidying up.
 - Do not include steps for looking, checking or waiting. It looks at the screen before every step anyway.
-- Two to six steps. If it needs more, return one step saying it is too big.
+- Two to six steps. If it genuinely needs more, return one step saying it is too big - but count properly first: looking something up and writing it to a file is TWO steps, not ten.
+- If the request is vague, DO NOT ask what they meant. Plan the most useful reading of it. You are running in the background and nobody is there to answer.
 
 Reply with JSON only: {"steps": ["...", "..."]}
 
@@ -70,7 +78,15 @@ Examples:
   -> {"steps": ["minimise visual studio code", "open notepad", "write about large language models"]}
 
   "open chrome and search for solar panel costs"
-  -> {"steps": ["open chrome", "press ctrl+t", "type solar panel costs", "press enter"]}"""
+  -> {"steps": ["open chrome", "press ctrl+t", "type solar panel costs", "press enter"]}
+
+  "find research on solar panel costs and put it in a spreadsheet"
+  -> {"steps": ["look up solar panel costs", "make a spreadsheet of what you found"]}
+
+  "write me a report about llm training and open it"
+  -> {"steps": ["look up llm training costs", "make a document about llm training", "open the document"]}
+
+RESEARCH AND DOCUMENTS ARE ONE STEP EACH. "look up X" is a single step - do not break it into opening a browser, typing and reading. "make a spreadsheet" is a single step - it writes the file directly and does not need Excel opened first."""
 
 
 class StepState(Enum):

@@ -62,7 +62,6 @@ from meow.platform.monitors import get_cursor_position, get_virtual_desktop
 from meow.platform.overlay import Bounds, Overlay
 from meow.router import Intent, Router
 from meow.tasks import TaskRunner, TaskState, declining_confirmer
-from meow.taskwindow import PanelPalette, TaskPanel, stack_positions
 from meow.voice import AssemblyAIStreaming, ElevenLabsSpeaker, Microphone, SpeechQueue
 
 TARGET_FPS = 60
@@ -322,10 +321,6 @@ def main() -> None:
         (t.title, t.result or t.summary) for t in tasks.visible
         if (t.result or t.summary)
     ]
-    task_panel = TaskPanel()
-    # One layered window per task, created as needed and reused. Making
-    # and destroying a window per frame flickers.
-    task_overlays: dict[int, Overlay] = {}
     planner = Planner(
         harness,
         # "quiet" is printed and never spoken. A plan the user did not ask to
@@ -529,8 +524,8 @@ def main() -> None:
 
     print(f"\n  tap {hotkey.display_name} and talk. Tap again to stop listening.")
     print(f"  tap {panic_key.display_name.upper()} to stop everything, instantly.")
-    print("  long jobs get their own window - say \"also ...\" to add to one,")
-    print("  and \"close that\" when you are done with it.")
+    print("  long jobs get their own tray icon - click it to watch them,")
+    print("  say \"also ...\" to add to one, \"close that\" when done.")
     print(f"  routing: {'jev' if router.using_jev else 'keywords'}"
           f"{'  (' + (router.unavailable_reason or '')[:60] + ')' if not router.using_jev else ''}")
     print(f"  speech: {'muted' if args.mute else 'on'}")
@@ -766,7 +761,6 @@ def main() -> None:
                         using_light_ink = luminance < threshold
                         renderer.palette = CatPalette.for_background(luminance)
                         bubble_renderer.palette = BubblePalette.for_background(luminance)
-                        task_panel.palette = PanelPalette.for_background(luminance)
 
                 bubble_state.update(elapsed, timestep)
 
@@ -797,33 +791,12 @@ def main() -> None:
                 else:
                     bubble.hide()
 
-                # One window per task, stacked up the right edge. Built on
-                # demand and torn down when the task is dismissed.
-                # NOT named `overlay`. It was, and it shadowed the cat's own
-                # overlay for the rest of the frame - so the next cat draw
-                # pushed a 72x50 sprite into a 280x59 task window and the whole
-                # app died on "expected 66080 bytes, got 14400". The loop
-                # variable outliving the loop is the oldest trap in Python.
-                live = tasks.visible
-                for task, left, top in stack_positions(live, task_panel, monitor):
-                    panel_image = task_panel.render(task, phase=elapsed)
-                    panel_bounds = Bounds(left, top, panel_image.width,
-                                          panel_image.height)
-                    task_overlay = task_overlays.get(task.number)
-                    if task_overlay is None:
-                        task_overlay = Overlay(panel_bounds)
-                        task_overlays[task.number] = task_overlay
-                        task_overlay.show()
-                    task_overlay.set_bounds(panel_bounds)
-                    try:
-                        task_overlay.draw(
-                            rgba_to_premultiplied_bgra(panel_image))
-                    except Exception as error:  # noqa: BLE001 - see draw_fault
-                        draw_fault(f"task {task.number}", error)
-
-                for number in list(task_overlays):
-                    if not any(task.number == number for task in live):
-                        task_overlays.pop(number).close()
+                # Background work is shown in the chat window now, not in
+                # a small box drawn over the desktop. The old panels were
+                # layered click-through overlays, so there was nothing to
+                # click: the results were visible and unreachable, which is
+                # the worst of both. Each running agent has a tray icon that
+                # opens its conversation - see meow/chat/trays.py.
 
                 remaining = frame_budget - (time.perf_counter() - frame_started)
                 if remaining > 0:
@@ -842,8 +815,6 @@ def main() -> None:
             if cat_cursor is not None:
                 cat_cursor.remove()
             tasks.stop_all()
-            for task_overlay in task_overlays.values():
-                task_overlay.close()
             # The session is over, so the record says so and the window goes.
             # Leaving it open would show a live conversation that nothing is
             # writing to any more, with no way to tell by looking.

@@ -179,6 +179,18 @@ four-step desktop job was handed a window to narrate what was already on
 screen - so it is decided by what the job needs, and a hands-on verb (click,
 type, press) means the user is watching whatever else the sentence says.
 
+⚠ **The old per-task overlay panels are GONE.** They were layered
+click-through windows, so there was nothing to click: results were visible and
+unreachable, which is the worst of both. Background work lives in the chat
+window now, reached by its tray icon.
+
+⚠ **The planner's idea of what the cat can do has to be kept in step with the
+harness.** Its prompt listed clicking, typing and opening applications and
+never mentioned looking things up or making documents - tools added in 2.3 and
+2.4 - so "find research on solar panel costs and put it in a spreadsheet", the
+documented Phase 2 demo, could not be planned at all and came back as chat.
+Adding a tool means updating `PLANNER_PROMPT`.
+
 **Long work is handed over.** A plan becomes a background task with its own
 small window: the cat says "i am on it" and goes back to listening. Say
 "also ..." to queue something onto a running task, "close that" when it is
