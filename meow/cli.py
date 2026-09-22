@@ -5,7 +5,9 @@
     meow connectors      which services are connected, and connect one
     meow stress          64 edge cases across every module
     meow smoke           start the real app and fail on a traceback
+    meow label           hand-mark targets for the held-out evaluation
     meow evaluate        the UIA / vision ablation
+    meow evaluate --labelled   score against the hand-marked set
 
 A desktop application ships one executable. `doctor` and `stress` are things
 you ask it about itself, not separate programs, and a folder of loose scripts
@@ -20,7 +22,8 @@ import sys
 
 # `meow ...` with no recognised subcommand runs the companion and passes
 # everything through, so `meow --mute` keeps working without being listed.
-COMMANDS = ("doctor", "connectors", "stress", "smoke", "evaluate", "help")
+COMMANDS = ("doctor", "connectors", "stress", "smoke", "evaluate", "label",
+            "help")
 
 
 def _usage() -> None:
@@ -62,7 +65,27 @@ def main(argv: list[str] | None = None) -> None:
 
         raise SystemExit(smoke.main())
 
+    if command == "label":
+        from .diagnostics import label
+
+        raise SystemExit(label.main())
+
     if command == "evaluate":
+        if "--labelled" in arguments or "--labeled" in arguments:
+            from .diagnostics import held_out, label
+
+            labels = label.load()
+            if not labels:
+                print()
+                print("  No hand-labelled targets yet. Run:  meow label")
+                print()
+                raise SystemExit(1)
+            print()
+            print(f"  replaying {len(labels)} hand-labelled targets...")
+            print(held_out.run(labels).summary())
+            print()
+            return
+
         from .diagnostics import evaluate
 
         evaluate.main()

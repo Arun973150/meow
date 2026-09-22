@@ -59,13 +59,29 @@ FILLER = {
     "would", "please", "do", "does", "how", "what", "where", "with", "from",
     "up", "out", "about", "some", "any", "want", "need", "get", "make",
     "these", "those", "them", "there", "here", "now", "then", "also", "just",
+    # Words that name no topic. They matter because the TITLE counts as a
+    # trigger, and a title written as a sentence - "start something new in an
+    # application" - donates "start" and "something" to the trigger set, where
+    # they match anything. "start recording" and "film something" both scored
+    # a tie against the new-document recipe on exactly those two words.
+    "start", "something", "thing", "things", "stuff", "someone", "somewhere",
 }
 
 TRIGGER_LINE = re.compile(r"^\s*when\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
 
 
 def shipped_folder() -> Path:
-    """The recipes that come with Meow, inside the repository."""
+    """The recipes that come with Meow. INSIDE the package, deliberately.
+
+    They sat at the repository root until this file moved one directory
+    deeper, at which point `parent.parent` stopped being the root and every
+    shipped recipe vanished - silently, because a shelf with nothing on it
+    looks exactly like a request that matched nothing.
+
+    Inside the package is also the only place they can be: a wheel contains
+    the package, so anything beside it is not installed at all. The path here
+    and the `package-data` entry in pyproject.toml have to agree.
+    """
     return Path(__file__).resolve().parent.parent / "recipes"
 
 
@@ -188,11 +204,36 @@ def parse(text: str, path: str = "") -> Recipe | None:
             title = line.lstrip("#").strip()
             break
 
-    found = TRIGGER_LINE.search(text)
-    triggers = found.group(1).strip() if found else ""
+    # A when: list WRAPS, and it has to, because a good trigger list is longer
+    # than one line. Reading only the matched line silently threw the rest
+    # away: new-document.md lost "new file", "new note", "new sheet", "new
+    # workbook", "new slide" and "new deck" from the day it was written, and a
+    # half-loaded recipe looks exactly like a request that matched nothing.
+    #
+    # The list runs to the first BLANK line - the rule a person would guess
+    # from looking at the file, which is the only rule worth having in a
+    # format whose promise is that you can write one without reading any
+    # documentation.
+    triggers = ""
+    trigger_line_numbers: set[int] = set()
+    for index, line in enumerate(lines):
+        matched = TRIGGER_LINE.match(line)
+        if not matched:
+            continue
+        collected = [matched.group(1).strip()]
+        trigger_line_numbers.add(index)
+        for offset in range(index + 1, len(lines)):
+            following = lines[offset]
+            if not following.strip() or following.startswith("#"):
+                break
+            collected.append(following.strip())
+            trigger_line_numbers.add(offset)
+        triggers = " ".join(collected).strip()
+        break
 
-    body_lines = [line for line in lines
-                  if not line.startswith("#") and not TRIGGER_LINE.match(line)]
+    body_lines = [line for index, line in enumerate(lines)
+                  if not line.startswith("#")
+                  and index not in trigger_line_numbers]
     body = "\n".join(body_lines).strip()
 
     if not title or not body:

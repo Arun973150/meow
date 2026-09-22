@@ -72,7 +72,9 @@ meow = "meow.cli:main"
 include = ["meow*"]
 
 [tool.setuptools.package-data]
-meow = ["../recipes/*.md"]
+# Inside the package, so a wheel actually contains them. "../recipes"
+# named a folder outside the package and installed nothing.
+meow = ["recipes/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

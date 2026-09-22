@@ -554,6 +554,35 @@ rather than delivering quietly.
 for the harness, the planner, the answer path and the query rewriter. Use the
 REST API over `httpx`, which is already a dependency.
 
+⚠ **The shipped recipes stopped loading when `recipes.py` MOVED.**
+`shipped_folder()` was `parent.parent / "recipes"`, right while the module sat
+at `meow/recipes.py` and wrong the moment it became `meow/knowledge/recipes.py`
+- so all six vanished, silently, because a shelf with nothing on it looks
+exactly like a request that matched nothing. They live in `meow/recipes/` now,
+INSIDE the package, which is also the only place a wheel would carry them; the
+path and the `package-data` entry have to agree.
+
+⚠ **A `when:` list WRAPS, and only the first line was being read.**
+`new-document.md` lost "new file", "new note", "new sheet", "new workbook",
+"new slide" and "new deck" from the day it was written. The list now runs to
+the first BLANK line - the rule a person would guess from looking at the file,
+which is the only rule worth having in a format whose promise is that you can
+write one without reading documentation.
+
+⚠ **A title written as a sentence donates useless triggers.** The title
+counts as a trigger, which is right until the title is "start something new in
+an application" - it donated "start" and "something", and both match anything.
+"start recording" and "film something" tied against it on exactly those two
+words. Generic words are FILLER now.
+
+⚠ **Only the literal word "camera" ever opened the camera.** "take a photo"
+worked and "capture" did not, because nothing maps the words to the
+application - the MODEL had to make that leap, and did so inconsistently. That
+is what a recipe is for, and `meow/recipes/camera-photos-video.md` lists the
+vocabulary: photo, picture, selfie, snap, capture, webcam, video, record,
+recording, film, shoot. A bare "video" otherwise matches the **VideoLAN
+website** in the installed-application search.
+
 **Phase 2.6 done: a new capability is a markdown file.** A heading, a
 `when:` line, a paragraph. Drop it in `recipes/` or `Documents/Meow/Recipes`
 and the cat knows how to do the thing — no code, no release. That is invariant
