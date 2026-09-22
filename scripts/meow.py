@@ -331,7 +331,10 @@ def main() -> None:
     # it an outbound channel would close the trifecta in one move. It
     # drafts; this sends, after a person has said so.
     outbox = Outbox()
-    sender = Sender(outbox)
+    # `announce` so a login tab is never a surprise - the cat says it is
+    # opening one before it does.
+    sender = Sender(outbox,
+                    announce=lambda text: replies.put(("say", text)))
 
     memory = Memory()
 
@@ -348,6 +351,7 @@ def main() -> None:
         harness = Harness(confirm=ask_out_loud, ask_before_acting=False,
                           memory=memory, budget=mind.screen.budget,
                           outbox=outbox)
+        harness.on_note = lambda text: replies.put(("say", text))
         speech = None if args.mute else SpeechQueue(ElevenLabsSpeaker())
     except MissingKey as error:
         raise SystemExit(f"\n{error}\n")

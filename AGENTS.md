@@ -344,6 +344,29 @@ holds no tool that sends; the SENDER takes an approved draft by **id** and
 holds no tool that reads. Between them is a person looking at the exact
 recipient and the exact body.
 
+**Access is asked for when it is needed, not configured beforehand.** Say
+"what's in my inbox" with no Gmail connected and the cat says *"i need access
+to your gmail, opening the login now"*, opens Google's login, waits, and
+carries on. A companion should ask to use your mail when you ask it to read
+your mail, the way an application asks for the microphone when you press
+record — not in a setup step you complete without knowing which parts you will
+use.
+
+Composio-managed OAuth, so there is no Google app to register and no client
+secret on this machine. The flow the API actually wants:
+
+    POST /auth_configs                     once per toolkit, reusable
+    POST /connected_accounts/link          -> a redirect_url
+    the browser                            the user logs in
+    GET  /connected_accounts/{id}          poll until ACTIVE
+
+⚠ **`POST /connected_accounts` is refused for managed OAuth.** It returns a 400
+naming `/connected_accounts/link` as the replacement — worth reading the error
+rather than assuming the obvious endpoint.
+
+⚠ **Retry the login only on "not connected".** Opening a login tab in answer to
+a rate limit or a bad argument is answering the wrong question loudly.
+
 **Reading is a harness tool; sending is not.** `read_mail`,
 `read_message`, `my_agenda`, `explain_video` and `draft_reply` are in the
 harness — it already holds private data and untrusted content, and gains no

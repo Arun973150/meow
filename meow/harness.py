@@ -294,6 +294,11 @@ class Harness:
         # actually sends - this harness cannot.
         self.outbox = outbox if outbox is not None else Outbox()
         self._reader_instance = None
+        # Said out loud from inside a tool, which cannot yield. A login tab
+        # appearing unbidden is alarming; the same tab after "i need access to
+        # your gmail, opening the login now" is obvious. The app points this
+        # at the voice loop.
+        self.on_note = None
         # Read once at startup. Recipes are hand-edited between sessions, not
         # during one, and re-reading a folder before every turn would put disk
         # access on the path that can least afford it.
@@ -847,8 +852,16 @@ class Harness:
         if self._reader_instance is None:
             from .connectors import Reader
 
-            self._reader_instance = Reader()
+            self._reader_instance = Reader(announce=self._note)
         return self._reader_instance
+
+    def _note(self, text: str) -> None:
+        """Say something mid-tool, if anybody is listening."""
+        if self.on_note is not None:
+            try:
+                self.on_note(text)
+            except Exception:  # noqa: BLE001 - a lost line is not a crash
+                pass
 
     def _explaining(self, what: str) -> str | None:
         """The refusal for an acting tool while guiding, or None."""

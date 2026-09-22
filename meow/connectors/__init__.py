@@ -35,8 +35,10 @@ The REST API needs nothing that is not already installed.
 
 from __future__ import annotations
 
+from .connect import Connection, Connector, toolkit_for
 from .drafts import Draft, Outbox
 from .reader import Reader
 from .sender import Sender
 
-__all__ = ["Draft", "Outbox", "Reader", "Sender"]
+__all__ = ["Connection", "Connector", "Draft", "Outbox", "Reader",
+           "Sender", "toolkit_for"]

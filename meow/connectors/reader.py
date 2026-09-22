@@ -20,6 +20,7 @@ anywhere else. See `drafts.py`.
 from __future__ import annotations
 
 from .composio import Composio, Result
+from .connect import Connector, toolkit_for
 from .drafts import Draft
 
 # How much of a mailbox to pull at once. A voice answer about an inbox is "you
@@ -45,18 +46,43 @@ UNTRUSTED = (
 class Reader:
     """Gmail, Calendar, Slack and YouTube - read only, by construction."""
 
-    def __init__(self, composio: Composio | None = None) -> None:
+    def __init__(self, composio: Composio | None = None,
+                 announce=None) -> None:
         self.composio = composio or Composio()
+        # Access is asked for at the moment it is needed rather than
+        # in a setup step - a companion should ask to use your mail
+        # when you ask it to read your mail, the way an application
+        # asks for the microphone when you press record.
+        self.connector = Connector(self.composio)
+        self.announce = announce
 
     @property
     def configured(self) -> bool:
         return self.composio.configured
 
+    def _call(self, tool: str, arguments: dict) -> Result:
+        """Run a tool, asking the user to log in if access is missing.
+
+        Retried once, and only on "not connected". Any other failure
+        is reported as it is: opening a login tab in answer to a rate
+        limit or a bad argument is answering the wrong question
+        loudly.
+        """
+        result = self.composio.execute(tool, arguments)
+        if result.ok or "not connected yet" not in result.error:
+            return result
+
+        connection = self.connector.ensure(toolkit_for(tool),
+                                           announce=self.announce)
+        if not connection.ok:
+            return Result(False, {}, connection.spoken())
+        return self.composio.execute(tool, arguments)
+
     # --- mail -------------------------------------------------------------
 
     def inbox(self, query: str = "is:unread", limit: int = MAX_MESSAGES) -> str:
         """Recent mail matching a query. Gmail search syntax."""
-        result = self.composio.execute("GMAIL_FETCH_EMAILS", {
+        result = self._call("GMAIL_FETCH_EMAILS", {
             "query": query,
             "max_results": min(limit, MAX_MESSAGES),
         })
@@ -66,7 +92,7 @@ class Reader:
 
     def read_message(self, message_id: str) -> str:
         """One message in full, by id."""
-        result = self.composio.execute("GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID", {
+        result = self._call("GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID", {
             "message_id": message_id,
         })
         if not result.ok:
@@ -94,7 +120,7 @@ class Reader:
 
     def agenda(self, days: int = 1) -> str:
         """What is coming up."""
-        result = self.composio.execute("GOOGLECALENDAR_FIND_EVENT", {
+        result = self._call("GOOGLECALENDAR_FIND_EVENT", {
             "max_results": MAX_MESSAGES,
             "timeMax": None,
             "single_events": True,
@@ -113,7 +139,7 @@ class Reader:
         data, and nothing to send. It is where this phase should be tried
         first.
         """
-        result = self.composio.execute("YOUTUBE_LOAD_CAPTIONS", {
+        result = self._call("YOUTUBE_LOAD_CAPTIONS", {
             "video_id": _video_id(url_or_id),
         })
         if not result.ok:

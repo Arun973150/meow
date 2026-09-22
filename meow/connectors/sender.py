@@ -24,7 +24,15 @@ the check off. Adding one would be the whole of Phase 4 undone.
 from __future__ import annotations
 
 from .composio import Composio
+from .connect import Connector, toolkit_for
 from .drafts import Draft, Outbox
+
+
+def _toolkit_for_kind(kind: str) -> str:
+    """Which service delivers this kind of draft."""
+    return {"email": "gmail",
+            "calendar_event": "googlecalendar",
+            "slack_message": "slack"}.get(kind, kind)
 
 
 class SendRefused(Exception):
@@ -34,9 +42,16 @@ class SendRefused(Exception):
 class Sender:
     """Delivers approved drafts. Holds nothing that could read."""
 
-    def __init__(self, outbox: Outbox, composio: Composio | None = None) -> None:
+    def __init__(self, outbox: Outbox, composio: Composio | None = None,
+                 announce=None) -> None:
         self.outbox = outbox
         self.composio = composio or Composio()
+        # A draft approved for a service that was never connected
+        # should open the login, not fail after the user has already
+        # said yes. Asking AFTER approval is the right order: nothing
+        # is sent until both the person and the service have agreed.
+        self.connector = Connector(self.composio)
+        self.announce = announce
         # Every send, for afterwards. A send is the one thing here that cannot
         # be undone, so what went out and when is worth keeping even though
         # nothing reads it yet.
@@ -64,6 +79,12 @@ class Sender:
 
         try:
             outcome = self._deliver(draft)
+            if not outcome.ok and "not connected yet" in outcome.error:
+                connection = self.connector.ensure(
+                    _toolkit_for_kind(draft.kind),
+                    announce=self.announce)
+                if connection.ok:
+                    outcome = self._deliver(draft)
         except Exception as error:  # noqa: BLE001
             self.outbox.failed(draft_id)
             return f"Could not send it: {type(error).__name__}: {error}"
