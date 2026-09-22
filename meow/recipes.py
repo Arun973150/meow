@@ -101,11 +101,34 @@ class Recipe:
         return _meaningful(self.body)
 
     @property
+    def phrases(self) -> list[set[str]]:
+        """Each comma-separated trigger, as the set of words it needs.
+
+        A multi-word trigger is a PHRASE and matches only when all of its
+        words are present. Split into loose words instead, "new window" made
+        the recipe fire on "minimise this window" - because window alone was
+        enough, and window alone means nothing.
+        """
+        found = []
+        for piece in str(self.triggers).split(","):
+            words = _meaningful(piece)
+            if words:
+                found.append(words)
+        return found
+
+    @property
     def terms(self) -> set[str]:
-        # The title counts as a trigger too - people name recipes after the
-        # thing they are for, so repeating those words on the when: line is
-        # busywork nobody will keep doing.
-        return _meaningful(self.triggers) | _meaningful(self.title)
+        """Every SINGLE-word trigger, plus the title.
+
+        The title counts as a trigger too - people name recipes after the
+        thing they are for, so repeating those words on the when: line is
+        busywork nobody will keep doing.
+        """
+        single = set()
+        for words in self.phrases:
+            if len(words) == 1:
+                single |= words
+        return single | _meaningful(self.title)
 
     def score(self, request: str) -> float:
         """How well this recipe fits, from 0 to 1.
@@ -126,6 +149,11 @@ class Recipe:
         if not wanted:
             return 0.0
         listed = wanted & self.terms
+        # A phrase counts when the request contains ALL of its words. That is
+        # what makes "new window" mean new window rather than window.
+        for phrase in self.phrases:
+            if len(phrase) > 1 and phrase <= wanted:
+                listed = listed | phrase
         if not listed:
             # Body words BOOST a match; they never create one. Without this
             # rule "what time is it" scored 0.50 against the Settings recipe,

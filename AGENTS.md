@@ -455,6 +455,19 @@ and points at whatever step is on screen:
 > *network and internet, then advanced network settings, then dns server
 > assignment. edit is on screen now.*
 
+⚠ **A new tab changes NOTHING a snapshot could see.** Same window title,
+same process, same focused role, same focused name — "Text editor" before and
+after — so opening a new note was done correctly and honestly reported as
+unverifiable, which is the worst combination. `Snapshot.focused_id` carries
+UIA's runtime id for the focused control, 3ms to read, and it is the only
+signal that notices.
+
+⚠ **A multi-word recipe trigger must match as a PHRASE.** Split into loose
+words, `when: new window` fired the new-document recipe on "minimise this
+window" — because *window* alone was enough, and *window* alone means nothing.
+All of a phrase's words must be present; single-word triggers still match
+singly.
+
 ⚠ **A SHOW turn must POINT, not describe.** Refusing the acting tools was
 only half of it: asked "where is the file menu", the model answered out of its
 own memory and pointed at nothing. A remembered layout is precisely what this

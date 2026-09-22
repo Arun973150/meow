@@ -97,6 +97,13 @@ class Snapshot:
     focused_role: str = ""
     focused_name: str = ""
     focused_value: str = ""
+    # UIA's identity for the focused control, and the only thing here
+    # that notices a new tab. Notepad's new tab has the same window
+    # title, the same process, the same focused role and the same
+    # name - "Text editor" - with a different control underneath.
+    # Without it, opening a new note was correctly done and honestly
+    # reported as unverifiable, which is the worst combination.
+    focused_id: tuple = ()
 
     @property
     def focus(self) -> tuple[str, str]:
@@ -133,12 +140,18 @@ def look() -> Snapshot:
 
     element = _focused_element()
     role = name = ""
+    identity: tuple = ()
     if element is not None:
         try:
             role = str(element.ControlTypeName or "")
             name = str(element.Name or "")
         except Exception:  # noqa: BLE001
             pass
+        try:
+            # 3ms, measured. Cheap enough for every snapshot.
+            identity = tuple(element.GetRuntimeId() or ())
+        except Exception:  # noqa: BLE001 - absence is an answer
+            identity = ()
 
     return Snapshot(
         foreground_title=foreground_title,
@@ -147,6 +160,7 @@ def look() -> Snapshot:
         focused_role=role,
         focused_name=name,
         focused_value=_value_of(element),
+        focused_id=identity,
     )
 
 
@@ -317,5 +331,13 @@ def anything_changed(before: Snapshot, after: Snapshot,
 
     if before.focused_value != after.focused_value:
         return Verdict(True, "the focused field's contents changed")
+
+    if (before.focused_id and after.focused_id
+            and before.focused_id != after.focused_id):
+        # Same title, same name, DIFFERENT control: a new tab, a new
+        # document, one dialog replaced by another. Last, because it
+        # is the least descriptive signal here - and worth having,
+        # because it is the only one that sees a new tab at all.
+        return Verdict(True, "a new one opened")
 
     return Verdict(None, f"nothing observable changed after {what}")
