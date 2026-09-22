@@ -652,7 +652,12 @@ class Harness:
         # each turn meant the checkpointer never had anything to resume,
         # so every act and show started blank - which is why "now the
         # other one" had nothing to resolve against.
-        config = {"configurable": {"thread_id": "session"}}
+        config = {"configurable": {"thread_id": "session"},
+                  # Named, or every harness turn shows up in LangSmith as
+                  # "LangGraph" and cannot be told apart from a planner
+                  # step at a glance.
+                  "run_name": "harness.act" if self.actor is None
+                              else f"harness.{self.actor}"}
 
         self._turn += 1
         tag = {TURN_TAG: self._turn}
