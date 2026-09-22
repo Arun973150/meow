@@ -377,10 +377,19 @@ never blocks the writer, one connection per thread, busy timeout rather than a
 retry loop. Measured: six threads writing 240 messages in 0.09s while a second
 process polled throughout.
 
-**Phase 4: reading is VERIFIED LIVE against a real Gmail account.** Key
-accepted, login completed in the browser, real messages returned, the
-untrusted wrapper applied, all under a per-install identity. Sending is
-built and not yet exercised end to end.
+**PHASE 4 IS COMPLETE. An email has actually been sent and read back.**
+Composed, refused before approval, approved, delivered, and refused a second
+time on the same approval - then VERIFIED BY READING THE MAILBOX rather than
+by trusting what the API returned, because this project's own rule is that a
+call returning success is not the thing having happened.
+
+The mutation attack was re-run against the live path: the payload proxy
+raises, and forcing past it with `object.__setattr__` is still refused at send
+by the fingerprint. Nothing reached the attacker address.
+
+`GMAIL_SEND_EMAIL` takes `recipient_email`, `subject`, `body` - checked against
+the schema BEFORE sending, after the captions bug proved that guessing
+argument names costs a live run.
 
 **The reader/sender split.** Mail, calendar, Slack and
 YouTube, with the trifecta enforced structurally. The READER reads anything and
