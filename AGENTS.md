@@ -29,7 +29,8 @@ Personal study project. One developer, part-time. **Scope is the primary risk.**
 
 ## Status
 
-**Phase 0 in progress. 0.1 through 0.5 done and verified.**
+**Phases 0, 1, 2 and 4 are COMPLETE.** Phase 3 (the Manim
+explainer) and Phase 5 (delegation) are not started. The map:
 
 ```
 meow/platform/dpi.py        PER_MONITOR_AWARE_V2, with two fallbacks
@@ -136,7 +137,7 @@ land.
 **Phase 1.9 done: actions are checked, not assumed.** The cat used to say
 "i typed your name in the document" whether or not a character arrived -
 `SendInput` returning means the input queue accepted the keystrokes, not
-that a field received them. `meow/verify.py` snapshots the desktop either
+that a field received them. `meow/desktop/verify.py` snapshots the desktop either
 side of an action and reports what actually changed.
 
 **Checked through UIA, not a screenshot** - a deviation from the phase plan
@@ -159,7 +160,7 @@ read by itself. The router takes the same Memory as everything else and sends
 recent turns with the sentence. Costs nothing measurable: 433ms with context
 against 564ms without, ranges overlapping.
 
-**Every path shares one memory.** `meow/memory.py` holds a short rolling
+**Every path shares one memory.** `meow/agent/memory.py` holds a short rolling
 transcript and an actor per running task, read before each reply and written
 after. The harness used to open a fresh LangGraph thread per turn, so it
 remembered nothing at all and "now the other one" had nothing to resolve
@@ -212,7 +213,7 @@ Written the other way, adding WAITING made every waiting task instantly count
 as finished - icon retired, conversation closed, question discarded. For the
 same reason `TaskRunner.running` filters on `state.working`.
 
-**Plan state is durable.** `Documents/Meow/plans.db` via `SqliteSaver`. Every
+**Plan state is durable.** `%LOCALAPPDATA%/Meow/plans.db` via `SqliteSaver`. Every
 step is a checkpoint, which made a plan resumable *within one process* - and a
 plan interrupted by a crash was simply gone, at the moment its state was worth
 the most. Verified across a real process restart, not inside one: an in-memory
@@ -244,7 +245,7 @@ in the system tray first and it cannot work: a `QSystemTrayIcon` created fresh
 per agent is one Windows has never seen, so it starts behind the chevron and
 the user would have to un-hide every agent by hand. The diagnostics were
 unambiguous that the code was right — `built icon ... visible=True
-available=True` — and it was still not on screen. `meow/agentdock.py` draws
+available=True` — and it was still not on screen. `meow/work/agentdock.py` draws
 them beside the cat instead, where Meow owns the pixels.
 
 **Three checks before believing anything works.** [docs/07-live-test.md](docs/07-live-test.md) is the third — thirteen spoken
@@ -254,7 +255,7 @@ click it. Each step names the real bug it is watching for.
 
 **Two automated checks.** `meow smoke`
 starts the real app and fails on a traceback; `meow stress` throws
-48 edge cases at every module — empty strings, 10,000 characters, Devanagari,
+64 edge cases at every module — empty strings, 10,000 characters, Devanagari,
 emoji, SQL, path traversal, reserved Windows filenames, eight threads at once,
 a window killed mid-read. Both are verified to fail on real bugs.
 
@@ -361,7 +362,7 @@ coloured `div` stretches the full viewport width, so an HTML transcript renders
 as flat grey bars edge to edge. `meow/chat/bubbles.py` paints them with a
 delegate instead: sized to their own text, the user's on the right.
 
-**Stored, not just shown.** `Documents/Meow/conversations.db`. WAL so a reader
+**Stored, not just shown.** `%LOCALAPPDATA%/Meow/conversations.db`. WAL so a reader
 never blocks the writer, one connection per thread, busy timeout rather than a
 retry loop. Measured: six threads writing 240 messages in 0.09s while a second
 process polled throughout.
@@ -432,7 +433,7 @@ means the key moves behind a proxy like the AssemblyAI token does; it is in
 separates one person's connected accounts from another's by `user_id` and
 nothing else, so a shared default plus one developer key is one inbox between
 every install — person B says "what's in my inbox" and reads person A's mail.
-`composio.this_install()` writes a random id to `Documents/Meow/install-id`
+`composio.this_install()` writes a random id to `%LOCALAPPDATA%/Meow/install-id`
 once and reuses it. Verified by the connection disappearing: YouTube connected
 under the old default is invisible to the new identity, which is the isolation
 being real rather than nominal.
@@ -619,7 +620,7 @@ candidates are used in the order the page listed them, which for "Insert" then
 **Research searches from several angles and says where it got things.** A
 spoken sentence is not a query: "hey can you do a research on solar panel cost
 and put it in the spreadsheet" carries politeness and an output format, neither
-of which has anything to do with finding an answer. `meow/queries.py` strips
+of which has anything to do with finding an answer. `meow/knowledge/queries.py` strips
 those with rules, then a small model writes two more queries from different
 angles. Results are merged by agreement - a page that two queries both surface
 outranks one that ranked first for a single phrasing - and capped at ONE per
@@ -654,7 +655,7 @@ fraction of the price. A gpt-5 *nano* is a reasoning model and spends a 90
 token budget thinking, returning one query instead of three.
 
 **Phase 2.5 done: it can point at settings nobody told it about.** Ask
-"where is the bluetooth setting" and `meow/lookup.py` searches for what it is
+"where is the bluetooth setting" and `meow/desktop/lookup.py` searches for what it is
 *called*, then finds that exact name in the window in front. Measured against
 real Windows Settings: dark mode -> `Personalization`, bluetooth ->
 `Bluetooth & devices`, dns -> `Network & internet`.
@@ -665,7 +666,7 @@ as label-shaped strings, anything opening with an imperative verb is dropped
 whole rather than trimmed, and a surviving name must match the tree
 **exactly**. Then the cat POINTS. Pointing is `Risk.SAFE`, so the worst a
 hostile page achieves is drawing attention to a button already on screen;
-pressing it needs the user to say so, which goes through `meow/risk.py` where
+pressing it needs the user to say so, which goes through `meow/agent/risk.py` where
 the instruction comes from the person.
 
 ⚠ **Use `lookup.strict_match`, never `digest.find`, for a web-derived name.**
@@ -710,7 +711,7 @@ At thirteen times the tokens the baseline is still 0/6, so it was not starved of
 pixels. See [docs/04-evaluation.md](docs/04-evaluation.md), including the two
 methodology bugs that produced plausible wrong numbers first.
 
-**1.1 and 1.4 detail.** `meow/uia.py` returns the foreground
+**1.1 and 1.4 detail.** `meow/desktop/uia.py` returns the foreground
 window as a ranked list of named, on-screen controls with exact coordinates, in
 **268ms** — via native `FindAllBuildCache`, which is 23.5x faster than walking
 the tree from Python and returns all of it rather than a truncated slice.
@@ -724,8 +725,8 @@ harness that can actually click. See [docs/05-phases.md](docs/05-phases.md).
 | | |
 |---|---|
 | Language | Python 3.12 (installed) |
-| Agent framework | LangGraph + `langchain.agents.create_agent` — **installed and in use**, see `meow/harness.py` |
-| Model | **OpenAI `gpt-4o-mini`** — cost-constrained, see `meow/vision.py` |
+| Agent framework | LangGraph + `langchain.agents.create_agent` — **installed and in use**, see `meow/agent/harness.py` |
+| Model | **OpenAI `gpt-4o-mini`** — cost-constrained, see `meow/desktop/vision.py` |
 | STT | **AssemblyAI v3 streaming** — `wss://streaming.assemblyai.com/v3/ws` |
 | TTS | **ElevenLabs Flash v2.5** — `eleven_flash_v2_5` |
 | Tracing | LangSmith — **every path is `ChatOpenAI` now, so a whole turn traces**, not only the part that used tools. On with `LANGSMITH_API_KEY`. |
@@ -779,7 +780,7 @@ happened. The model rounds are most of it and the rest was waiting.
 Jev (reflex: route · risk · complexity — non-generative)
  │
  ├──▶ RESEARCH   search + fetch only. No files. No desktop. No send.
- ├──▶ HARNESS    ~19 primitives · 2 prompts · reactive | deliberate(planner)
+ ├──▶ HARNESS    32 tools · 2 prompts · reactive | deliberate(planner)
  └──▶ EXPLAINER  manim pipeline, fixed shape
 ```
 
@@ -891,7 +892,7 @@ Do not violate these without updating the relevant doc first.
    not, because repeating their sentence back is how a prompt becomes
    furniture. Everything else asks. Judge the ACTION, not the sentence — "click
    that one" is harmless until it resolves to "Delete All Messages". See
-   `meow/risk.py`. `run_powershell`, when it exists, is in the always-ask set.
+   `meow/agent/risk.py`. `run_powershell`, when it exists, is in the always-ask set.
 7. **The overlay is excluded from capture** (`WDA_EXCLUDEFROMCAPTURE`) — or the
    cat appears in its own screenshots and confuses the model.
 8. **Coordinates:** call `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`
@@ -907,7 +908,7 @@ Do not violate these without updating the relevant doc first.
 11. **Never send a full-screen `detail=high` image.** 36,835 tokens against
    2,833 for low detail, which is *flat* regardless of resolution. Send nothing,
    or "unchanged", or low detail at full size, or a 512px high-detail crop. See
-   `meow/vision.py`.
+   `meow/desktop/vision.py`.
 12. **Activation is tapped, never held.** The problem with Clicky's ctrl+option
    is that it is *sustained* for the length of an utterance, which is hostile to
    tremor and arthritis - not that it has two keys. A tapped chord that toggles
