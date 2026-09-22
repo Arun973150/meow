@@ -196,9 +196,9 @@ small window: the cat says "i am on it" and goes back to listening. Say
 "also ..." to queue something onto a running task, "close that" when it is
 finished. Two run at once. Pause stops them all.
 
-**An icon per running agent, beside the cat.** When Meow hands work over, that
-agent gets its own icon stacked above the cat; clicking it opens the window
-straight onto that agent's conversation — what it is doing now and everything it has said. The icon goes
+**An icon per running agent, pinned top right.** When Meow hands work over,
+that agent gets its own icon down the right edge, below the window buttons;
+clicking it opens the window straight onto that agent's conversation — what it is doing now and everything it has said. The icon goes
 when the work finishes, with a notification. A tray that accumulates an icon
 per job ever run is a tray people stop looking at; the conversation itself is
 never lost.
@@ -210,6 +210,16 @@ the user would have to un-hide every agent by hand. The diagnostics were
 unambiguous that the code was right — `built icon ... visible=True
 available=True` — and it was still not on screen. `meow/agentdock.py` draws
 them beside the cat instead, where Meow owns the pixels.
+
+⚠ **The agent icons are FIXED, not anchored to the cat.** They were stacked
+above it first, and the cat moves — it follows the pointer and goes home — so
+an icon was never twice in the same place and clicking one meant chasing it.
+
+⚠ **Do not put them at the very top of the screen.** The top right corner of a
+maximised window is its close, maximise and minimise buttons, and since these
+overlays intercept clicks rather than passing them on, an icon there eats the
+close click rather than merely covering it. `TOP_OFFSET = 96` clears a title
+bar and a tab strip.
 
 ⚠ **The agent icons are the ONE overlay that is not click-through.** Everything
 else passes clicks to the window underneath; an icon whose whole purpose is

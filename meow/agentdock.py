@@ -42,9 +42,19 @@ user32 = ctypes.windll.user32
 ICON_SIZE = 34
 GAP = 6
 
-# Stacked upwards from just above the cat, so the newest agent is nearest it
-# and the column grows into empty screen rather than over the taskbar.
-OFFSET_ABOVE_CAT = 10
+# Pinned to the top right of the screen, NOT to the cat. Anchoring them to
+# the cat meant they slid across the desktop every time it moved to follow the
+# pointer, so an icon was never in the same place twice and clicking one meant
+# chasing it. A status indicator has to be somewhere you can look without
+# finding it first.
+MARGIN = 18
+
+# How far down the right edge the column starts. NOT at the very top: these
+# overlays intercept clicks rather than passing them through, and the top right
+# corner of a maximised window is its close, maximise and minimise buttons -
+# an icon there does not merely sit over the close button, it eats the click.
+# 96px clears a title bar and a tab strip at normal scaling.
+TOP_OFFSET = 96
 
 WM_LBUTTONUP = 0x0202
 
@@ -149,11 +159,21 @@ class AgentDock:
 
     # --- drawing ---------------------------------------------------------
 
-    def layout(self, cat_left: int, cat_top: int) -> None:
-        """Stack the icons above the cat, newest nearest."""
+    def layout(self, monitor) -> None:
+        """Stack the icons down from the top right corner.
+
+        Fixed, and deliberately not near the cat. The cat moves - it follows
+        the pointer and returns home - and icons anchored to it slid across
+        the desktop with it, so one was never in the same place twice and
+        clicking it meant chasing it first.
+
+        Downwards from the corner, so a second agent appears below the first
+        rather than pushing it, and the one that started first stays put.
+        """
+        left = monitor.work_right - ICON_SIZE - MARGIN
         for index, agent in enumerate(self.agents.values()):
-            top = cat_top - OFFSET_ABOVE_CAT - (index + 1) * (ICON_SIZE + GAP)
-            agent.bounds = Bounds(cat_left, top, ICON_SIZE, ICON_SIZE)
+            top = monitor.work_top + TOP_OFFSET + index * (ICON_SIZE + GAP)
+            agent.bounds = Bounds(left, top, ICON_SIZE, ICON_SIZE)
 
     def draw(self, phase: float) -> None:
         from .cat import rgba_to_premultiplied_bgra
