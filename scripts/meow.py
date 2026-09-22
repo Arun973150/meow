@@ -47,6 +47,7 @@ from meow.cat.bubble import (
 )
 from meow.cat.cursor import CatCursor
 from meow.cat.follow import CursorFollower, FollowSettings, target_beside_cursor
+from meow.chat.launcher import ChatPanel
 from meow.config import MissingKey
 from meow.console import quiet_library_warnings, use_utf8_console
 from meow.harness import Confirmation, Harness, enable_tracing
@@ -296,6 +297,14 @@ def main() -> None:
     # which is why it felt random rather than forgetful.
     memory = Memory()
 
+    # The record, and the window that reads it. The window is a separate
+    # process and entirely optional - if it fails to start, or the user quits
+    # it, the cat carries on and keeps writing. Nothing about hearing you
+    # depends on a GUI being alive.
+    panel = ChatPanel()
+    panel.start()
+    session = panel.begin("session", kind="chat", icon="cat")
+
     try:
         mind = Mind(memory=memory)
         harness = Harness(confirm=ask_out_loud, ask_before_acting=False,
@@ -412,6 +421,12 @@ def main() -> None:
                     """Run the plan inside the task, reporting as it goes."""
                     actor = f"task {task.number}"
                     memory.join(actor, task.title)
+                    # Its own conversation, with its own icon, so the sidebar
+                    # separates handed-over work from the voice session.
+                    thread = panel.begin(
+                        task.title, kind="task",
+                        icon="magnifier" if wants_its_own_window(task.goal)
+                        else "gear")
 
                     def report(kind, text):
                         task.log(text, kind="error" if kind == "error"
@@ -421,6 +436,7 @@ def main() -> None:
                         # memory, without asking the task - which may be
                         # mid-request and cannot be interrupted to reply.
                         memory.update(actor, text)
+                        panel.say(thread, task.title, text)
 
                     # Its OWN harness, with a confirmer that declines rather
                     # than asking. Sharing the foreground one meant a task's
@@ -447,6 +463,7 @@ def main() -> None:
                         worker.run(extra)
 
                     if plan.abandoned:
+                        panel.end(thread)
                         return "could not break that into steps"
 
                     # Everything the steps produced, kept so "paste the results
@@ -457,6 +474,7 @@ def main() -> None:
 
                     last = next((s.said for s in reversed(plan.steps)
                                  if s.said.strip()), "")
+                    panel.end(thread)
                     return last or ("done" if plan.succeeded else "stopped early")
 
                 task = tasks.spawn(transcript, work)
@@ -517,6 +535,7 @@ def main() -> None:
           f"{'  (' + (router.unavailable_reason or '')[:60] + ')' if not router.using_jev else ''}")
     print(f"  speech: {'muted' if args.mute else 'on'}")
     print(f"  tracing: {'langsmith' if tracing else 'off (no LANGSMITH_API_KEY)'}")
+    print(f"  chat window: {panel.state}")
     print("  Ctrl+C to quit.\n")
 
     # Drawing faults are reported once each and never twice, so a bug that
@@ -618,6 +637,12 @@ def main() -> None:
                             continue
                         print(f"  {elapsed:5.1f}s  heard: {said}")
                         memory.said("user", said)
+                        panel.say(session, "user", said)
+                        if panel.first_words(session, said):
+                            # The first thing said names the conversation, so
+                            # the sidebar reads as a list of what was asked
+                            # rather than six rows all called "session".
+                            pass
 
                         if starts_with_any(said, CLOSE_WORDS):
                             for finished in tasks.visible:
@@ -679,6 +704,7 @@ def main() -> None:
                         else:
                             print(f"          says: {payload}")
                         memory.said("meow", payload)
+                        panel.say(session, "meow", payload)
                         if payload.rstrip().endswith("?"):
                             awaiting_answer["until"] = elapsed + ANSWER_WINDOW_SECONDS
                         bubble_state.say(payload, elapsed, seconds=REPLY_LINE_SECONDS)
@@ -818,6 +844,11 @@ def main() -> None:
             tasks.stop_all()
             for task_overlay in task_overlays.values():
                 task_overlay.close()
+            # The session is over, so the record says so and the window goes.
+            # Leaving it open would show a live conversation that nothing is
+            # writing to any more, with no way to tell by looking.
+            panel.end(session)
+            panel.stop()
 
     print(f"\n  spend: {mind.screen.budget.summary()}")
 

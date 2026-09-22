@@ -61,6 +61,11 @@ meow/memory.py              ONE memory - what was said, and who is working
 meow/verify.py              PHASE 1.9 - did the action actually happen?
 meow/lookup.py              PHASE 2.5 - look up how, then point at the real thing
 meow/recipes.py             PHASE 2.6 - a capability is a file, not a release
+meow/conversations.py       every conversation, kept - SQLite in Documents/Meow
+meow/chat/window.py         the chat window - PySide6, its OWN PROCESS
+meow/chat/bubbles.py        painted bubbles - Qt rich text cannot do them
+meow/chat/icons.py          icons drawn with QPainter, not shipped as files
+meow/chat/launcher.py       starting the window, and recording into it
 recipes/                    the shipped recipes; the user's go in Documents/Meow
 meow/tasks.py               handed-over work, on its own thread
 meow/taskwindow.py          the small window each task gets
@@ -178,6 +183,27 @@ type, press) means the user is watching whatever else the sentence says.
 small window: the cat says "i am on it" and goes back to listening. Say
 "also ..." to queue something onto a running task, "close that" when it is
 finished. Two run at once. Pause stops them all.
+
+**The chat window.** A ChatGPT-shaped panel: conversations down the left,
+painted bubbles on the right, search across everything ever said. It lives in
+the tray and opens when clicked. Each conversation carries its own icon, so a
+handed-over task is distinguishable from the voice session at a glance.
+
+⚠ **It runs as its OWN PROCESS, and that is forced.** Qt wants the main thread
+for its event loop and the cat's overlay already has it - a layered Win32
+window at 60fps. They talk through the SQLite store, which also means the
+window can crash or never be opened and the voice loop neither notices nor
+cares.
+
+⚠ **Qt rich text cannot draw a chat bubble.** `border-radius` does nothing and a
+coloured `div` stretches the full viewport width, so an HTML transcript renders
+as flat grey bars edge to edge. `meow/chat/bubbles.py` paints them with a
+delegate instead: sized to their own text, the user's on the right.
+
+**Stored, not just shown.** `Documents/Meow/conversations.db`. WAL so a reader
+never blocks the writer, one connection per thread, busy timeout rather than a
+retry loop. Measured: six threads writing 240 messages in 0.09s while a second
+process polled throughout.
 
 **Phase 2.6 done: a new capability is a markdown file.** A heading, a
 `when:` line, a paragraph. Drop it in `recipes/` or `Documents/Meow/Recipes`
