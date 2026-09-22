@@ -4,16 +4,16 @@ Everything below is done by talking. It takes about twenty minutes and touches
 every part built so far: routing, memory, grounding, guide mode, research,
 background agents, the chat window, human-in-the-loop, verification and panic.
 
-Run it after any change that touches the voice loop. `scripts/smoke.py` and
-`scripts/stress.py` cover what can be checked without a microphone; this covers
+Run it after any change that touches the voice loop. `meow/testing/smoke.py` and
+`meow/testing/stress.py` cover what can be checked without a microphone; this covers
 what cannot.
 
 **Before you start**
 
 ```
-python scripts/stress.py          # 52 checks, ~20s
-python scripts/smoke.py           # the app survives real frames, ~10s
-python scripts/meow.py            # then talk
+meow stress          # 52 checks, ~20s
+meow smoke           # the app survives real frames, ~10s
+meow            # then talk
 ```
 
 Have Notepad closed, a browser open, and the terminal visible so you can read

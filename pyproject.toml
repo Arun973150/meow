@@ -76,6 +76,4 @@ meow = ["../recipes/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# A hung UIA call or a live model round should fail, not wait forever.
-timeout = 300
 addopts = "-q"

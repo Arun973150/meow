@@ -77,16 +77,21 @@ meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
 meow/voice/stt.py           Transcriber protocol + AssemblyAI v3 streaming
 meow/voice/tts.py           Speaker protocol + ElevenLabs eleven_flash_v2_5
-scripts/overlay_demo.py     A/B tests the capture exclusion
-scripts/cat_demo.py         the cat, live, cycling states
-scripts/cat_preview.py      all states to one PNG, light and dark
-scripts/companion_demo.py   tap Ctrl+M, the cat wakes and follows the cursor
-scripts/listen_demo.py      tap Ctrl+M and talk - words appear in the bubble
-scripts/check_keys.py       what is installed, which keys are set
-scripts/check_connectors.py which services are CONNECTED, and connect one
-scripts/smoke.py           runs the REAL app and fails on any traceback
-scripts/stress.py          48 edge cases across every module
-scripts/meow.py             THE WHOLE LOOP - routes, answers, points, presses
+meow/cli.py                 one command: meow · doctor · stress · smoke
+meow/app/loop.py            THE WHOLE LOOP - routes, answers, points, presses
+meow/language/phrases.py    noise, agreement, what a sentence is asking for
+meow/language/routing.py    the structural corrections to a route
+meow/tools/desktop.py       click · point · type · press · open · switch
+meow/tools/connectors.py    mail · calendar · tasks · docs · READ and DRAFT
+meow/tools/knowledge.py     look things up, and how to do them
+meow/tools/workspace.py     documents, and what a task already made
+meow/tools/support.py       measured constants, below harness and tools both
+meow/tools/record.py        ToolRun - shared, so neither imports the other
+meow/testing/stress.py      64 edge cases across every module
+meow/testing/smoke.py       runs the REAL app and fails on any traceback
+meow/diagnostics/           keys · connectors · the ablation
+tests/                      pytest - language, dictation, and the invariants
+scripts/*_demo.py           the demos: overlay, cat, companion, listen
 ```
 
 Activation is `RegisterHotKey`, **not** `WH_KEYBOARD_LL` - the hook stops
@@ -112,7 +117,7 @@ Spikes, both run:
 - `spikes/wake_probe.py` - `SPI_SETSCREENREADER` does nothing, and neither does
   `editor.accessibilitySupport`. Both A/B tested. **No wake step is needed.**
 
-**PHASE 0 IS COMPLETE.** `python scripts/meow.py` - tap Ctrl+M, talk, and the
+**PHASE 0 IS COMPLETE.** `meow` - tap Ctrl+M, talk, and the
 cat answers out loud, sees your screen, and flies the pointer to what you asked
 about while wearing `cat_cursor.png`.
 
@@ -132,7 +137,7 @@ Phase 2's planner needs. `ModelCallLimitMiddleware` caps the rounds.
 
 LangSmith turns on by itself if `LANGSMITH_API_KEY` is in `.env`; currently off.
 
-**Phase 1 is complete and reachable by voice.** `python scripts/meow.py` — tap
+**Phase 1 is complete and reachable by voice.** `meow` — tap
 Ctrl+M and talk, tap **Pause** to stop everything. Jev routes each sentence to
 answer / show / act / plan; act goes through the UIA harness and asks out loud
 before pressing anything.
@@ -263,8 +268,8 @@ scenarios covering what no script can: whether it heard you, whether the text
 that arrived is the text you asked for, whether an icon is where you can
 click it. Each step names the real bug it is watching for.
 
-**Two automated checks.** `python scripts/smoke.py`
-starts the real app and fails on a traceback; `python scripts/stress.py` throws
+**Two automated checks.** `meow smoke`
+starts the real app and fails on a traceback; `meow stress` throws
 48 edge cases at every module — empty strings, 10,000 characters, Devanagari,
 emoji, SQL, path traversal, reserved Windows filenames, eight threads at once,
 a window killed mid-read. Both are verified to fail on real bugs.
@@ -272,7 +277,7 @@ a window killed mid-read. Both are verified to fail on real bugs.
 ⚠ **`ast.parse` and a printed banner are not a test.** A `dock.layout` call
 with the wrong number of arguments shipped past both: the file parses, startup
 prints its banner, and the crash is in the render loop a few frames later —
-where `| head -9` truncated it out of view. Run `python scripts/smoke.py`,
+where `| head -9` truncated it out of view. Run `meow smoke`,
 which starts the real app, lets the loop turn, and fails on a traceback. It has
 been verified to FAIL on that exact bug, because a check that cannot fail is
 not a check.
@@ -319,7 +324,7 @@ useless. `verify.opened` falls back to asking whether it is in front now.
 two jobs. Jev called "gpu prices in india, put it in a spreadsheet" one action
 purely because the word "research" was never said, so it ran in the foreground
 and blocked the voice loop for half a minute with no icon to watch. Upgraded
-structurally in `scripts/meow.py`, not left to the criteria alone.
+structurally in `meow/app/loop.py`, not left to the criteria alone.
 
 ⚠ **The agent icons are FIXED, not anchored to the cat.** They were stacked
 above it first, and the cat moves — it follows the pointer and goes home — so
@@ -427,7 +432,7 @@ so the cat replied out of its own knowledge and talked about the screenshot it
 had been handed: *"i'm not looking at your screen right now, tell me what
 emails you see in your inbox."* Every connector worked by script and none of
 them worked by voice, which is the only way anyone uses this. `CONNECTOR_WORDS`
-in `scripts/meow.py` upgrades ANSWER to ACT, structurally, for the same reason
+in `meow/app/loop.py` upgrades ANSWER to ACT, structurally, for the same reason
 the artefact upgrade is structural: a question about your own inbox is one no
 model can answer from its own knowledge, so there is nothing for a classifier
 to weigh. SHOW is left alone — that is someone asking how to do it themselves.
@@ -501,7 +506,7 @@ resolved day and time back.
 ⚠ **There is NO send tool in the harness, and there must never be one.** The
 harness holds the screen, which is private data and untrusted content both;
 one send tool closes the trifecta in a single move. 32 tools, none of them
-send-shaped, and `scripts/stress.py` checks that.
+send-shaped, and `meow/testing/stress.py` checks that.
 
 **Approval is explicit.** Saying "send it" sends the newest waiting draft, and
 that is checked BEFORE routing so it cannot be re-interpreted by a model. A
@@ -697,7 +702,7 @@ is a node visit, and the checkpointer makes it resumable. It says "step 2 of 4"
 as it goes.
 
 **Full ablation, six applications, 90 attempts** —
-`python scripts/evaluate_suite.py --per-app 5 --strict`:
+`meow evaluate --per-app 5 --strict`:
 
 | strategy | hit rate | median miss | failure modes |
 |---|---|---|---|
@@ -793,6 +798,44 @@ Jev (reflex: route · risk · complexity — non-generative)
  ├──▶ HARNESS    ~19 primitives · 2 prompts · reactive | deliberate(planner)
  └──▶ EXPLAINER  manim pipeline, fixed shape
 ```
+
+## Layout
+
+Installable, with one command and subcommands:
+
+```
+pip install -e .
+meow                 the companion
+meow doctor          what is installed, which keys are set
+meow connectors      which services are connected, and connect one
+meow stress          64 edge cases across every module
+meow smoke           start the real app, fail on a traceback
+pytest               71 fast checks - no Windows, no keys, no network
+```
+
+**A capability is a module, not a diff.** `Harness.__init__` defined all
+thirty tools inline, so it was 1,108 lines and every new capability - however
+unrelated - edited the same function. They are `meow/tools/` now, one module
+per concern, each exposing `build(harness)`. Adding one is adding a file and a
+line in `ORDER`.
+
+⚠ **Two things sit BELOW both harness and tools, to break a cycle.** The tools
+need `ToolRun` and the measured constants, and the harness imports the tools -
+so those live in `meow/tools/record.py` and `meow/tools/support.py`. A shared
+type belongs under both, never inside one.
+
+⚠ **`meow/platform/` shadows the stdlib `platform` module** if `meow/` ever
+lands on `sys.path`. Moving the loop into the package left a `sys.path.insert`
+pointing at `meow/`, and zstandard then died on
+`platform.python_implementation()` - a traceback three libraries away from the
+cause. There is no `sys.path` juggling left; keep it that way.
+
+⚠ **`RegisterHotKey` is exclusive and a killed process does not release it
+instantly.** Two smoke runs back to back meant the second could not take
+ctrl+m and exited, which the test reported as "the app died" - pointing at the
+app rather than at the previous run. It waits for the key now and names the
+real cause. Every intermittent smoke failure in one long session traced to a
+single stray background process.
 
 ## Invariants
 

@@ -20,7 +20,7 @@ Vision is how most desktop agents work. It is also the assumption nobody had
 measured on Windows, so this measures it — one system, one flag, three
 strategies, the same tasks, the same frozen screen.
 
-`python scripts/evaluate_suite.py --per-app 5 --strict` — six applications,
+`meow evaluate --per-app 5 --strict` — six applications,
 thirty tasks:
 
 | strategy | hit rate | median miss | failure modes |
@@ -88,9 +88,9 @@ python -m venv .venv
 pip install -r requirements.txt
 
 cp .env.example .env        # then paste your keys in
-python scripts/check_keys.py
+meow doctor
 
-python scripts/meow.py
+meow
 ```
 
 Keys needed: **OpenAI** (the model), **AssemblyAI** (streaming speech to text),
@@ -104,8 +104,8 @@ is planned.
 ### Checking it works
 
 ```
-python scripts/stress.py     # 52 edge cases across every module
-python scripts/smoke.py      # starts the real app, fails on any traceback
+meow stress     # 52 edge cases across every module
+meow smoke      # starts the real app, fails on any traceback
 ```
 
 Both are verified to fail on real bugs, because a check that cannot fail is not
