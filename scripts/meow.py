@@ -758,14 +758,15 @@ def main() -> None:
                 follower.update(target_x, target_y, timestep)
                 overlay.move_to(follower.x, follower.y)
 
-                # The dock follows the cat, so the icons stay with it whether
-                # it is at home or beside the pointer.
+                # Pinned to the right edge, NOT to the cat. The cat follows
+                # the pointer and goes home again; icons that moved with it
+                # could not be clicked without chasing them first.
                 dock.sync([(task.conversation, task.title,
                             "magnifier" if wants_its_own_window(task.goal)
                             else "gear")
                            for task in tasks.running
                            if getattr(task, "conversation", 0)])
-                dock.layout(int(follower.x), int(follower.y))
+                dock.layout(monitor)
                 try:
                     dock.draw(elapsed)
                 except Exception as error:  # noqa: BLE001 - see draw_fault

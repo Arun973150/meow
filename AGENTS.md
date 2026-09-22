@@ -80,6 +80,7 @@ scripts/cat_preview.py      all states to one PNG, light and dark
 scripts/companion_demo.py   tap Ctrl+M, the cat wakes and follows the cursor
 scripts/listen_demo.py      tap Ctrl+M and talk - words appear in the bubble
 scripts/check_keys.py       what is installed, which keys are set
+scripts/smoke.py           runs the REAL app and fails on any traceback
 scripts/meow.py             THE WHOLE LOOP - routes, answers, points, presses
 ```
 
@@ -210,6 +211,14 @@ the user would have to un-hide every agent by hand. The diagnostics were
 unambiguous that the code was right — `built icon ... visible=True
 available=True` — and it was still not on screen. `meow/agentdock.py` draws
 them beside the cat instead, where Meow owns the pixels.
+
+⚠ **`ast.parse` and a printed banner are not a test.** A `dock.layout` call
+with the wrong number of arguments shipped past both: the file parses, startup
+prints its banner, and the crash is in the render loop a few frames later —
+where `| head -9` truncated it out of view. Run `python scripts/smoke.py`,
+which starts the real app, lets the loop turn, and fails on a traceback. It has
+been verified to FAIL on that exact bug, because a check that cannot fail is
+not a check.
 
 ⚠ **The agent icons are FIXED, not anchored to the cat.** They were stacked
 above it first, and the cat moves — it follows the pointer and goes home — so
