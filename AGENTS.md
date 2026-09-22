@@ -59,6 +59,10 @@ meow/agent/                 harness · planner · router · jev · risk · memor
                             mind · evaluation - the parts that decide
 meow/work/                  tasks · taskwindow · agentdock · conversations
 meow/knowledge/             research · queries · recipes · documents
+meow/storage/paths.py       WHERE THINGS GO - user files vs app data
+meow/config.py              .env keys; never logs a value
+meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
+meow/panic.py               the stop button - top level, so it stays obvious
 meow/language/phrases.py    noise, agreement, what a sentence is asking for
 meow/language/routing.py    the structural corrections to a route
 meow/tools/desktop.py       click · point · type · press · open · switch
