@@ -17,7 +17,7 @@ from meow.language import (
     without_trailing_yes_no,
 )
 from meow.language.routing import correct, needs_a_connected_account
-from meow.router import Intent, Route
+from meow.agent.router import Intent, Route
 
 
 @pytest.mark.parametrize("said, expected", [

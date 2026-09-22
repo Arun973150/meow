@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-from ..actions import Outcome
+from ..desktop.actions import Outcome
 from ..connectors.drafts import spoken_email
 from .record import ToolRun
 

@@ -28,7 +28,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from meow.chat import icons
-from meow.conversations import Conversation, Store
+from meow.work.conversations import Conversation, Store
 
 # How long a finishing notification stays up. Long enough to read a sentence,
 # short enough not to sit over someone's work.

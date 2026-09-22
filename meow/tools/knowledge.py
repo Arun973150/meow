@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-from .. import actions, lookup
-from ..actions import Outcome
+from ..desktop import actions, lookup
+from ..desktop.actions import Outcome
 from .record import ToolRun
 
 
@@ -81,7 +81,7 @@ def build(harness) -> list:
         """Search the web and read the top pages. Use before writing about
         anything current, or anything you would otherwise be guessing at.
         """
-        from ..research import Researcher
+        from ..knowledge.research import Researcher
 
         if harness._researcher is None:
             # It builds its own small model for writing queries - see

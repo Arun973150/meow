@@ -15,15 +15,15 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-from .. import actions, apps, verify
+from ..desktop import actions, apps, verify
 from .support import (
     LAUNCH_SECONDS,
     SETTLE_SECONDS,
     WHOLE_DESKTOP_SHORTCUTS,
     where_on_screen,
 )
-from ..actions import Outcome
-from ..uia import digest_foreground
+from ..desktop.actions import Outcome
+from ..desktop.uia import digest_foreground
 from .record import ToolRun
 
 

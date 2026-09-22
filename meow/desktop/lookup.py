@@ -44,7 +44,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .research import fetch, search
+from ..knowledge.research import fetch, search
 from .uia import Element, WindowDigest
 
 # How many candidate names survive to the lookup stage. Small on purpose: this

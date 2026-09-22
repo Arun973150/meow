@@ -41,44 +41,24 @@ meow/cat/sprite.py          line-art cat, traced from image.png
 meow/cat/animation.py       7 states, cross-faded
 meow/cat/follow.py          critically damped cursor follow
 meow/cat/bubble.py          small speech bubble - capped, never a transcript
-meow/config.py              .env keys; never logs a value
-meow/vision.py              when to send a screenshot, and how much of one
-meow/mind.py                ChatOpenAI, streamed, sentence-chunked
-meow/pointing.py            [POINT:x,y] protocol, eased pointer glide
-meow/uia.py                 THE THESIS - accessibility tree digest, 268ms
-meow/grounding.py           UIA / vision / hybrid behind one protocol
-meow/actions.py             point, click, invoke, type - each with a risk level
-meow/harness.py             LangGraph create_agent + HumanInTheLoop gate
-meow/router.py              Jev via langchain-typesafe, on interim transcripts
-meow/evaluation.py          THE ABLATION - UIA labels its own ground truth
-meow/jev.py                 Jev via the Vercel gateway, a LangChain Runnable
-meow/panic.py               the stop button - local, latched, no network
-meow/apps.py                open apps, switch windows, list what exists
-meow/planner.py             PHASE 2 - multi-step tasks as a LangGraph state machine
-meow/risk.py                when to ask, and when asking is just noise
-meow/documents.py           docx / xlsx / pptx into Documents/Meow
-meow/research.py            search + fetch ONLY - the trifecta split
-meow/queries.py             a spoken sentence -> searches that find something
-meow/memory.py              ONE memory - what was said, and who is working
-meow/verify.py              PHASE 1.9 - did the action actually happen?
-meow/lookup.py              PHASE 2.5 - look up how, then point at the real thing
-meow/recipes.py             PHASE 2.6 - a capability is a file, not a release
-meow/conversations.py       every conversation, kept - SQLite in Documents/Meow
 meow/chat/window.py         the chat window - PySide6, its OWN PROCESS
 meow/chat/bubbles.py        painted bubbles - Qt rich text cannot do them
 meow/chat/icons.py          icons drawn with QPainter, not shipped as files
 meow/chat/launcher.py       starting the window, and recording into it
 recipes/                    the shipped recipes; the user's go in Documents/Meow
 meow/connectors/            PHASE 4 - READER reads, SENDER sends, you decide
-meow/tasks.py               handed-over work, on its own thread
-meow/taskwindow.py          the small window each task gets
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
-meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
 meow/voice/stt.py           Transcriber protocol + AssemblyAI v3 streaming
 meow/voice/tts.py           Speaker protocol + ElevenLabs eleven_flash_v2_5
 meow/cli.py                 one command: meow · doctor · stress · smoke
 meow/app/loop.py            THE WHOLE LOOP - routes, answers, points, presses
+meow/desktop/               uia · actions · grounding · pointing · verify ·
+                            lookup · apps · vision - the thesis lives here
+meow/agent/                 harness · planner · router · jev · risk · memory ·
+                            mind · evaluation - the parts that decide
+meow/work/                  tasks · taskwindow · agentdock · conversations
+meow/knowledge/             research · queries · recipes · documents
 meow/language/phrases.py    noise, agreement, what a sentence is asking for
 meow/language/routing.py    the structural corrections to a route
 meow/tools/desktop.py       click · point · type · press · open · switch

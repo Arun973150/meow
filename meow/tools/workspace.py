@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-from .. import documents
-from ..actions import Outcome
+from ..knowledge import documents
+from ..desktop.actions import Outcome
 from .record import ToolRun
 
 

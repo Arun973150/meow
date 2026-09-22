@@ -215,7 +215,7 @@ class StrictVisionGrounding:
         if self._client is None:
             from langchain_openai import ChatOpenAI
 
-            from .config import openai_api_key
+            from ..config import openai_api_key
 
             # Few tokens on purpose: the reply is a tag. A long budget invites
             # the model to explain itself, which is the behaviour being

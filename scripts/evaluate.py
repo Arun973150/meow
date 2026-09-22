@@ -23,12 +23,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from meow.console import use_utf8_console
-from meow.evaluation import evaluate
-from meow.grounding import UIAGrounding, VisionGrounding
-from meow.mind import Mind
+from meow.agent.evaluation import evaluate
+from meow.desktop.grounding import UIAGrounding, VisionGrounding
+from meow.agent.mind import Mind
 from meow.platform.capture import capture_screens
 from meow.platform.dpi import enable_per_monitor_dpi_awareness
-from meow.uia import digest_foreground
+from meow.desktop.uia import digest_foreground
 
 
 def main() -> None:

@@ -20,7 +20,7 @@ import sys
 import time
 from pathlib import Path
 
-from meow.conversations import Store, database_path
+from meow.work.conversations import Store, database_path
 
 WINDOW_SCRIPT = Path(__file__).resolve().parent / "window.py"
 

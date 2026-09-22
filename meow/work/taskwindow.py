@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .cat.bubble import _load_font
+from ..cat.bubble import _load_font
 from .tasks import Task, TaskState
 
 # Wide enough to read a finding in. 280 was chosen to be unobtrusive and was

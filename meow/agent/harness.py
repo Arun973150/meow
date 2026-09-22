@@ -86,24 +86,25 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command
 
-from . import actions, apps, documents, lookup, recipes, verify
-from .actions import Confirmer, Outcome, always_allow
-from .config import get, openai_api_key
-from .grounding import Target
-from .connectors import Outbox
+from ..desktop import actions, apps, lookup, verify
+from ..knowledge import documents, recipes
+from ..desktop.actions import Confirmer, Outcome, always_allow
+from ..config import get, openai_api_key
+from ..desktop.grounding import Target
+from ..connectors import Outbox
 from .memory import Memory
 from .mind import SentenceChunker
 from .risk import is_dangerous, judge
-from .connectors.drafts import spoken_email
-from .tools import build as build_tools
-from .tools.record import ToolRun
-from .tools.support import (
+from ..connectors.drafts import spoken_email
+from ..tools import build as build_tools
+from ..tools.record import ToolRun
+from ..tools.support import (
     LAUNCH_SECONDS,
     SETTLE_SECONDS,
     WHOLE_DESKTOP_SHORTCUTS,
     where_on_screen,
 )
-from .uia import WindowDigest, digest_foreground
+from ..desktop.uia import WindowDigest, digest_foreground
 
 MODEL = "gpt-4o-mini"
 MAX_OUTPUT_TOKENS = 220
@@ -456,7 +457,7 @@ class Harness:
         service nobody asked for yet.
         """
         if self._reader_instance is None:
-            from .connectors import Reader
+            from ..connectors import Reader
 
             self._reader_instance = Reader(announce=self._note)
         return self._reader_instance

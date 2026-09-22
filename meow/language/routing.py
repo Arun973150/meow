@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from ..router import Intent, Route
+from ..agent.router import Intent, Route
 from .phrases import ARTEFACT_WORDS, MINIMUM_WORDS_FOR_A_PLAN, spoken_words
 
 # Mail, calendar, weather and the rest live in the HARNESS as tools; the answer

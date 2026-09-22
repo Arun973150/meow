@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..actions import Outcome, Target
+from ..desktop.actions import Outcome, Target
 
 
 @dataclass

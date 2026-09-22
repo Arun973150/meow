@@ -50,7 +50,7 @@ from enum import Enum
 
 from PIL import Image
 
-from .platform.capture import ScreenShot
+from ..platform.capture import ScreenShot
 
 # gpt-4o-mini, USD per million tokens. Used only to report spend to the user,
 # never to make a decision - a stale price should not silently change behaviour.

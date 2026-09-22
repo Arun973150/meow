@@ -33,7 +33,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from .platform.overlay import Bounds, Overlay
+from ..platform.overlay import Bounds, Overlay
 
 user32 = ctypes.windll.user32
 
@@ -202,7 +202,7 @@ class AgentDock:
             agent.bounds = Bounds(left, top, ICON_SIZE, ICON_SIZE)
 
     def draw(self, phase: float) -> None:
-        from .cat import rgba_to_premultiplied_bgra
+        from ..cat import rgba_to_premultiplied_bgra
 
         for agent in self.agents.values():
             if agent.bounds is None:

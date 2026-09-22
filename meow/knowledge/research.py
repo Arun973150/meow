@@ -141,7 +141,7 @@ def _query_model():
     try:
         from langchain_openai import ChatOpenAI
 
-        from .config import openai_api_key
+        from ..config import openai_api_key
 
         return ChatOpenAI(model=QUERY_MODEL, api_key=openai_api_key(),
                           max_completion_tokens=QUERY_MODEL_TOKENS)

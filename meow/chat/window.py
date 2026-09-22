@@ -46,7 +46,7 @@ from meow.chat.bubbles import (
     is_draft, is_file,
 )
 from meow.chat.trays import AgentTrays
-from meow.conversations import Conversation, Store
+from meow.work.conversations import Conversation, Store
 
 POLL_MILLISECONDS = 400
 

@@ -70,7 +70,7 @@ def check(name: str, function) -> None:
 # ---------------------------------------------------------------- memory ---
 
 def stress_memory() -> None:
-    from meow.memory import Memory
+    from meow.agent.memory import Memory
 
     def rubbish_in():
         memory = Memory()
@@ -125,7 +125,7 @@ def stress_memory() -> None:
 # ----------------------------------------------------------------- store ---
 
 def stress_store() -> None:
-    from meow.conversations import Store
+    from meow.work.conversations import Store
 
     path = Path(tempfile.mkdtemp()) / "stress.db"
     store = Store(path)
@@ -225,8 +225,8 @@ def stress_routing() -> None:
 # ---------------------------------------------------------------- lookup ---
 
 def stress_lookup() -> None:
-    from meow import lookup
-    from meow.lookup import Candidate
+    from meow.desktop import lookup
+    from meow.desktop.lookup import Candidate
 
     class FakeDigest:
         app = "test.exe"
@@ -274,7 +274,7 @@ def stress_lookup() -> None:
 # --------------------------------------------------------------- recipes ---
 
 def stress_recipes() -> None:
-    from meow import recipes
+    from meow.knowledge import recipes
 
     folder = Path(tempfile.mkdtemp()) / "recipes"
     folder.mkdir(parents=True)
@@ -310,8 +310,8 @@ def stress_recipes() -> None:
 # ---------------------------------------------------------------- verify ---
 
 def stress_verify() -> None:
-    from meow import verify
-    from meow.verify import Snapshot
+    from meow.desktop import verify
+    from meow.desktop.verify import Snapshot
 
     def verdicts_never_raise():
         blank = Snapshot()
@@ -349,7 +349,7 @@ def stress_verify() -> None:
 # ------------------------------------------------------------------ dock ---
 
 def stress_dock() -> None:
-    from meow.agentdock import AgentDock
+    from meow.work.agentdock import AgentDock
     from meow.platform.dpi import enable_per_monitor_dpi_awareness
     from meow.platform.monitors import get_virtual_desktop
 
@@ -411,7 +411,7 @@ def stress_dock() -> None:
 # ------------------------------------------------------------- documents ---
 
 def stress_documents() -> None:
-    from meow import documents
+    from meow.knowledge import documents
 
     def nasty_names():
         made = []
@@ -447,7 +447,7 @@ def stress_documents() -> None:
 # ------------------------------------------------------------------ risk ---
 
 def stress_risk() -> None:
-    from meow.risk import Decision, judge
+    from meow.agent.risk import Decision, judge
 
     def asks(tool: str, target: str, transcript: str) -> bool:
         return judge(tool, target, transcript).decision is Decision.ASK
@@ -491,7 +491,7 @@ def stress_risk() -> None:
 # --------------------------------------------------------------- planner ---
 
 def stress_planner() -> None:
-    from meow.planner import parse_steps, wants_narration
+    from meow.agent.planner import parse_steps, wants_narration
 
     def parse_rubbish():
         rubbish = [
@@ -521,8 +521,8 @@ def stress_harness() -> None:
         AIMessage, HumanMessage, SystemMessage, ToolMessage,
     )
 
-    from meow.harness import Harness, keep_the_thread_short
-    from meow.memory import Memory
+    from meow.agent.harness import Harness, keep_the_thread_short
+    from meow.agent.memory import Memory
 
     run = keep_the_thread_short.before_model
 
@@ -570,7 +570,7 @@ def stress_harness() -> None:
 
 def stress_tasks() -> None:
     from meow.panic import Panic
-    from meow.tasks import TaskRunner, declining_confirmer
+    from meow.work.tasks import TaskRunner, declining_confirmer
 
     def three_at_once_then_refused():
         runner = TaskRunner()
@@ -646,9 +646,9 @@ def stress_uia() -> None:
     import subprocess
     import threading as _threading
 
-    from meow import apps, verify
+    from meow.desktop import apps, verify
     from meow.platform.dpi import enable_per_monitor_dpi_awareness
-    from meow.uia import digest_foreground
+    from meow.desktop.uia import digest_foreground
 
     enable_per_monitor_dpi_awareness()
 
@@ -701,7 +701,7 @@ def stress_uia() -> None:
 # --------------------------------------------------------------- queries ---
 
 def stress_queries() -> None:
-    from meow.queries import rewrite, shorten, strip_question
+    from meow.knowledge.queries import rewrite, shorten, strip_question
 
     def stripping_never_raises():
         for text in NASTY:
@@ -847,7 +847,7 @@ def stress_connectors() -> None:
 # ------------------------------------------------------------------ apps ---
 
 def stress_apps() -> None:
-    from meow import apps
+    from meow.desktop import apps
 
     def finding_never_raises():
         for text in NASTY:
@@ -922,7 +922,18 @@ def main() -> int:
             print(f"  no suite called {name!r}")
             continue
         print(f"\n  --- {name} " + "-" * (56 - len(name)))
-        SUITES[name]()
+        try:
+            SUITES[name]()
+        except Exception as error:  # noqa: BLE001
+            # A suite that raises used to kill the whole run, so every
+            # suite after it silently never ran - and the summary never
+            # printed either, so nothing said so. Found when a regroup
+            # left one stale import: the run stopped at `lookup` and
+            # looked like it had simply finished.
+            FAILURES.append((f"{name}: the suite itself raised",
+                             f"{type(error).__name__}: {error}"))
+            print(f"    CRASH {type(error).__name__}: "
+                  f"{str(error)[:88]}")
 
     elapsed = time.perf_counter() - started
     print("\n" + "=" * 66)

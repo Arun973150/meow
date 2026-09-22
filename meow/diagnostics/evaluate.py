@@ -37,16 +37,16 @@ from collections import Counter
 from pathlib import Path
 
 
-from meow import apps
+from meow.desktop import apps
 from meow.console import quiet_library_warnings, use_utf8_console
-from meow.evaluation import Failure, Report, evaluate
-from meow.grounding import (
+from meow.agent.evaluation import Failure, Report, evaluate
+from meow.desktop.grounding import (
     StrictVisionGrounding, UIAGrounding, VisionGrounding,
 )
-from meow.mind import Mind
+from meow.agent.mind import Mind
 from meow.platform.capture import capture_screens
 from meow.platform.dpi import enable_per_monitor_dpi_awareness
-from meow.uia import Regime, digest_foreground
+from meow.desktop.uia import Regime, digest_foreground
 
 # The suite from docs/04-evaluation.md. Ordered so the cheap, reliable ones run
 # first: if something is going to go wrong with focus or launching, it is worth

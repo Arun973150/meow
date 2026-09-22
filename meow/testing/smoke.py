@@ -56,7 +56,7 @@ def exercise_the_dock() -> None:
     work with agents actually in it - without pretending the running app is
     the thing being exercised.
     """
-    from meow.agentdock import AgentDock
+    from meow.work.agentdock import AgentDock
     from meow.platform.dpi import enable_per_monitor_dpi_awareness
     from meow.platform.monitors import get_virtual_desktop
 

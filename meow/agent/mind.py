@@ -32,11 +32,11 @@ from typing import Iterator
 
 from langchain_openai import ChatOpenAI
 
-from .config import openai_api_key
+from ..config import openai_api_key
 from .memory import Memory
-from .platform.capture import ScreenShot
-from .pointing import Point, describe_point_protocol, parse_point, strip_points
-from .vision import ScreenContext, ScreenNeed
+from ..platform.capture import ScreenShot
+from ..desktop.pointing import Point, describe_point_protocol, parse_point, strip_points
+from ..desktop.vision import ScreenContext, ScreenNeed
 
 MODEL = "gpt-4o-mini"
 

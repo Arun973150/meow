@@ -31,8 +31,8 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 
-from .config import get
-from .vision import ScreenNeed, classify as classify_screen
+from ..config import get
+from ..desktop.vision import ScreenNeed, classify as classify_screen
 
 # Enough to be useful, few enough to stay one round trip. Jev charges roughly
 # the same for several questions as for one, so the cost of adding a question is

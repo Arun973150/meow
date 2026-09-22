@@ -45,7 +45,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from .config import openai_api_key
+from ..config import openai_api_key
 
 MODEL = "gpt-4o-mini"
 

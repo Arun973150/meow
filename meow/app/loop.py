@@ -52,18 +52,18 @@ from meow.cat.bubble import (
 )
 from meow.cat.cursor import CatCursor
 from meow.cat.follow import CursorFollower, FollowSettings, target_beside_cursor
-from meow.agentdock import AgentDock
+from meow.work.agentdock import AgentDock
 from meow.chat.launcher import ChatPanel
 from meow.connectors import Outbox, Sender
 from meow.config import MissingKey
 from meow.console import quiet_library_warnings, use_utf8_console
-from meow.harness import Confirmation, Harness, enable_tracing
-from meow.memory import Memory
-from meow.mind import Mind
+from meow.agent.harness import Confirmation, Harness, enable_tracing
+from meow.agent.memory import Memory
+from meow.agent.mind import Mind
 from meow.panic import DEFAULT_PANIC_KEY, Panic
-from meow.planner import Planner
+from meow.agent.planner import Planner
 from meow.platform.capture import capture_region, capture_screens, mean_luminance
-from meow.uia import digest_foreground
+from meow.desktop.uia import digest_foreground
 from meow.platform.dpi import enable_per_monitor_dpi_awareness
 from meow.platform.hotkey import HotkeyListener, HotkeyUnavailable
 from meow.platform.monitors import get_cursor_position, get_virtual_desktop
@@ -82,8 +82,8 @@ from meow.language import (
 )
 from meow.language.routing import correct as correct_route
 from meow.language.routing import too_short_to_hand_over
-from meow.router import Intent, Router
-from meow.tasks import TaskRunner, TaskState, asking_confirmer
+from meow.agent.router import Intent, Router
+from meow.work.tasks import TaskRunner, TaskState, asking_confirmer
 from meow.voice import AssemblyAIStreaming, ElevenLabsSpeaker, Microphone, SpeechQueue
 
 TARGET_FPS = 60

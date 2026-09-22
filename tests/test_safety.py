@@ -16,8 +16,8 @@ from meow.connectors.sender import SendRefused, Sender
 
 
 def _harness():
-    from meow.harness import Harness
-    from meow.memory import Memory
+    from meow.agent.harness import Harness
+    from meow.agent.memory import Memory
 
     return Harness(confirm=lambda *a, **k: True, memory=Memory(),
                    outbox=Outbox())

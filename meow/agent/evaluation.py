@@ -33,8 +33,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .grounding import Grounding, Source, Target
-from .uia import Element, Regime, WindowDigest, digest_foreground
+from ..desktop.grounding import Grounding, Source, Target
+from ..desktop.uia import Element, Regime, WindowDigest, digest_foreground
 
 
 class Failure(Enum):
