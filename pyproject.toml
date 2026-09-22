@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meow"
+version = "0.5.0"
+description = "A voice-driven desktop companion for Windows that operates your machine with you"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "1ms23ai009-lgtm" }]
+keywords = ["windows", "accessibility", "uia", "voice", "desktop-agent"]
+
+# Windows only, and not by accident: the whole project rests on UI Automation
+# and Win32 layered windows. There is no cross-platform path and none is
+# planned, so the classifiers say so rather than letting pip find out on a Mac.
+classifiers = [
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Programming Language :: Python :: 3.12",
+    "Environment :: Win32 (MS Windows)",
+    "License :: OSI Approved :: MIT License",
+    "Private :: Do Not Upload",
+]
+
+# Derived from what the code actually imports, not from memory. The old
+# requirements.txt had half the real stack commented out as "uncomment when
+# wired up" long after it was wired up.
+dependencies = [
+    "pillow>=10.0",
+    "pywin32>=306",
+    "uiautomation>=2.0",
+    "numpy>=1.26",
+    "httpx>=0.27",
+    "python-dateutil>=2.9",
+
+    # voice
+    "assemblyai>=0.30",
+    "elevenlabs>=1.0",
+    "sounddevice>=0.4",
+
+    # the agent
+    "langchain>=1.2",
+    "langgraph>=1.1",
+    "langchain-openai>=1.1",
+    "langsmith>=0.7",
+
+    # documents and research
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "python-pptx>=0.6",
+    "ddgs>=9.0",
+    "beautifulsoup4>=4.12",
+
+    # the chat window, which runs as its own process
+    "PySide6>=6.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-timeout>=2.2"]
+
+[project.urls]
+Repository = "https://github.com/Arun973150/clicky_meow-"
+
+# One command with subcommands rather than a command per script. A desktop app
+# ships one executable; `meow doctor` and `meow stress` are things you ask it
+# about itself, not separate programs.
+[project.scripts]
+meow = "meow.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["meow*"]
+
+[tool.setuptools.package-data]
+meow = ["../recipes/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# A hung UIA call or a live model round should fail, not wait forever.
+timeout = 300
+addopts = "-q"

@@ -37,7 +37,12 @@ import threading
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# No sys.path juggling: this is a package module now, imported rather
+# than executed from a directory. The line that was here pointed at
+# meow/ once the file moved, which put `meow/platform/` ahead of the
+# STDLIB `platform` module on the path - zstandard then died on
+# platform.python_implementation(), from an import three libraries
+# away. Any package with a stdlib name is a trap like this waiting.
 
 from meow.cat import (
     Animator, CatPalette, CatRenderer, CatState, rgba_to_premultiplied_bgra,
@@ -63,6 +68,20 @@ from meow.platform.dpi import enable_per_monitor_dpi_awareness
 from meow.platform.hotkey import HotkeyListener, HotkeyUnavailable
 from meow.platform.monitors import get_cursor_position, get_virtual_desktop
 from meow.platform.overlay import Bounds, Overlay
+from meow.language import (
+    ADD_WORDS,
+    ARTEFACT_WORDS,
+    CLOSE_WORDS,
+    MINIMUM_WORDS_FOR_A_PLAN,
+    hears_yes,
+    is_noise,
+    spoken_words,
+    starts_with_any,
+    wants_its_own_window,
+    without_trailing_yes_no,
+)
+from meow.language.routing import correct as correct_route
+from meow.language.routing import too_short_to_hand_over
 from meow.router import Intent, Router
 from meow.tasks import TaskRunner, TaskState, asking_confirmer
 from meow.voice import AssemblyAIStreaming, ElevenLabsSpeaker, Microphone, SpeechQueue
@@ -78,52 +97,6 @@ REPLY_LINE_SECONDS = 4.0
 # confirmation. Long enough to think, short enough that a forgotten question
 # does not leave a tool call parked forever.
 CONFIRM_TIMEOUT_SECONDS = 20.0
-
-# Saying one of these while a task is running adds to it instead of
-# starting something new. Explicit rather than inferred: guessing whether
-# a sentence belongs to a running task gets it wrong in both directions,
-# and being wrong means either a lost instruction or a hijacked one.
-ADD_WORDS = ("also", "and also", "add", "as well", "on top of that",
-             "tell it to", "make it", "include")
-CLOSE_WORDS = ("close that", "close them", "close it", "dismiss",
-               "get rid of", "clear that", "clear them", "close the task")
-
-# Nothing here carries a request on its own. "yeah" and "okay" are in the
-# list because alone they are acknowledgement - the confirmation check
-# runs before this one, so a real yes still gets through.
-NOISE_WORDS = {"oh", "uh", "um", "hmm", "hm", "mm", "mhm", "ah", "eh",
-               "huh", "yeah", "yep", "okay", "ok", "right", "so", "well",
-               "hey", "you", "thanks", "thank", "bye", "a", "the", "i",
-               "and", "like", "just", "its", "it", "is", "that"}
-
-# Single words that really are requests. Everything else said alone is
-# treated as noise, whatever language it is in - a word-list cannot cover
-# every language the transcriber might produce, but "one word is not a task"
-# holds in all of them. A Hindi "haan" was routed to plan and handed its own
-# background window, which no English filler list would ever have caught.
-MEANINGFUL_ALONE = {"stop", "cancel", "close", "dismiss", "pause", "undo",
-                    "help", "wait", "quiet", "mute", "back", "enter", "escape"}
-
-# A background task is a window, a thread and a plan. Three words cannot
-# describe one, so anything shorter is a misroute rather than a small job -
-# and a misroute that opens a window is worse than one that does not.
-MINIMUM_WORDS_FOR_A_PLAN = 4
-
-# Work that earns its own window: it runs for a while and the user is meant to
-# walk away from it. Everything else multi-step - open this, click that, type
-# there - is a sequence the user is watching happen, and putting a window in
-# front of them to narrate what they can already see is clutter. Those run in
-# the foreground with the thinking animation.
-BACKGROUND_WORDS = ("research", "find out", "look up", "read about",
-                    "compare", "summarise", "summarize", "gather", "collect",
-                    "report on", "write up", "search the web", "search online")
-
-# Verbs that mean the user is pointing at their own screen. Bare "search" is
-# not in BACKGROUND_WORDS because it belongs to both worlds - searching the
-# web is work to walk away from, searching in Chrome is four clicks someone
-# is watching - so a hands-on verb anywhere in the sentence decides it.
-HANDS_ON_WORDS = ("click", "press", "type", "minimise", "minimize", "maximise",
-                  "maximize", "scroll", "select", "tab", "paste", "copy")
 
 # How long after the cat asks a question that a short answer is taken
 # seriously. "SRIJA." and "H." are noise in isolation and are the whole point
@@ -147,152 +120,10 @@ DISCARD_WORDS = ("discard it", "discard that", "delete the draft",
                  "do not send", "dont send", "never mind the email",
                  "bin it", "throw it away")
 
-# Producing a file ABOUT something is always at least two jobs: find out, then
-# write it. Routed as one action it runs in the foreground and blocks the voice
-# loop for half a minute with no icon and no way to watch it - which is what
-# "About GPU prices in India. Put it in a spreadsheet." did, purely because the
-# word "research" was never said.
-ARTEFACT_WORDS = ("spreadsheet", "document", "deck", "slides", "presentation",
-                  "report", "essay", "xlsx", "docx", "pptx")
-
-# Mail, calendar and video live in the HARNESS as tools; the answer path has
-# no tools at all. So "what is in my inbox" - which is shaped exactly like a
-# question, and which Jev therefore calls ANSWER - reached a model that could
-# only talk, and it talked about the screenshot it was handed: "i'm not
-# looking at your screen right now, tell me what emails you see". Connected
-# accounts were reachable by script and unreachable by voice, which is the
-# only way anyone actually uses this.
-#
-# Structural rather than a router criterion, for the reason the artefact
-# upgrade is: a question about your inbox is a question NO model can answer
-# from its own knowledge, so there is nothing for a classifier to weigh.
-CONNECTOR_WORDS = ("inbox", "email", "emails", "e-mail", "mail", "gmail",
-                   "calendar", "agenda", "schedule", "meeting", "meetings",
-                   "appointment", "appointments", "youtube", "video",
-                   # Answerable only by asking a service. "What is the
-                   # weather" from the model's own memory is a guess about
-                   # today dressed as an answer.
-                   "weather", "forecast", "hacker", "hackernews",
-                   "todo", "to-do", "tasks")
 # Deliberately NOT here: "document" and "spreadsheet". They are ARTEFACT_WORDS
 # - they mean "make me one" far more often than "read my Google one" - and
 # upgrading them to ACT would skip the artefact upgrade that makes producing a
 # file about a topic a plan.
-
-YES_WORDS = ("yes", "yeah", "yep", "sure", "go ahead", "do it", "okay", "ok",
-             "please do", "confirm", "alright")
-NO_WORDS = ("no", "nope", "don't", "do not", "stop", "cancel", "leave it",
-            "never mind", "nevermind", "wait")
-
-
-def hears_yes(text: str) -> bool | None:
-    """Did they agree? None when it was neither.
-
-    Checked in this order because "no" is a substring of "nope" but also of
-    "not now" - and a false yes presses something nobody asked for, while a
-    false no just asks again.
-    """
-    lowered = f" {text.lower().strip()} "
-    if any(f" {word} " in lowered or lowered.strip().startswith(word)
-           for word in NO_WORDS):
-        return False
-    if any(f" {word} " in lowered or lowered.strip().startswith(word)
-           for word in YES_WORDS):
-        return True
-    return None
-
-
-def spoken_words(text: str) -> str:
-    """Lowercased, unpunctuated, single-spaced.
-
-    Transcripts arrive punctuated - "Yeah, close it." - and every phrase
-    below is written without punctuation. "close it" is not inside
-    "close it." because of the full stop, which is why saying "close it"
-    sent the sentence to the agent, which closed Notepad, instead of
-    dismissing the finished task.
-    """
-    letters = "".join(character if character.isalnum() or character.isspace()
-                      else " " for character in text.lower())
-    return " ".join(letters.split())
-
-
-def starts_with_any(text: str, phrases) -> bool:
-    lowered = spoken_words(text)
-    return any(lowered.startswith(phrase) or f" {phrase} " in f" {lowered} "
-               for phrase in phrases)
-
-
-def wants_its_own_window(text: str) -> bool:
-    """Is this long work, or steps the user is watching?
-
-    Matched on what the job NEEDS rather than how long the sentence is. A
-    short sentence can start half an hour of research, and a long one can be
-    four clicks.
-    """
-    lowered = spoken_words(text)
-    if any(word in lowered.split() for word in HANDS_ON_WORDS):
-        return False
-    # Artefacts count as background work too, and the two lists have to agree:
-    # "deck" was in one and not the other, so "make a deck about the history of
-    # computing" planned correctly and then ran in the foreground anyway.
-    return (any(phrase in lowered for phrase in BACKGROUND_WORDS)
-            or any(word in lowered for word in ARTEFACT_WORDS))
-
-
-# Words that open a yes/no question. A reply ending in one invites a bare
-# "yes", and a bare yes is the most dangerous thing the user can say - it
-# carries no instruction, so whatever the agent had half-planned gets done.
-# Live, "i wrote a brief piece about elon musk. would you like to see it?"
-# collected a "Yes" and typed the whole paragraph a second time.
-YES_NO_OPENERS = {"would", "do", "does", "did", "can", "could", "shall",
-                  "should", "will", "is", "are", "was", "were", "have",
-                  "has", "may", "must", "want", "shall", "am"}
-
-
-def without_trailing_yes_no(text: str) -> str:
-    """Drop a closing yes/no question, keeping what came before it.
-
-    AGENTS.md forbids these and the prompt says so twice; the model does it
-    anyway, so it is enforced here rather than asked for. Only a trailing one
-    is removed, and only when something else was said - a reply that is
-    nothing but a question is a real request for information, and swallowing
-    it would leave silence, which is worse.
-    """
-    stripped = text.rstrip()
-    if not stripped.endswith("?"):
-        return text
-    sentences = re.split(r"(?<=[.!?])\s+", stripped)
-    if len(sentences) < 2:
-        return text
-    opening = spoken_words(sentences[-1]).split()
-    if opening and opening[0] in YES_NO_OPENERS:
-        return " ".join(sentences[:-1])
-    return text
-
-
-def is_noise(text: str) -> bool:
-    """A breath, not a request.
-
-    The transcriber emits these on breaths, background talk and the tail
-    of a sentence it already sent. Passing one to the router is not
-    harmless: "Oh." was routed to plan, handed to a background task, and
-    got its own window before failing with "could not break that into
-    steps". Answering them out loud is its own problem - a companion that
-    replies to every noise teaches people to stop talking near it.
-
-    Only short utterances qualify. Three words of nothing is a noise;
-    four words is someone talking, even if it opens with "oh".
-    """
-    words = spoken_words(text).split()
-    if not words:
-        return True
-    if len(words) == 1:
-        # Language-independent. The transcriber emits single words constantly
-        # from breaths and background talk, and one word is not an instruction
-        # in any language.
-        return words[0] not in MEANINGFUL_ALONE
-    return len(words) <= 3 and all(word in NOISE_WORDS for word in words)
-
 
 def home_position(monitor, width: int, height: int) -> tuple[int, int]:
     return (monitor.work_right - width - HOME_MARGIN,
@@ -467,30 +298,12 @@ def main() -> None:
             if panic.tripped:
                 return
 
-            # Upgraded before the plan branch. Jev calls this one action
-            # when the word "research" is missing, and it is two: find out,
-            # then write the file. Handled here rather than only in the
-            # criteria because the cost of being wrong is asymmetric - a
-            # misrouted act blocks the voice loop for half a minute with
-            # nothing on screen to watch.
-            if (route.intent is Intent.ACT
-                    and any(word in spoken_words(transcript)
-                            for word in ARTEFACT_WORDS)
-                    and len(spoken_words(transcript).split())
-                    >= MINIMUM_WORDS_FOR_A_PLAN):
-                print("          makes a file about something, so planning it")
-                route = replace(route, intent=Intent.PLAN)
-
-            # Reaching a connected account needs a TOOL, and only the
-            # harness has them. Left as ANSWER, the cat replies out of its own
-            # knowledge, which for "what is in my inbox" is nothing at all.
-            # Only ANSWER is upgraded: SHOW is someone asking how to do it
-            # themselves, and PLAN and ACT already reach the harness.
-            if (route.intent is Intent.ANSWER
-                    and any(word in spoken_words(transcript).split()
-                            for word in CONNECTOR_WORDS)):
-                print("          that needs a connected account, so acting")
-                route = replace(route, intent=Intent.ACT)
+            # Two structural corrections, both because the cost of being
+            # wrong is asymmetric rather than because a classifier is weak.
+            # See meow/language/routing.py for what each one is fixing.
+            route, why = correct_route(route, transcript)
+            if why:
+                print(f"          {why}")
 
             # A plan the user is watching does not need a window. Only work
             # they have walked away from does - which is what a window is FOR,
@@ -508,9 +321,7 @@ def main() -> None:
             # Handled here rather than in the router because the cost of the
             # mistake is asymmetric: a misrouted plan opens a window and a
             # thread, a misrouted act just answers.
-            if (route.intent is Intent.PLAN
-                    and len(spoken_words(transcript).split())
-                    < MINIMUM_WORDS_FOR_A_PLAN):
+            if route.intent is Intent.PLAN and too_short_to_hand_over(transcript):
                 print("          too short to hand over, doing it here")
                 route = replace(route, intent=Intent.ACT)
 

@@ -36,7 +36,6 @@ import time
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from meow import apps
 from meow.console import quiet_library_warnings, use_utf8_console

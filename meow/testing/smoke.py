@@ -32,11 +32,12 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from meow.console import use_utf8_console
 
-APP = Path(__file__).resolve().parent / "meow.py"
+# Started as a MODULE, not a file path. The loop moved into the package
+# and a path here would have to track it; `-m meow.cli` is whatever
+# the installed entry point runs, which is the thing worth smoking.
 
 # Long enough for several hundred frames, the first background sample, and a
 # dock layout. Short enough to run without thinking about it.
@@ -81,7 +82,7 @@ def exercise_the_dock() -> None:
         dock.close()
 
 
-def main() -> None:
+def main() -> int:
     use_utf8_console()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--with-agents", action="store_true",
@@ -94,7 +95,7 @@ def main() -> None:
 
     print(f"  running the app for {args.seconds:.0f}s...")
     process = subprocess.Popen(
-        [sys.executable, "-u", str(APP), "--mute", "--no-jev"],
+        [sys.executable, "-u", "-m", "meow.cli", "--mute", "--no-jev"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
     time.sleep(args.seconds)
@@ -113,7 +114,12 @@ def main() -> None:
 
     problems = [line for line in output.splitlines()
                 if any(word in line for word in TROUBLE)]
-    if not alive:
+    if not alive and "could not register" in output:
+        print("\n  FAILED: something else holds ctrl+m, so the app "
+              "could not start.")
+        print("  That is the environment, not the code - close any "
+              "other running meow.")
+    elif not alive:
         print("\n  FAILED: the app died before it was asked to stop")
     if problems:
         print("\n  FAILED: it printed trouble")
@@ -122,8 +128,8 @@ def main() -> None:
     if alive and not problems:
         print(f"\n  ok - survived {args.seconds:.0f}s of real frames"
               + (" with agents docked" if args.with_agents else ""))
-        return
-    raise SystemExit(1)
+        return 0
+    return 1
 
 
 if __name__ == "__main__":

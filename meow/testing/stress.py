@@ -22,7 +22,6 @@ import threading
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from meow.console import quiet_library_warnings, use_utf8_console
 
@@ -186,16 +185,11 @@ def stress_store() -> None:
 # ---------------------------------------------------------------- routing ---
 
 def stress_routing() -> None:
-    import importlib.util
-
-    saved = sys.argv
-    sys.argv = ["meow"]
-    spec = importlib.util.spec_from_file_location(
-        "app_under_stress",
-        str(Path(__file__).resolve().parent / "meow.py"))
-    app = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(app)
-    sys.argv = saved
+    # This used to load scripts/meow.py through importlib, execute the whole
+    # module - argparse, imports, the lot - and reach into it for four pure
+    # string functions. That is what made the refactor worth doing: they are
+    # in meow.language now, and a test of them is an import.
+    from .. import language as app
 
     def noise_never_raises():
         for text in NASTY:
@@ -911,7 +905,7 @@ SUITES = {
 }
 
 
-def main() -> None:
+def main() -> int:
     use_utf8_console()
     quiet_library_warnings()
     parser = argparse.ArgumentParser(description=__doc__)
@@ -938,9 +932,10 @@ def main() -> None:
         for name, detail in FAILURES:
             print(f"    {name}")
             print(f"      {detail[:160]}")
-        raise SystemExit(1)
+        return 1
     print("  nothing broke")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
