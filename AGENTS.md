@@ -276,11 +276,25 @@ which starts the real app, lets the loop turn, and fails on a traceback. It has
 been verified to FAIL on that exact bug, because a check that cannot fail is
 not a check.
 
+⚠ **"minimise" and "Minimize" are the same instruction.** Windows labels its
+buttons in American spelling and people say the British one, so the risk gate
+never matched them and asked permission to minimise a window it had just been
+told to minimise. `risk._spelling` folds -ise/-ize, -isation/-ization and
+-yse/-yze before comparing.
+
+⚠ **`win+m` minimises EVERY window.** Asked to minimise one, the model reached
+for it — a whole-desktop action from a request about a single window, with the
+right button sitting in the digest. `press_keys` sends those back to
+`click_control` rather than asking, because "press win+m?" cannot be answered
+usefully by someone who does not know it applies to everything.
+
 ⚠ **Windows' own pages are not executables.** There is no `Settings.exe`, so
 the installed-application search cannot find Settings and WILL confidently find
 something else containing the word — on this machine, **WSL Settings**, which
 it opened twice while insisting it had not. `apps.SHELL_TARGETS` maps spoken
-names to `ms-settings:` URIs and is checked BEFORE the installed search.
+names to `ms-settings:` URIs and is checked BEFORE the installed search. The
+same is true of Camera, Photos, Calculator, Clock and the Store — "there is no
+camera application installed" was said about a machine that ships with one.
 
 ⚠ **Opening something already open is success, not failure.** It comes forward
 instead of making a second window, so "no new window appeared" is true and

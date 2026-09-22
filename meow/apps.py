@@ -310,6 +310,20 @@ SHELL_TARGETS = {
     "windows update": "ms-settings:windowsupdate",
     "installed apps": "ms-settings:appsfeatures",
     "default apps": "ms-settings:defaultapps",
+    # Windows' own bundled apps. None of these is an .exe in the Start menu
+    # index, so the installed search finds nothing and says "there is no
+    # camera application installed" about a machine that ships with one.
+    "camera": "microsoft.windows.camera:",
+    "the camera": "microsoft.windows.camera:",
+    "photos": "ms-photos:",
+    "calculator": "calculator:",
+    "maps": "bingmaps:",
+    "store": "ms-windows-store:",
+    "microsoft store": "ms-windows-store:",
+    "clock": "ms-clock:",
+    "alarms": "ms-clock:",
+    "mail": "ms-mail:",
+    "people": "ms-people:",
     "control panel": "control.exe",
     "task manager": "taskmgr.exe",
     "device manager": "devmgmt.msc",

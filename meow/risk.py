@@ -115,8 +115,27 @@ _FILLER = frozenset((
 ))
 
 
+def _spelling(word: str) -> str:
+    """One spelling for words that have two.
+
+    Windows labels its buttons "Minimize" and people say "minimise", so the two
+    never matched and the cat asked permission to minimise a window somebody
+    had just told it to minimise. Both spellings are the same instruction, and
+    a confirmation prompt is not the place to have an opinion about which is
+    correct.
+    """
+    for british, american in (("ise", "ize"), ("ised", "ized"),
+                              ("ises", "izes"), ("ising", "izing"),
+                              ("isation", "ization"), ("yse", "yze"),
+                              ("ysed", "yzed"), ("ysing", "yzing")):
+        if word.endswith(british):
+            return word[:-len(british)] + american
+    return word
+
+
 def _words(text: str) -> set[str]:
-    return {word.strip(".,!?()[]\"'`+-").lower() for word in text.split()}
+    return {_spelling(word.strip(".,!?()[]\"'`+-").lower())
+            for word in text.split()}
 
 
 def names_the_target(transcript: str, target: str) -> bool:

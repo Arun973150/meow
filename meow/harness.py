@@ -113,6 +113,19 @@ MAX_MODEL_CALLS_PER_RUN = 8
 # in every plan paid the worst case.
 SETTLE_SECONDS = 0.35
 
+# Shortcuts that act on the WHOLE DESKTOP, and the control that does the same
+# thing to one window. Asked to minimise VS Code, the model reached for win+m -
+# which minimises everything the user has open, from a request about a single
+# window. The button is right there in the digest and does exactly what was
+# asked, so press_keys sends them back to it.
+WHOLE_DESKTOP_SHORTCUTS = {
+    "win+m": "Minimize",
+    "win+d": "Minimize",
+    "win+down": "Minimize",
+    "win+up": "Maximize",
+    "alt+f4": "Close",
+}
+
 # How long an application gets to put a window up and become walkable.
 # Measured: Notepad appears after 389ms and is walkable after 993ms. This was
 # a flat 1.6s sleep, so two thirds of a second went on nothing every time.
@@ -612,12 +625,28 @@ class Harness:
         def press_keys(keys: str) -> str:
             """Press a keyboard shortcut, such as "ctrl+t" or "enter".
 
-            Use for things with no clickable control - opening a new tab,
-            submitting a search, moving focus to an address bar.
+            Use ONLY for things with no clickable control - opening a new tab,
+            submitting a search, moving focus to an address bar. If a button
+            on screen does the job, click that instead.
             """
             refusal = self._explaining(f"pressing {keys}")
             if refusal:
                 return refusal
+
+            # A whole-desktop shortcut in answer to a question about one
+            # window. win+m minimises EVERYTHING the user has open, and the
+            # button that minimises the window they named is in the digest.
+            # Sent back rather than asked about, because "press win+m?" is a
+            # question nobody can answer usefully without knowing it applies
+            # to every window.
+            instead = WHOLE_DESKTOP_SHORTCUTS.get(keys.strip().lower())
+            if instead and self.digest is not None:
+                control = self.digest.find(instead)
+                if control is not None:
+                    return (f"Not pressed. {keys} affects every window on the "
+                            f"desktop, and this is about one. There is a "
+                            f"{control.name!r} control on screen - use "
+                            f"click_control with that name.")
             before = verify.look()
             outcome = actions.press_shortcut(keys, self._gated("press_keys", keys))
             self.runs.append(ToolRun("press_keys", keys, outcome))

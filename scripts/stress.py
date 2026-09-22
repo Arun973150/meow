@@ -471,12 +471,25 @@ def stress_risk() -> None:
             # 6, and it is the one that cannot be talked out of.
             assert asks("click_control", target, f"click {target}"),                 f"{target} did not ask despite being dangerous"
 
+    def spelling_variants_do_not_ask():
+        """"minimise" and "Minimize" are the same instruction.
+
+        Windows labels its button "Minimize" and people say "minimise", so
+        they never matched and the cat asked permission to minimise a window
+        it had just been told to minimise.
+        """
+        for said, target in (("minimise visual studio code", "Minimize"),
+                             ("maximise it", "Maximize"),
+                             ("minimize vs code", "Minimize")):
+            assert not asks("click_control", target, said),                 f"{said!r} asked about {target!r}"
+
     def harmless_never_asks():
         for tool in ("list_controls", "list_open_windows"):
             assert not asks(tool, "x", "x"), f"{tool} asked needlessly"
 
     check("risk: never raises", never_raises)
     check("risk: dangerous always asks", dangerous_always_asks)
+    check("risk: spelling variants do not ask", spelling_variants_do_not_ask)
     check("risk: harmless never asks", harmless_never_asks)
 
 
