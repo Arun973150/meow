@@ -47,7 +47,7 @@ from meow.cat.cursor import CatCursor
 from meow.cat.follow import CursorFollower, FollowSettings, target_beside_cursor
 from meow.config import MissingKey
 from meow.console import quiet_library_warnings, use_utf8_console
-from meow.harness import Confirmation, Harness
+from meow.harness import Confirmation, Harness, enable_tracing
 from meow.memory import Memory
 from meow.mind import Mind
 from meow.panic import DEFAULT_PANIC_KEY, Panic
@@ -198,6 +198,12 @@ def main() -> None:
             return bool(confirm_answer["value"])
         finally:
             awaiting_confirmation.clear()
+
+    # Before anything is built. The harness turns tracing on for itself, but
+    # Mind is constructed first and every path is a ChatOpenAI now, so doing it
+    # here is what makes the whole turn appear in one trace rather than only
+    # the part that used tools.
+    tracing = enable_tracing()
 
     # ONE memory for every path. Each used to remember separately - mind kept
     # four turns, the harness kept none at all, and tasks existed outside both -
@@ -397,6 +403,7 @@ def main() -> None:
     print(f"  routing: {'jev' if router.using_jev else 'keywords'}"
           f"{'  (' + (router.unavailable_reason or '')[:60] + ')' if not router.using_jev else ''}")
     print(f"  speech: {'muted' if args.mute else 'on'}")
+    print(f"  tracing: {'langsmith' if tracing else 'off (no LANGSMITH_API_KEY)'}")
     print("  Ctrl+C to quit.\n")
 
     # Drawing faults are reported once each and never twice, so a bug that

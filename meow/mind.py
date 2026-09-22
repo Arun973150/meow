@@ -30,7 +30,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Iterator
 
-from openai import OpenAI
+from langchain_openai import ChatOpenAI
 
 from .config import openai_api_key
 from .memory import Memory
@@ -156,7 +156,23 @@ class Mind:
 
     def __init__(self, model: str = MODEL, api_key: str | None = None,
                  memory: Memory | None = None) -> None:
-        self._client = OpenAI(api_key=api_key or openai_api_key())
+        # ChatOpenAI rather than the OpenAI SDK, so this path is traced by
+        # LangSmith like the harness is. It was the one component invisible to
+        # tracing, which made a slow answer turn impossible to look at. Timed
+        # first: the wrapper costs nothing measurable on time to first token,
+        # which is the number this whole file exists to protect.
+        #
+        # ChatOpenAI, NOT a LangGraph graph. This is one call with no tools and
+        # no branching, and a StateGraph with a single node would be ceremony
+        # around a straight line. The harness is where the graph belongs.
+        self._client = ChatOpenAI(
+            model=model,
+            api_key=api_key or openai_api_key(),
+            max_tokens=MAX_OUTPUT_TOKENS,
+            # Usage rides the final chunk. Without this a streamed call
+            # reports nothing and the running spend silently undercounts.
+            stream_usage=True,
+        )
         self.model = model
         # Shared with the harness and the tasks. The private history
         # below stays for the message format the API wants; the shared
@@ -255,26 +271,26 @@ class Mind:
         spoken: list[str] = []
 
         try:
-            stream = self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=MAX_OUTPUT_TOKENS,
-                stream=True,
-                # Usage arrives on the final chunk when asked for, which is the
-                # only way to know what a streamed call actually cost.
-                stream_options={"include_usage": True},
-            )
+            # The role dicts go straight in - LangChain converts them, and
+            # that keeps the image content blocks in the shape vision.py
+            # already builds. run_name is what makes this legible in a trace
+            # next to the harness runs.
+            stream = self._client.stream(
+                messages, config={"run_name": "mind.answer"})
 
             for chunk in stream:
-                if chunk.usage is not None:
-                    self.screen.budget.record(
-                        chunk.usage.prompt_tokens, chunk.usage.completion_tokens
-                    )
-                if not chunk.choices:
-                    continue
-                piece = chunk.choices[0].delta.content
+                usage = getattr(chunk, "usage_metadata", None)
+                if usage:
+                    self.screen.budget.record(usage.get("input_tokens", 0),
+                                              usage.get("output_tokens", 0))
+                piece = chunk.content
                 if not piece:
                     continue
+                if isinstance(piece, list):  # content blocks, not plain text
+                    piece = "".join(block.get("text", "") for block in piece
+                                    if isinstance(block, dict))
+                    if not piece:
+                        continue
                 for sentence in chunker.feed(piece):
                     cleaned = self._take_point(sentence)
                     if cleaned:

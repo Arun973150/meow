@@ -42,7 +42,7 @@ meow/cat/follow.py          critically damped cursor follow
 meow/cat/bubble.py          small speech bubble - capped, never a transcript
 meow/config.py              .env keys; never logs a value
 meow/vision.py              when to send a screenshot, and how much of one
-meow/mind.py                gpt-4o-mini call, streamed, sentence-chunked
+meow/mind.py                ChatOpenAI, streamed, sentence-chunked
 meow/pointing.py            [POINT:x,y] protocol, eased pointer glide
 meow/uia.py                 THE THESIS - accessibility tree digest, 268ms
 meow/grounding.py           UIA / vision / hybrid behind one protocol
@@ -182,7 +182,7 @@ harness that can actually click. See [docs/05-phases.md](docs/05-phases.md).
 | Model | **OpenAI `gpt-4o-mini`** — cost-constrained, see `meow/vision.py` |
 | STT | **AssemblyAI v3 streaming** — `wss://streaming.assemblyai.com/v3/ws` |
 | TTS | **ElevenLabs Flash v2.5** — `eleven_flash_v2_5` |
-| Tracing | LangSmith — a requirement, not optional |
+| Tracing | LangSmith — **every path is `ChatOpenAI` now, so a whole turn traces**, not only the part that used tools. On with `LANGSMITH_API_KEY`. |
 | Router | Jev via `langchain-typesafe` — non-generative classifier |
 | UIA | `uiautomation` (installed) |
 | Win32 | `pywin32` (installed) |
