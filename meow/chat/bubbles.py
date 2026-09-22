@@ -51,6 +51,9 @@ COLOURS = {
     # A task stopped on a question. Amber, because it is the one row in the
     # window that something is actually waiting on.
     "ask": ("#3a3327", "#f0e3c8", "#d8a76b"),
+    # A draft waiting to be sent. The same amber as a question, because it is
+    # the same thing: something stopped, waiting on a person.
+    "draft": ("#3a3327", "#f0e3c8", "#d8a76b"),
     "answer": ("#2f3b44", "#dceaf5", "#7fa8c9"),
 }
 AGENT_COLOURS = ("#242a24", "#d7e4d5", "#7bc96f")
@@ -64,12 +67,22 @@ def _name_of(who: str) -> str:
     return {"user": "you", "meow": "meow",
             "file": "made this - click to open",
             "ask": "waiting on you - click yes or no",
+            "draft": "NOT SENT - read it, then click send or discard",
             "answer": "you"}.get(who, who)
 
 
 def is_ask(index) -> bool:
     """Is this row a question a task is stopped on?"""
-    return str(index.data(WHO) or "") == "ask"
+    return str(index.data(WHO) or "") in ("ask", "draft")
+
+
+def is_draft(index) -> bool:
+    return str(index.data(WHO) or "") == "draft"
+
+
+def draft_id(index) -> str:
+    """The draft this row is about. The first line, by construction."""
+    return str(index.data(TEXT) or "").split(chr(10), 1)[0].strip()
 
 
 def hit_yes(index, point, option) -> bool | None:
@@ -185,8 +198,10 @@ class MessageDelegate(QStyledItemDelegate):
 
         if who == "ask":
             yes, no = _button_rects(option)
-            for rect, label, fill in ((yes, "yes", "#3d5c3a"),
-                                      (no, "no", "#4a3535")):
+            is_a_draft = str(index.data(WHO) or "") == "draft"
+            labels = (("send", "discard") if is_a_draft else ("yes", "no"))
+            for rect, label, fill in ((yes, labels[0], "#3d5c3a"),
+                                      (no, labels[1], "#4a3535")):
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(QColor(fill))
                 painter.drawRoundedRect(QRectF(rect), 7, 7)

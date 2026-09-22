@@ -25,6 +25,27 @@ BASE_URL = "https://backend.composio.dev/api/v3"
 TIMEOUT_SECONDS = 25
 
 
+def _readable(status: int, body: str, tool: str) -> str:
+    """Turn a connector's error into something a person can act on.
+
+    The raw one is JSON - `{"error":{"message":"No connected account found for
+    user ID default for toolkit gmail","code":1810,...}}` - and this gets read
+    out loud. "Gmail is not connected" is the same fact in a form that says
+    what to do about it.
+    """
+    text = str(body or "")
+    toolkit = tool.split("_", 1)[0].lower() if "_" in tool else tool.lower()
+    if "No connected account" in text:
+        return (f"{toolkit} is not connected yet. Connect it at composio.dev, "
+                f"under Apps, then try again")
+    if status in (401, 403):
+        return (f"composio refused the key. Check COMPOSIO_API_KEY, and that "
+                f"{toolkit} is still connected")
+    if status == 429:
+        return "composio is rate limiting; wait a moment and try again"
+    return f"{status} {text[:160]}"
+
+
 @dataclass(frozen=True)
 class Result:
     """What a connector call returned, or why it did not."""
@@ -82,7 +103,8 @@ class Composio:
             )
             if response.status_code >= 400:
                 return Result(False, {},
-                              f"{response.status_code} {response.text[:200]}")
+                              _readable(response.status_code, response.text,
+                                        tool))
             payload = response.json()
         except Exception as error:  # noqa: BLE001 - reported, never fatal
             return Result(False, {}, f"{type(error).__name__}: {error}")

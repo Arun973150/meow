@@ -42,7 +42,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from meow.chat import icons
 from meow.chat.bubbles import (
-    TEXT, WHO, MessageDelegate, file_path, hit_yes, is_ask, is_file,
+    TEXT, WHO, MessageDelegate, draft_id, file_path, hit_yes, is_ask,
+    is_draft, is_file,
 )
 from meow.chat.trays import AgentTrays
 from meow.conversations import Conversation, Store
@@ -284,7 +285,15 @@ class ChatWindow(QMainWindow):
         said = hit_yes(index, point, option)
         if said is None or self.showing is None:
             return
-        self.store.add(self.showing, "answer", "yes" if said else "no")
+        if is_draft(index):
+            # Answered by ID rather than yes/no. The voice loop sends what was
+            # approved, and "approve the current draft" is exactly the
+            # ambiguity the id exists to remove.
+            marker = draft_id(index)
+            self.store.add(self.showing, "answer",
+                           f"{'send' if said else 'discard'} {marker}")
+        else:
+            self.store.add(self.showing, "answer", "yes" if said else "no")
         self.refresh(force=True)
 
     def _on_search(self, text: str) -> None:

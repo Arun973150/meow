@@ -49,6 +49,7 @@ from meow.cat.cursor import CatCursor
 from meow.cat.follow import CursorFollower, FollowSettings, target_beside_cursor
 from meow.agentdock import AgentDock
 from meow.chat.launcher import ChatPanel
+from meow.connectors import Outbox, Sender
 from meow.config import MissingKey
 from meow.console import quiet_library_warnings, use_utf8_console
 from meow.harness import Confirmation, Harness, enable_tracing
@@ -135,6 +136,16 @@ ANSWER_WINDOW_SECONDS = 20.0
 # frozen, and the difference between "thinking" and "stuck" is the only thing
 # the user actually wants to know.
 SLOW_TURN_SECONDS = 6.0
+
+# Saying one of these sends the draft that is waiting. Explicit words
+# rather than a bare "yes": a bare yes carries no instruction, and the
+# one irreversible thing here should need a sentence that could only
+# mean this.
+SEND_WORDS = ("send it", "send that", "send the email", "send it now",
+              "go ahead and send", "yes send it", "send")
+DISCARD_WORDS = ("discard it", "discard that", "delete the draft",
+                 "do not send", "dont send", "never mind the email",
+                 "bin it", "throw it away")
 
 # Producing a file ABOUT something is always at least two jobs: find out, then
 # write it. Routed as one action it runs in the foreground and blocks the voice
@@ -314,6 +325,14 @@ def main() -> None:
     # ONE memory for every path. Each used to remember separately - mind kept
     # four turns, the harness kept none at all, and tasks existed outside both -
     # which is why it felt random rather than forgetful.
+    # Drafts waiting on the user, and the one thing that can send them.
+    # The SENDER lives here rather than in the harness: the harness holds
+    # the screen, which is private data and untrusted content, so giving
+    # it an outbound channel would close the trifecta in one move. It
+    # drafts; this sends, after a person has said so.
+    outbox = Outbox()
+    sender = Sender(outbox)
+
     memory = Memory()
 
     # The record, and the window that reads it. The window is a separate
@@ -327,7 +346,8 @@ def main() -> None:
     try:
         mind = Mind(memory=memory)
         harness = Harness(confirm=ask_out_loud, ask_before_acting=False,
-                          memory=memory, budget=mind.screen.budget)
+                          memory=memory, budget=mind.screen.budget,
+                          outbox=outbox)
         speech = None if args.mute else SpeechQueue(ElevenLabsSpeaker())
     except MissingKey as error:
         raise SystemExit(f"\n{error}\n")
@@ -355,6 +375,10 @@ def main() -> None:
     # one. Written on the reply side, read on the transcript side; both run in
     # the render loop, so a plain dict is enough.
     awaiting_answer = {"until": 0.0}
+
+    # Drafts already put in the window, so a turn does not propose the
+    # same one again every time it looks.
+    shown_drafts: set[str] = set()
 
     # When the current turn started working, so a long one can say so in words
     # instead of showing the same three dots for half a minute.
@@ -584,6 +608,14 @@ def main() -> None:
                     replies.put(("say", event))
                 if harness.last_error:
                     replies.put(("error", harness.last_error))
+
+                # Anything drafted this turn goes into the window, with
+                # the exact recipient and body, so the decision is made
+                # while looking at what will actually be sent.
+                for draft in outbox.waiting():
+                    if draft.id not in shown_drafts:
+                        shown_drafts.add(draft.id)
+                        panel.propose(session, draft)
                 return
 
             # Plain answer. Screenshot only if the router thinks it is needed.
@@ -726,6 +758,29 @@ def main() -> None:
                             # the sidebar reads as a list of what was asked
                             # rather than six rows all called "session".
                             pass
+
+                        # Before routing. "send it" is the one
+                        # irreversible thing the user can say, and it must mean
+                        # exactly this rather than whatever a model makes of it.
+                        waiting_draft = outbox.newest_waiting()
+                        if waiting_draft is not None and starts_with_any(
+                                said, SEND_WORDS):
+                            approved = outbox.approve(waiting_draft.id)
+                            if approved is None:
+                                replies.put(("say", "that one has gone "
+                                                    "already."))
+                            else:
+                                print(f"          sending draft "
+                                      f"{approved.id}")
+                                replies.put(("say",
+                                             sender.send(approved.id).lower()))
+                            continue
+
+                        if waiting_draft is not None and starts_with_any(
+                                said, DISCARD_WORDS):
+                            outbox.refuse(waiting_draft.id)
+                            replies.put(("say", "thrown away, nothing sent."))
+                            continue
 
                         if starts_with_any(said, CLOSE_WORDS):
                             for finished in tasks.visible:

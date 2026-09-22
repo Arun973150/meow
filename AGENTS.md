@@ -344,6 +344,23 @@ holds no tool that sends; the SENDER takes an approved draft by **id** and
 holds no tool that reads. Between them is a person looking at the exact
 recipient and the exact body.
 
+**Reading is a harness tool; sending is not.** `read_mail`,
+`read_message`, `my_agenda`, `explain_video` and `draft_reply` are in the
+harness — it already holds private data and untrusted content, and gains no
+outbound channel from any of them. `draft_reply` composes and puts a draft in
+the outbox; the voice loop sends, after the user says so.
+
+⚠ **There is NO send tool in the harness, and there must never be one.** The
+harness holds the screen, which is private data and untrusted content both;
+one send tool closes the trifecta in a single move. 21 tools, none of them
+send-shaped, and `scripts/stress.py` checks that.
+
+**Approval is explicit.** Saying "send it" sends the newest waiting draft, and
+that is checked BEFORE routing so it cannot be re-interpreted by a model. A
+bare "yes" does not send — the one irreversible thing needs a sentence that
+could only mean it. The chat window shows the draft with the exact recipient
+and body, and its buttons say **send** and **discard** rather than yes and no.
+
 ⚠ **The sender takes a draft ID, not arguments.** `send(draft_id)`, never
 `send(to, subject, body)`. A sender that accepts arguments can be called with
 arguments assembled from anything, including the email it just read; one that

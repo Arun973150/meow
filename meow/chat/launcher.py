@@ -125,6 +125,25 @@ class ChatPanel:
         except Exception:  # noqa: BLE001
             pass
 
+    def propose(self, conversation: int, draft) -> int | None:
+        """Put a draft in the conversation, for someone to read and decide.
+
+        The whole text, not a summary. A confirmation saying "send an email to
+        your manager?" is not consent to the contents of an email nobody
+        displayed - and the recipient is the part an injection tries to change,
+        so it goes first.
+
+        The id leads the message because approval is BY ID: what comes back has
+        to identify one message rather than "the current draft".
+        """
+        if self.store is None or not conversation:
+            return None
+        try:
+            body = draft.id + chr(10) + draft.describe()
+            return self.store.add(conversation, "draft", body) or None
+        except Exception:  # noqa: BLE001
+            return None
+
     def ask(self, conversation: int, question: str) -> int | None:
         """Put a question in the conversation. Returns its message id, or None.
 

@@ -90,6 +90,7 @@ from . import actions, apps, documents, lookup, recipes, verify
 from .actions import Confirmer, Outcome, always_allow
 from .config import get, openai_api_key
 from .grounding import Target
+from .connectors import Outbox
 from .memory import Memory
 from .mind import SentenceChunker
 from .risk import is_dangerous, judge
@@ -269,7 +270,7 @@ class Harness:
                  ask_before_acting: bool = True,
                  memory: Memory | None = None,
                  actor: str | None = None,
-                 budget=None) -> None:
+                 budget=None, outbox=None) -> None:
         self.confirm = confirm
         # Shared with every other path. Its own until given one, so a
         # harness built standalone still works.
@@ -289,6 +290,10 @@ class Harness:
         # Handed-over work, with nobody watching. It changes WHICH questions
         # are worth stopping for - see _gated.
         self.unattended = False
+        # Drafts waiting on the user. Shared with the app, which is what
+        # actually sends - this harness cannot.
+        self.outbox = outbox if outbox is not None else Outbox()
+        self._reader_instance = None
         # Read once at startup. Recipes are hand-edited between sessions, not
         # during one, and re-reading a folder before every turn would put disk
         # access on the path that can least afford it.
@@ -371,6 +376,67 @@ class Harness:
                         f"want it pressed.")
             return (f"It is called {result.matched}. Pointing at it now. "
                     f"Say click it if you want it pressed.")
+
+        @tool
+        def read_mail(query: str = "is:unread") -> str:
+            """Read recent email. Gmail search syntax, e.g. "from:priya",
+            "is:unread", "subject:invoice", "newer_than:2d".
+
+            Use for "what's in my inbox", "any mail from X", "what did Y say".
+            """
+            found = self._reader().inbox(query)
+            self.runs.append(ToolRun("read_mail", query,
+                                     Outcome(True, "read the inbox")))
+            return found
+
+        @tool
+        def read_message(message_id: str) -> str:
+            """One email in full, by the id shown in the inbox listing."""
+            found = self._reader().read_message(message_id)
+            self.runs.append(ToolRun("read_message", message_id,
+                                     Outcome(True, "read a message")))
+            return found
+
+        @tool
+        def my_agenda() -> str:
+            """What is on the calendar. Use for "what's on today"."""
+            found = self._reader().agenda()
+            self.runs.append(ToolRun("my_agenda", "",
+                                     Outcome(True, "read the calendar")))
+            return found
+
+        @tool
+        def explain_video(url: str) -> str:
+            """Fetch a YouTube video's captions so you can explain it.
+
+            Use for "what is this video about", "summarise this video". Takes
+            a URL or a video id.
+            """
+            found = self._reader().video_transcript(url)
+            self.runs.append(ToolRun("explain_video", url,
+                                     Outcome(True, "read the captions")))
+            return found
+
+        @tool
+        def draft_reply(to: str, subject: str, body: str) -> str:
+            """Write an email and put it in the outbox. DOES NOT SEND IT.
+
+            Use when asked to reply or write to somebody. The user reads the
+            exact recipient and the exact body and decides. Say what you have
+            drafted and who it is to; do not claim it was sent.
+            """
+            draft = self.outbox.add(
+                self._reader().compose_reply(to, subject, body,
+                                             source=self.transcript))
+            self.runs.append(ToolRun("draft_reply", to,
+                                     Outcome(True, f"drafted {draft.id}")))
+            # The id matters: approval is by id, so this is what the user is
+            # approving when they say send it.
+            return (f"Drafted, NOT sent. Draft {draft.id}:" + chr(10)
+                    + draft.describe() + chr(10) + chr(10)
+                    + "Tell the user what it says and who it is to, and that "
+                    + "they can say 'send it' or open the window to read it "
+                    + "first. Never say it has been sent.")
 
         @tool
         def click_control(name: str) -> str:
@@ -727,6 +793,14 @@ class Harness:
                              max_completion_tokens=MAX_OUTPUT_TOKENS),
             tools=[click_control, point_at_control, type_text, list_controls,
                    find_how_to,
+                   # READ and DRAFT only. There is deliberately no send
+                   # tool here: the harness holds the screen, which is
+                   # private data AND untrusted content, so an outbound
+                   # channel would close the trifecta in one move. The
+                   # app sends, after the user has approved a draft by
+                   # id. See meow/connectors/.
+                   read_mail, read_message, my_agenda, explain_video,
+                   draft_reply,
                    open_app, switch_to_window, list_open_windows, press_keys,
                    write_about, look_up, make_document, make_spreadsheet,
                    make_slides, open_last_document, recall_task_results],
@@ -762,6 +836,19 @@ class Harness:
             return any(word in haystack for word in wanted if len(word) > 2)
 
         verify.wait_until(ready, LAUNCH_SECONDS, interval=0.08)
+
+    def _reader(self):
+        """The connector reader, built on first use.
+
+        Lazily, because most turns never touch a connector and building it
+        reads the key and would otherwise make every startup depend on a
+        service nobody asked for yet.
+        """
+        if self._reader_instance is None:
+            from .connectors import Reader
+
+            self._reader_instance = Reader()
+        return self._reader_instance
 
     def _explaining(self, what: str) -> str | None:
         """The refusal for an acting tool while guiding, or None."""
