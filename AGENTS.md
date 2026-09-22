@@ -367,7 +367,12 @@ never blocks the writer, one connection per thread, busy timeout rather than a
 retry loop. Measured: six threads writing 240 messages in 0.09s while a second
 process polled throughout.
 
-**Phase 4 in progress: the reader/sender split.** Mail, calendar, Slack and
+**Phase 4: reading is VERIFIED LIVE against a real Gmail account.** Key
+accepted, login completed in the browser, real messages returned, the
+untrusted wrapper applied, all under a per-install identity. Sending is
+built and not yet exercised end to end.
+
+**The reader/sender split.** Mail, calendar, Slack and
 YouTube, with the trifecta enforced structurally. The READER reads anything and
 holds no tool that sends; the SENDER takes an approved draft by **id** and
 holds no tool that reads. Between them is a person looking at the exact
