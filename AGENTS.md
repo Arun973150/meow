@@ -467,6 +467,18 @@ bare "yes" does not send — the one irreversible thing needs a sentence that
 could only mean it. The chat window shows the draft with the exact recipient
 and body, and its buttons say **send** and **discard** rather than yes and no.
 
+⚠ **A spoken email address never arrives as a valid email address.** The
+transcriber hears "gowda arun zero three two at gmail dot com" and writes
+`Gauda Arun 032 gmail.com` - spaces through the middle, the @ gone, sometimes
+"at" and "dot" left as words. Passed through, the draft held an impossible
+address and nothing surfaced until SEND: "invalid email format passed". The
+loop that followed is the real damage - the cat asked for the address "without
+spaces", which the user cannot say, because the spaces come from the
+transcriber. Four attempts, no mail. `drafts.spoken_email` normalises at the
+point the address is first seen, returns "" rather than a guess, and the tool
+makes the model read the address back character by character before anything
+is sent.
+
 ⚠ **The sender takes a draft ID, not arguments.** `send(draft_id)`, never
 `send(to, subject, body)`. A sender that accepts arguments can be called with
 arguments assembled from anything, including the email it just read; one that

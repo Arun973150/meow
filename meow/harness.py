@@ -94,6 +94,7 @@ from .connectors import Outbox
 from .memory import Memory
 from .mind import SentenceChunker
 from .risk import is_dangerous, judge
+from .connectors.drafts import spoken_email
 from .uia import WindowDigest, digest_foreground
 
 MODEL = "gpt-4o-mini"
@@ -536,18 +537,37 @@ class Harness:
             exact recipient and the exact body and decides. Say what you have
             drafted and who it is to; do not claim it was sent.
             """
+            # A dictated address arrives with spaces through it and no @,
+            # and passed through it failed at SEND - by which point the only
+            # advice left was "say it without spaces", which is not something
+            # the user controls. Fixed here, where the address is first seen.
+            address = spoken_email(to)
+            if not address:
+                self.runs.append(ToolRun("draft_reply", to,
+                                         Outcome(False, "no usable address")))
+                return (f"'{to}' is not an address that can be sent to, and "
+                        "guessing one would send this to a stranger. Ask them "
+                        "to say the name part one letter at a time - the "
+                        "transcriber puts spaces in spoken addresses, so "
+                        "asking for it 'without spaces' asks for something "
+                        "they cannot say.")
+
             draft = self.outbox.add(
-                self._reader().compose_reply(to, subject, body,
+                self._reader().compose_reply(address, subject, body,
                                              source=self.transcript))
             self.runs.append(ToolRun("draft_reply", to,
                                      Outcome(True, f"drafted {draft.id}")))
             # The id matters: approval is by id, so this is what the user is
             # approving when they say send it.
+            heard = ("" if address == to.strip().lower()
+                     else f" (heard as '{to}')")
             return (f"Drafted, NOT sent. Draft {draft.id}:" + chr(10)
                     + draft.describe() + chr(10) + chr(10)
-                    + "Tell the user what it says and who it is to, and that "
-                    + "they can say 'send it' or open the window to read it "
-                    + "first. Never say it has been sent.")
+                    + f"The address is {address}{heard}. READ IT BACK "
+                    + "character by character before anything is sent - it "
+                    + "was dictated, and a wrong one delivers to a stranger. "
+                    + "Then say what it says and that they can say 'send it' "
+                    + "or open the window to read it. Never say it was sent.")
 
         @tool
         def click_control(name: str) -> str:

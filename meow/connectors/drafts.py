@@ -23,6 +23,8 @@ contents of an email nobody displayed.
 
 from __future__ import annotations
 
+import re
+
 import copy
 import hashlib
 import json
@@ -223,3 +225,61 @@ class Outbox:
     def failed(self, draft_id: str) -> None:
         with self._lock:
             self._state[draft_id] = DraftState.FAILED
+
+
+# A spoken email address NEVER arrives as a valid email address. AssemblyAI
+# hears "gowda arun zero three two at gmail dot com" and writes
+# "Gauda Arun 032 gmail.com" - spaces through the middle, the @ gone entirely,
+# sometimes "at" and "dot" left as words. Passed straight through, the draft
+# held an address that could not exist, and the failure only surfaced at send:
+# "invalid email format passed: gowda arun 032 gmail.com".
+#
+# The loop that follows is the real damage. The cat asked for "the address
+# with no spaces", which is not something the user can say - the spaces come
+# from the transcriber, not from them - so the same request came back four
+# times and the mail was never sent. Whatever cannot be fixed by speaking more
+# clearly has to be fixed here.
+_ADDRESS = re.compile(r"^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$")
+
+# Said aloud, and written as words rather than symbols.
+_SPOKEN_SYMBOLS = ((" at the rate of ", "@"), (" at the rate ", "@"),
+                   (" at sign ", "@"), (" at ", "@"),
+                   (" dot ", "."), (" point ", "."), (" period ", "."))
+
+
+def spoken_email(text: str) -> str:
+    """An email address as a microphone delivers it, or "" if it cannot be.
+
+    Returning "" rather than a guess: an address that is wrong in a way
+    nobody notices is worse than one that visibly failed, because the mail
+    goes somewhere and the sender believes it arrived.
+    """
+    spoken = f" {str(text).lower().strip()} "
+    spoken = spoken.strip(" .,!?")
+    spoken = f" {spoken} "
+    for said, symbol in _SPOKEN_SYMBOLS:
+        spoken = spoken.replace(said, symbol)
+    spoken = spoken.strip()
+
+    if "@" in spoken:
+        # Split on the LAST one: "pat at gmail.com" becomes "pat@gmail.com"
+        # and a name containing "at" does not take the domain with it.
+        local, _, domain = spoken.rpartition("@")
+    else:
+        # No @ survived the transcription at all, which is the common case.
+        # The domain is the last thing with a dot in it; everything before it
+        # is the name, spaces and all.
+        parts = spoken.split()
+        domain = ""
+        for index in range(len(parts) - 1, -1, -1):
+            if "." in parts[index]:
+                domain = parts[index]
+                local = " ".join(parts[:index])
+                break
+        if not domain:
+            return ""
+
+    local = "".join(local.split())
+    domain = "".join(domain.split())
+    address = f"{local}@{domain}"
+    return address if _ADDRESS.match(address) else ""
