@@ -300,6 +300,11 @@ Do not violate these without updating the relevant doc first.
   real depth headroom. VS Code's deepest actionable elements sit at depth 39.
 - `WH_KEYBOARD_LL` **stops firing when a Chromium window has focus** (Chrome,
   VS Code, Slack). Needs a `RegisterHotKey` fallback.
+- **Long text is pasted, not typed.** 211 characters took 10.6s at the
+  only speed that does not corrupt them, and 0.51s through the clipboard -
+  one keystroke, so there is no per-character timing left to get wrong.
+  The user's clipboard is borrowed and PUT BACK; a paste that arrives
+  empty falls through to typing, because some fields refuse it silently.
 - **`SendInput` accepting keystrokes is not the application receiving
   them.** At 90 characters per second - the old default - Notepad got
   "hello rrom rrrrrrobe" for "hello from the probe"; at 60 it dropped a
@@ -365,7 +370,11 @@ Do not violate these without updating the relevant doc first.
   `originalAnswered`. No single-character variables.
 - Comments explain **why**, not what — especially around Win32 interop.
 - Voice output: lowercase, conversational, no markdown, no lists. Written for
-  the ear. Never "simply" or "just". Never end on a yes/no question.
+  the ear. Never "simply" or "just". **Never end on a yes/no question** -
+  enforced in code by `without_trailing_yes_no`, not left to the prompt,
+  which says it twice and is ignored anyway. A bare "yes" carries no
+  instruction, so whatever was half-planned gets done: one live reply ended
+  "would you like to see it?" and the yes retyped a whole paragraph.
 - **The speech bubble is not a transcript.** Voice is the primary channel; the
   bubble is a glanceable cue, hard-capped at 90 characters and 3 lines. If it
   ever grows to hold whole replies, the cat has become a chat window.

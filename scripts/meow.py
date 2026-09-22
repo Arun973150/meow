@@ -29,6 +29,7 @@ loop draws the cat at 60fps and never waits for anything.
 from __future__ import annotations
 
 import argparse
+import re
 from dataclasses import replace
 import queue
 import sys
@@ -181,6 +182,37 @@ def wants_its_own_window(text: str) -> bool:
     if any(word in lowered.split() for word in HANDS_ON_WORDS):
         return False
     return any(phrase in lowered for phrase in BACKGROUND_WORDS)
+
+
+# Words that open a yes/no question. A reply ending in one invites a bare
+# "yes", and a bare yes is the most dangerous thing the user can say - it
+# carries no instruction, so whatever the agent had half-planned gets done.
+# Live, "i wrote a brief piece about elon musk. would you like to see it?"
+# collected a "Yes" and typed the whole paragraph a second time.
+YES_NO_OPENERS = {"would", "do", "does", "did", "can", "could", "shall",
+                  "should", "will", "is", "are", "was", "were", "have",
+                  "has", "may", "must", "want", "shall", "am"}
+
+
+def without_trailing_yes_no(text: str) -> str:
+    """Drop a closing yes/no question, keeping what came before it.
+
+    AGENTS.md forbids these and the prompt says so twice; the model does it
+    anyway, so it is enforced here rather than asked for. Only a trailing one
+    is removed, and only when something else was said - a reply that is
+    nothing but a question is a real request for information, and swallowing
+    it would leave silence, which is worse.
+    """
+    stripped = text.rstrip()
+    if not stripped.endswith("?"):
+        return text
+    sentences = re.split(r"(?<=[.!?])\s+", stripped)
+    if len(sentences) < 2:
+        return text
+    opening = spoken_words(sentences[-1]).split()
+    if opening and opening[0] in YES_NO_OPENERS:
+        return " ".join(sentences[:-1])
+    return text
 
 
 def is_noise(text: str) -> bool:
@@ -638,6 +670,9 @@ def main() -> None:
                         if speech is not None:
                             speech.enqueue(payload)
                     elif kind == "say":
+                        payload = without_trailing_yes_no(payload)
+                        if not payload.strip():
+                            continue
                         if asked_at is not None:
                             print(f"  {elapsed:5.1f}s  says (+{elapsed-asked_at:.1f}s): {payload}")
                             asked_at = None

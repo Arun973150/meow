@@ -247,6 +247,76 @@ def _focused_control_description() -> tuple[str, str]:
         return ("", "")
 
 
+
+# Above this, typing is paced out one keystroke at a time and a paragraph takes
+# half a minute. A real session spent 27 seconds on one reply and then another
+# 24 on a repeat of it, which is long enough that the user stopped believing
+# anything was happening. Short text still types: pasting into a search box can
+# trigger a suggestion dropdown or a submit, and at this length typing is
+# already instant.
+PASTE_ABOVE_CHARACTERS = 80
+
+
+def _clipboard_text() -> str | None:
+    """What is on the clipboard now, or None if it holds no text."""
+    try:
+        import win32clipboard
+        import win32con
+
+        win32clipboard.OpenClipboard()
+        try:
+            if not win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
+                return None
+            return win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
+        finally:
+            win32clipboard.CloseClipboard()
+    except Exception:  # noqa: BLE001 - another process can hold the clipboard
+        return None
+
+
+def _set_clipboard_text(text: str) -> bool:
+    try:
+        import win32clipboard
+        import win32con
+
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+            return True
+        finally:
+            win32clipboard.CloseClipboard()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def paste_text(text: str) -> bool:
+    """Put text on the clipboard and press Ctrl+V. True if it was sent.
+
+    The user's own clipboard is put back afterwards. Someone who copied a URL,
+    asked the cat to write something, and then found their clipboard replaced
+    would rightly call that a bug - borrowing it is only acceptable if it is
+    returned.
+
+    Returning True means the keystroke was sent, NOT that the text arrived.
+    Some fields refuse paste and do so silently, which is why the caller
+    verifies and falls back to typing.
+    """
+    borrowed = _clipboard_text()
+    if not _set_clipboard_text(text):
+        return False
+    try:
+        press_shortcut("ctrl+v", always_allow)
+        # Paste is not instant on a large document, and putting the old
+        # clipboard back before the application has read the new one pastes
+        # the wrong thing entirely.
+        time.sleep(0.25)
+        return True
+    finally:
+        if borrowed is not None:
+            _set_clipboard_text(borrowed)
+
+
 def type_text(text: str, confirm: Confirmer,
               characters_per_second: int = DEFAULT_CHARACTERS_PER_SECOND
               ) -> Outcome:
@@ -276,6 +346,24 @@ def type_text(text: str, confirm: Confirmer,
         return Outcome(False, "The user declined, so nothing was typed.",
                        refused=True)
 
+    where = ' into ' + role + ' "' + focused_name[:40] + '"' if role else ""
+
+    # Long text goes via the clipboard. One keystroke instead of hundreds, so
+    # there is no per-character timing to get wrong - which is the thing that
+    # was corrupting text - and no half-minute wait.
+    if len(text) > PASTE_ABOVE_CHARACTERS:
+        from . import verify
+
+        before = verify.look()
+        if paste_text(text):
+            time.sleep(0.2)
+            if verify.typed(before, verify.look(), text).happened is not False:
+                return Outcome(True,
+                               "pasted " + str(len(text)) + " characters" + where,
+                               method="clipboard")
+        # Paste was refused or arrived empty. Some fields reject it silently,
+        # so fall through and type it the slow way rather than report success.
+
     delay = 1.0 / max(1, characters_per_second)
     for character in text:
         code = ord(character)
@@ -285,8 +373,7 @@ def type_text(text: str, confirm: Confirmer,
             ki=_KEYBDINPUT(0, code, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, None))))
         time.sleep(delay)
 
-    where = f' into {role} "{focused_name[:40]}"' if role else ""
-    return Outcome(True, f"typed {len(text)} characters{where}",
+    return Outcome(True, "typed " + str(len(text)) + " characters" + where,
                    method="sendinput")
 
 
