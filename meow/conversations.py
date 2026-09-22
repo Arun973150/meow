@@ -151,6 +151,26 @@ class Store:
             (time.time(), conversation_id))
         connection.commit()
 
+    def close_stale(self) -> int:
+        """End every conversation still marked live. Returns how many.
+
+        Called once by the voice loop at startup, because nothing from a
+        previous process is running any more: a crash, a Ctrl+C or a machine
+        that went to sleep leaves conversations open forever, and the window
+        would then show an agent icon for work that stopped days ago and can
+        never finish.
+
+        The voice loop does this, not the window - the window may well start
+        while the loop is mid-task, and closing a live conversation out from
+        under a running agent is the opposite of the bug being fixed.
+        """
+        connection = self._connection()
+        cursor = connection.execute(
+            "UPDATE conversations SET ended_at = ? WHERE ended_at IS NULL",
+            (time.time(),))
+        connection.commit()
+        return int(cursor.rowcount or 0)
+
     def rename(self, conversation_id: int, title: str) -> None:
         connection = self._connection()
         connection.execute("UPDATE conversations SET title = ? WHERE id = ?",

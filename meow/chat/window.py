@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from meow.chat import icons
 from meow.chat.bubbles import TEXT, WHO, MessageDelegate
+from meow.chat.trays import AgentTrays
 from meow.conversations import Conversation, Store
 
 POLL_MILLISECONDS = 400
@@ -276,6 +277,14 @@ def main() -> None:
             except ValueError:
                 pass
 
+    def reveal(conversation_id: int | None = None) -> None:
+        """Show the window, optionally on one particular conversation."""
+        if conversation_id is not None:
+            window.show_conversation(conversation_id)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
     tray = QSystemTrayIcon(icons.cat_icon(icons.CHAT))
     tray.setToolTip("Meow - conversations")
 
@@ -287,16 +296,18 @@ def main() -> None:
     menu.addAction(quit_action)
     tray.setContextMenu(menu)
 
-    def reveal() -> None:
-        window.show()
-        window.raise_()
-        window.activateWindow()
-
-    open_action.triggered.connect(reveal)
+    open_action.triggered.connect(lambda: reveal())
     quit_action.triggered.connect(application.quit)
     tray.activated.connect(
         lambda reason: reveal() if reason == QSystemTrayIcon.Trigger else None)
     tray.show()
+
+    # One icon per running agent, alongside the cat. Driven by the window's
+    # own timer so there is a single clock in this process.
+    agents = AgentTrays(store, reveal, application.quit)
+    agents.refresh()
+    window.timer.timeout.connect(agents.refresh)
+    application.aboutToQuit.connect(agents.close)
 
     if "--show" in sys.argv:
         reveal()

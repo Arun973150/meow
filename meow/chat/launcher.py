@@ -35,12 +35,17 @@ class ChatPanel:
         self.process: subprocess.Popen | None = None
         self.store: Store | None = None
         self.state = "not started"
+        self.stale_closed = 0
         self._named: set[int] = set()
 
     def start(self) -> None:
         """Open the store and launch the window, hidden in the tray."""
         try:
             self.store = Store()
+            # Anything still marked live belongs to a process that is gone.
+            # Left alone, a crash yesterday puts an agent icon in the tray
+            # today for work that can never finish.
+            self.stale_closed = self.store.close_stale()
         except Exception as error:  # noqa: BLE001
             self.state = f"no record ({type(error).__name__})"
             return

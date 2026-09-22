@@ -184,6 +184,24 @@ small window: the cat says "i am on it" and goes back to listening. Say
 "also ..." to queue something onto a running task, "close that" when it is
 finished. Two run at once. Pause stops them all.
 
+**An icon per running agent.** When Meow hands work over, that agent gets its
+own tray icon; clicking it opens the window straight onto that agent's
+conversation — what it is doing now and everything it has said. The icon goes
+when the work finishes, with a notification. A tray that accumulates an icon
+per job ever run is a tray people stop looking at; the conversation itself is
+never lost.
+
+⚠ **A conversation still marked live belongs to a process that is gone.** A
+crash, a Ctrl+C or a sleeping machine leaves them open forever, and the tray
+then shows an agent icon for work that stopped days ago and can never finish.
+The voice loop closes them at startup — the WINDOW must not, since it may start
+while the loop is mid-task.
+
+⚠ **Hold a `QSystemTrayIcon` and its `QMenu` as attributes.** One that goes out
+of scope is garbage collected and silently vanishes from the tray, which looks
+exactly like the agent having finished; a dropped menu leaves a right-click
+that does nothing.
+
 **The chat window.** A ChatGPT-shaped panel: conversations down the left,
 painted bubbles on the right, search across everything ever said. It lives in
 the tray and opens when clicked. Each conversation carries its own icon, so a
