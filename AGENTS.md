@@ -476,6 +476,29 @@ harness that can actually click. See [docs/05-phases.md](docs/05-phases.md).
 Target machine is **CPU-only** — no local GPU inference. Not yet installed:
 `ffmpeg` (needed for Phase 3), `uv`, `codex`, `aider`.
 
+**Latency, measured rather than guessed.** A turn is: UIA digest 460ms,
+Jev route 560ms warm, then two model rounds - decide which tool, then say what
+happened. The model rounds are most of it and the rest was waiting.
+
+- **The digest runs WHILE Jev routes.** Neither needs the other and each takes
+  about half a second; run one after the other they were a second of silence.
+  Measured: 1,079ms sequential against 729ms overlapped.
+- **The harness STREAMS its reply.** It used `invoke`, so nothing at all came
+  out until both rounds had finished - five seconds of silence, which reads as
+  stuck rather than as thinking. Same model, same wording; only the moment it
+  starts arriving. Verified streaming, not falling back: 21 chunks, first
+  sentence at 3.8s and the second at 4.0s.
+- **Waits POLL, they do not sleep.** Every wait was a flat sleep sized for the
+  slowest case, so every case paid for the slowest one - Notepad is walkable
+  993ms after launching and `open_app` slept 1,600ms regardless. `open notepad`
+  went 5.9s to 5.0s.
+- ⚠ **Do not skip the second model round to save time.** Tool output is written
+  FOR THE MODEL: "Could not verify: ... Say you did it but could not claim it
+  worked" is an instruction, not a sentence, and reading it out is nonsense.
+  That round is also where a multi-tool turn decides its next tool, and where
+  the agent signals it is done - so there is no way to know a turn was
+  single-tool without having paid for it.
+
 **Latency rules that follow from this stack:**
 
 - STT must **stream**. Jev routes on interim transcripts, so text has to arrive

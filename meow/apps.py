@@ -186,10 +186,14 @@ def focus_window(window: Window) -> bool:
     # rect and walks to nothing, which reads exactly like an empty window.
     user32.ShowWindow(handle, SW_MINIMIZE)
     user32.ShowWindow(handle, SW_RESTORE)
-    # Long enough for the restore animation to finish. Measured too short
-    # at 0.25s: File Explorer walked to zero controls because it was still
-    # mid-restore and reporting a zero-size rect.
-    time.sleep(0.7)
+    # Until it is actually in front, and no longer. This was a flat 0.7s,
+    # chosen because 0.25s was too short for File Explorer's restore
+    # animation - so every other window paid for Explorer.
+    deadline = time.perf_counter() + 0.7
+    while time.perf_counter() < deadline:
+        if user32.GetForegroundWindow() == handle:
+            return True
+        time.sleep(0.04)
     return user32.GetForegroundWindow() == handle
 
 

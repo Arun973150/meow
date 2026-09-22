@@ -78,7 +78,7 @@ from langchain.agents.middleware import (
     HumanInTheLoopMiddleware, ModelCallLimitMiddleware, before_model,
 )
 from langchain_core.messages import (
-    AIMessage, HumanMessage, RemoveMessage, SystemMessage,
+    AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage,
 )
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
@@ -91,6 +91,7 @@ from .actions import Confirmer, Outcome, always_allow
 from .config import get, openai_api_key
 from .grounding import Target
 from .memory import Memory
+from .mind import SentenceChunker
 from .risk import is_dangerous, judge
 from .uia import WindowDigest, digest_foreground
 
@@ -101,12 +102,20 @@ MAX_OUTPUT_TOKENS = 220
 # afford. A hard cap is cheaper than cleverness and cannot be talked out of.
 MAX_MODEL_CALLS_PER_RUN = 8
 
-# How long to wait after an action before checking whether it worked. An effect
-# is not on screen the instant the call returns - a dialog takes a moment to
-# appear, a window a moment to close - and checking too early reads the old
-# world and reports a working click as unverified. Short enough that five
-# actions in a plan cost under two seconds of waiting between them.
+# The LONGEST to wait after an action before checking whether it worked. An
+# effect is not on screen the instant the call returns - a dialog takes a
+# moment to appear, a window a moment to close - and checking too early reads
+# the old world and reports a working click as unverified.
+#
+# A ceiling, not a duration: the wait ends as soon as anything actually
+# changes, which is usually immediately. It was a flat sleep, so every action
+# in every plan paid the worst case.
 SETTLE_SECONDS = 0.35
+
+# How long an application gets to put a window up and become walkable.
+# Measured: Notepad appears after 389ms and is walkable after 993ms. This was
+# a flat 1.6s sleep, so two thirds of a second went on nothing every time.
+LAUNCH_SECONDS = 3.0
 
 SYSTEM_PROMPT = """You are a cat that lives on the user's Windows desktop. You \
 can see the controls on their screen and you can operate them.
@@ -381,7 +390,10 @@ class Harness:
             # Invoke returns - a dialog takes a moment to appear and a window
             # a moment to close - and checking too early reads the old world
             # and reports a working click as unverified.
-            time.sleep(SETTLE_SECONDS)
+            verify.wait_until(
+                lambda: verify.anything_changed(
+                    before, verify.look()).happened is True,
+                SETTLE_SECONDS)
             verdict = verify.anything_changed(before, verify.look(),
                                               f"pressing {name}")
             return f"{outcome.detail}. {verdict.phrase()}"
@@ -407,7 +419,10 @@ class Harness:
             self.runs.append(ToolRun("type_text", text, outcome))
             if not outcome.ok:
                 return outcome.detail
-            time.sleep(SETTLE_SECONDS)
+            verify.wait_until(
+                lambda: verify.typed(before, verify.look(),
+                                     text).happened is True,
+                SETTLE_SECONDS)
             verdict = verify.typed(before, verify.look(), text)
             return f"{outcome.detail}. {verdict.phrase()}"
 
@@ -440,7 +455,7 @@ class Harness:
                             else f"could not open {name}", method="shell")))
                 if not started:
                     return f"Could not open {name}."
-                time.sleep(1.6)
+                self._wait_for_app(name)
                 self.digest = digest_foreground()
                 verdict = verify.opened(before, verify.look(), name)
                 return f"Opened {name}. {verdict.phrase()}"
@@ -476,8 +491,10 @@ class Harness:
                 # An application takes a moment to put a window up, and the
                 # control list is read from whatever is in front. Reading it
                 # too early returns the OLD window and the next tool call acts
-                # on the wrong application entirely.
-                time.sleep(1.6)
+                # on the wrong application entirely. Polled rather than slept
+                # through: the point is that the window is READY, and a fixed
+                # sleep answers a different question.
+                self._wait_for_app(application.name)
                 self.digest = digest_foreground()
                 verdict = verify.opened(before, verify.look(), application.name)
                 return f"{outcome.detail}. {verdict.phrase()}"
@@ -499,7 +516,10 @@ class Harness:
                               method="focus")
             self.runs.append(ToolRun("switch_to_window", name, outcome))
             if came_forward:
-                time.sleep(0.4)
+                verify.wait_until(
+                    lambda: verify.switched(verify.look(),
+                                            window.title).happened is True,
+                    0.6)
                 self.digest = digest_foreground()
                 # focus_window returning True is not proof. Windows refuses
                 # foreground changes from a process that is not already in
@@ -532,7 +552,10 @@ class Harness:
             self.runs.append(ToolRun("press_keys", keys, outcome))
             if not outcome.ok:
                 return outcome.detail
-            time.sleep(SETTLE_SECONDS)
+            verify.wait_until(
+                lambda: verify.anything_changed(
+                    before, verify.look()).happened is True,
+                SETTLE_SECONDS)
             verdict = verify.anything_changed(before, verify.look(),
                                               f"pressing {keys}")
             return f"{outcome.detail}. {verdict.phrase()}"
@@ -721,6 +744,25 @@ class Harness:
         # message comes back every turn and would be billed again.
         self._counted: set[str] = set()
 
+    def _wait_for_app(self, name: str) -> None:
+        """Wait until the application is up and its window can be walked.
+
+        Two conditions, because either alone is wrong. A window that exists
+        but is still drawing walks to nothing, which reads exactly like an
+        application with no controls; and a tree that is ready but belongs to
+        the PREVIOUS window means the next tool acts on the wrong thing.
+        """
+        wanted = name.lower().split()
+
+        def ready() -> bool:
+            digest = digest_foreground()
+            if digest is None or not digest.elements:
+                return False
+            haystack = f"{digest.app} {digest.title}".lower()
+            return any(word in haystack for word in wanted if len(word) > 2)
+
+        verify.wait_until(ready, LAUNCH_SECONDS, interval=0.08)
+
     def _explaining(self, what: str) -> str | None:
         """The refusal for an acting tool while guiding, or None."""
         if not self.guiding:
@@ -825,17 +867,25 @@ class Harness:
 
     # --- running --------------------------------------------------------
 
-    def answer(self, transcript: str) -> Iterator[str | Confirmation]:
+    def answer(self, transcript: str, digest=None
+               ) -> Iterator[str | Confirmation]:
         """Yield spoken sentences, and a Confirmation wherever it pauses.
 
         The caller answers a Confirmation by calling `allow()` or `deny()` and
         continuing to iterate. That shape exists because the voice loop has to
         ask out loud and wait, which a callback cannot express.
+
+        `digest` lets the caller hand in a reading of the screen it already
+        started. Routing takes about 560ms and reading the tree about 460ms,
+        and neither needs the other - run one after the other, the second one
+        is a second of silence for nothing.
         """
         self.last_error = None
         self.runs.clear()
         self.transcript = transcript
-        self.digest = digest_foreground()
+        # Handed in when the caller started reading the screen while routing
+        # was still going. Read here only when nobody did.
+        self.digest = digest if digest is not None else digest_foreground()
 
         # ONE thread for the whole session, not one per turn. A new id
         # each turn meant the checkpointer never had anything to resume,
@@ -872,47 +922,126 @@ class Harness:
             self.last_error = f"{type(error).__name__}: {error}"
 
     def _drain(self, payload, config) -> Iterator[str | Confirmation]:
-        """Run the graph, surfacing text and interrupts until it settles."""
+        """Run the graph, speaking each sentence the moment it is complete.
+
+        Streamed rather than invoked. An act turn is two model rounds - decide
+        which tool, then say what happened - and with `invoke` nothing at all
+        came out until both had finished: five seconds of silence, which reads
+        as stuck rather than as thinking.
+
+        The second round is where the words are, and its first sentence is
+        usually done long before its last. Handing that sentence to speech
+        while the rest is still being written is the same trick `mind.py` uses
+        on the answer path, and it is worth more than any amount of shaving
+        milliseconds off the parts that were never the problem.
+
+        Nothing about the wording changes. Same model, same prompt, same
+        reply - only the moment it starts arriving.
+        """
         self._pending = None
-        result = self.agent.invoke(payload, config=config)
+        chunker = SentenceChunker()
+        spoken_any = False
 
-        self._count_tokens(result.get("messages", []))
+        try:
+            for mode, data in self.agent.stream(
+                    payload, config=config, stream_mode=["messages", "updates"]):
+                if mode == "messages":
+                    chunk, _metadata = data
+                    piece = self._streamed_text(chunk)
+                    if not piece:
+                        continue
+                    for sentence in chunker.feed(piece):
+                        cleaned = self._speakable(sentence)
+                        if cleaned:
+                            spoken_any = True
+                            yield cleaned
+                elif mode == "updates" and isinstance(data, dict):
+                    # An interrupt arrives as an update rather than at the end,
+                    # because with streaming there is no end to wait for.
+                    interrupts = data.get("__interrupt__")
+                    if interrupts:
+                        tail = self._speakable(chunker.flush())
+                        if tail:
+                            yield tail
+                        request = interrupts[0].value
+                        self._pending = config
+                        yield Confirmation(_interrupt_question(request))
+                        return
+        except Exception as error:  # noqa: BLE001 - reported, never fatal
+            self.last_error = f"{type(error).__name__}: {error}"
 
-        interrupts = result.get("__interrupt__") or []
-        if interrupts:
-            request = interrupts[0].value
-            question = _interrupt_question(request)
-            self._pending = config
-            yield Confirmation(question)
-            return
+        tail = self._speakable(chunker.flush())
+        if tail:
+            spoken_any = True
+            yield tail
 
-        for message in result.get("messages", []):
-            if isinstance(message, AIMessage) and message.content:
-                # Only what is new. Every turn returns the whole thread, so
-                # without this the cat reads its history out loud before
-                # answering - by the fourth turn it repeated three old
-                # sentences first. Also covers resuming after a
-                # confirmation, which re-runs from the top of the thread.
-                marker = message.id or str(id(message))
-                if marker in self._spoken:
-                    continue
-                self._spoken.add(marker)
-                if "call limits exceeded" in str(message.content).lower():
-                    # The cap did its job; the user should hear a sentence, not
-                    # a middleware diagnostic. "Model call limits exceeded: run
-                    # limit (6/6)" was read out loud, which is both alarming
-                    # and meaningless to anyone who is not me.
-                    yield ("i could not find that one, and i have stopped "
-                           "looking rather than keep guessing.")
-                    continue
-                text = message.content
-                if isinstance(text, list):  # content blocks
-                    text = " ".join(
-                        block.get("text", "") for block in text
-                        if isinstance(block, dict))
-                cleaned = text.strip()
-                if cleaned:
-                    yield cleaned
+        # The final state, for the budget and for anything the stream did not
+        # surface. Read once at the end rather than accumulated: streamed
+        # chunks carry no usage, so the totals only exist here.
+        try:
+            final = self.agent.get_state(config)
+            self._count_tokens(final.values.get("messages", []))
+            if not spoken_any:
+                # Nothing streamed - a resumed run whose reply was already
+                # generated, or a round that produced only tool calls. Fall
+                # back to reading the thread, with the same de-duplication
+                # that stops it reciting its own history.
+                yield from self._unspoken(final.values.get("messages", []))
+        except Exception:  # noqa: BLE001 - a missing state is not a crash
+            pass
+
+    def _streamed_text(self, chunk) -> str:
+        """The speakable text in one streamed chunk, or nothing.
+
+        Tool-calling rounds stream too, and their chunks carry the arguments
+        being assembled rather than anything to say. Those have no content, so
+        filtering on content is enough - but a chunk can also be a ToolMessage
+        carrying a tool's return value, which is written for the model and
+        must never be read out.
+        """
+        if isinstance(chunk, ToolMessage) or not isinstance(chunk, AIMessage):
+            return ""
+        content = chunk.content
+        if isinstance(content, list):
+            content = "".join(block.get("text", "") for block in content
+                              if isinstance(block, dict))
+        return str(content or "")
+
+    def _speakable(self, text: str) -> str:
+        """One sentence, cleaned, or empty if it should not be said."""
+        cleaned = str(text or "").strip()
+        if not cleaned:
+            return ""
+        if "call limits exceeded" in cleaned.lower():
+            # The cap did its job; the user should hear a sentence, not a
+            # middleware diagnostic. "Model call limits exceeded: run limit
+            # (6/6)" was read out loud, which is both alarming and meaningless
+            # to anyone who is not me.
+            return ("i could not find that one, and i have stopped looking "
+                    "rather than keep guessing.")
+        return cleaned
+
+    def _unspoken(self, messages) -> Iterator[str]:
+        """Replies in the thread that have not been said yet.
+
+        The fallback path. Every turn returns the whole thread, so without the
+        de-duplication the cat reads its history out loud before answering -
+        by the fourth turn it repeated three old sentences first.
+        """
+        for message in messages:
+            if not isinstance(message, AIMessage) or not message.content:
+                continue
+            marker = message.id or str(id(message))
+            if marker in self._spoken:
+                continue
+            self._spoken.add(marker)
+            text = message.content
+            if isinstance(text, list):
+                text = " ".join(block.get("text", "") for block in text
+                                if isinstance(block, dict))
+            cleaned = self._speakable(text)
+            if cleaned:
+                yield cleaned
 
     def _count_tokens(self, messages) -> None:
         """Add this run's usage to the shared budget, once per message.

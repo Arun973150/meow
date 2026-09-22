@@ -41,6 +41,7 @@ sentence.
 from __future__ import annotations
 
 import ctypes
+import time
 from dataclasses import dataclass
 
 from . import apps
@@ -147,6 +148,32 @@ def look() -> Snapshot:
         focused_name=name,
         focused_value=_value_of(element),
     )
+
+
+def wait_until(settled, timeout: float, interval: float = 0.05) -> float:
+    """Poll until the world is ready, and return as soon as it is.
+
+    Every wait in this project was a fixed sleep chosen for the slowest case,
+    which means every case paid for the slowest one. Measured: Notepad is
+    walkable 993ms after launching and the code slept 1,600ms regardless, so
+    two thirds of a second went on nothing, every time, on every app.
+
+    `settled` is a predicate that must not raise - it runs against a live
+    desktop where a window can vanish mid-check. Returns the seconds waited,
+    which is the timeout when it never settled: the caller carries on either
+    way, because a wait that gives up is better than one that hangs.
+    """
+    started = time.perf_counter()
+    while True:
+        waited = time.perf_counter() - started
+        if waited >= timeout:
+            return waited
+        try:
+            if settled():
+                return time.perf_counter() - started
+        except Exception:  # noqa: BLE001 - not being ready is not an error
+            pass
+        time.sleep(interval)
 
 
 @dataclass(frozen=True)

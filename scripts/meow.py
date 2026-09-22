@@ -57,6 +57,7 @@ from meow.mind import Mind
 from meow.panic import DEFAULT_PANIC_KEY, Panic
 from meow.planner import Planner
 from meow.platform.capture import capture_region, capture_screens, mean_luminance
+from meow.uia import digest_foreground
 from meow.platform.dpi import enable_per_monitor_dpi_awareness
 from meow.platform.hotkey import HotkeyListener, HotkeyUnavailable
 from meow.platform.monitors import get_cursor_position, get_virtual_desktop
