@@ -536,6 +536,11 @@ class Harness:
             from .research import Researcher
 
             if self._researcher is None:
+                # It builds its own small model for writing queries - see
+                # QUERY_MODEL in research.py. That model only ever sees the
+                # user's own words, never a fetched page, because a page that
+                # could steer the next search could walk the research
+                # anywhere it liked.
                 self._researcher = Researcher()
             found = self._researcher.look_up(question)
             self.runs.append(ToolRun(

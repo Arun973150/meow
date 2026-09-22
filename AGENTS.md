@@ -57,6 +57,7 @@ meow/planner.py             PHASE 2 - multi-step tasks as a LangGraph state mach
 meow/risk.py                when to ask, and when asking is just noise
 meow/documents.py           docx / xlsx / pptx into Documents/Meow
 meow/research.py            search + fetch ONLY - the trifecta split
+meow/queries.py             a spoken sentence -> searches that find something
 meow/memory.py              ONE memory - what was said, and who is working
 meow/verify.py              PHASE 1.9 - did the action actually happen?
 meow/lookup.py              PHASE 2.5 - look up how, then point at the real thing
@@ -321,6 +322,25 @@ chosen to match the query, and "Settings > Personalisation > Colours" is
 something an author writes mid-paragraph. Where no arrow path exists, the
 candidates are used in the order the page listed them, which for "Insert" then
 "New Slide" is the route without the arrows.
+
+**Research searches from several angles and says where it got things.** A
+spoken sentence is not a query: "hey can you do a research on solar panel cost
+and put it in the spreadsheet" carries politeness and an output format, neither
+of which has anything to do with finding an answer. `meow/queries.py` strips
+those with rules, then a small model writes two more queries from different
+angles. Results are merged by agreement - a page that two queries both surface
+outranks one that ranked first for a single phrasing - and capped at ONE per
+domain, because four pages of the same site is one source wearing four hats.
+Measured: 6 findings across 6 distinct domains, and a spoken citation.
+
+⚠ **The query model NEVER sees a fetched page.** Rewriting happens before
+anything is fetched, on the user's own words only. A page that could influence
+the next search could walk the research anywhere it liked.
+
+⚠ **Use a small model, not a new one.** Query rewriting is the lightest job
+here, and `gpt-4.1-nano` does it in 1,467ms against 4o-mini's 1,606ms at a
+fraction of the price. A gpt-5 *nano* is a reasoning model and spends a 90
+token budget thinking, returning one query instead of three.
 
 **Phase 2.5 done: it can point at settings nobody told it about.** Ask
 "where is the bluetooth setting" and `meow/lookup.py` searches for what it is

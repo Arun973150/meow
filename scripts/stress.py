@@ -691,6 +691,46 @@ def stress_uia() -> None:
     check("uia: focus a closed window", focus_a_closed_window)
 
 
+# --------------------------------------------------------------- queries ---
+
+def stress_queries() -> None:
+    from meow.queries import rewrite, shorten, strip_question
+
+    def stripping_never_raises():
+        for text in NASTY:
+            assert isinstance(strip_question(text), str)
+            assert isinstance(shorten(text), str)
+            assert isinstance(rewrite(text, model=None), list)
+
+    def plumbing_is_removed():
+        cases = {
+            "Hey, can you do a research on solar panel cost and put it in the "
+            "spreadsheet and the research should be based on India?": "solar",
+            "research gpu prices and make slides": "gpu prices",
+            "find research on llm training costs and write it up":
+                "llm training costs",
+        }
+        for spoken, wanted in cases.items():
+            got = strip_question(spoken)
+            assert wanted in got, f"{spoken[:30]!r} -> {got!r}"
+            for banned in ("spreadsheet", "slides", "write it up", "hey",
+                           "can you"):
+                assert banned not in got, f"{banned!r} survived in {got!r}"
+
+    def a_plain_question_is_left_alone():
+        assert strip_question("what is the capital of france") ==             "what is the capital of france"
+
+    def queries_are_short():
+        for text in NASTY:
+            for query in rewrite(text, model=None):
+                assert len(query.split()) <= 10, query
+
+    check("queries: stripping never raises", stripping_never_raises)
+    check("queries: plumbing removed", plumbing_is_removed)
+    check("queries: a plain question is left alone", a_plain_question_is_left_alone)
+    check("queries: queries stay short", queries_are_short)
+
+
 SUITES = {
     "memory": stress_memory,
     "store": stress_store,
@@ -701,6 +741,7 @@ SUITES = {
     "dock": stress_dock,
     "documents": stress_documents,
     "risk": stress_risk,
+    "queries": stress_queries,
     "planner": stress_planner,
     "harness": stress_harness,
     "tasks": stress_tasks,
