@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import time
 import winreg
 from ctypes import wintypes
 from dataclasses import dataclass
@@ -37,6 +38,7 @@ kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
 SW_RESTORE = 9
 SW_SHOW = 5
+SW_MINIMIZE = 6
 GW_OWNER = 4
 
 user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
@@ -167,6 +169,27 @@ def focus_window(window: Window) -> bool:
         if attached:
             user32.AttachThreadInput(our_thread, their_thread, False)
 
+    if user32.GetForegroundWindow() == handle:
+        return True
+
+    # Last resort: minimise it, then restore it. Restoring a minimised window
+    # brings it forward WITHOUT SetForegroundWindow, which Windows refuses
+    # outright when the caller does not already own the foreground - and the
+    # attach dance above does not always lift that refusal.
+    #
+    # Measured: three of six applications in the evaluation suite could not be
+    # focused any other way, and each failure left the PREVIOUS application in
+    # front, so the wrong window was the one about to be measured.
+    #
+    # It flickers, which is why it is the fallback rather than the method. The
+    # sleep is not optional: a window still mid-restore reports a zero-size
+    # rect and walks to nothing, which reads exactly like an empty window.
+    user32.ShowWindow(handle, SW_MINIMIZE)
+    user32.ShowWindow(handle, SW_RESTORE)
+    # Long enough for the restore animation to finish. Measured too short
+    # at 0.25s: File Explorer walked to zero controls because it was still
+    # mid-restore and reporting a zero-size rect.
+    time.sleep(0.7)
     return user32.GetForegroundWindow() == handle
 
 

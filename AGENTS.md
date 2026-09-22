@@ -186,13 +186,26 @@ one at a time by a LangGraph `StateGraph` — the plan *is* the state, each step
 is a node visit, and the checkpointer makes it resumable. It says "step 2 of 4"
 as it goes.
 
-First ablation result, VS Code, one frozen screen:
+**Full ablation, six applications, 90 attempts** —
+`python scripts/evaluate_suite.py --per-app 5 --strict`:
 
-| strategy | hit rate | median miss |
-|---|---|---|
-| **UIA** | **6/6** | **0 px** |
-| vision `detail=low` | 0/6 | 908–1,840 px |
-| vision `detail=high` | 0/6 | 91 px on its one attempt |
+| strategy | hit rate | median miss | failure modes |
+|---|---|---|---|
+| **UIA** | **30/30** | **0 px** | none |
+| vision | 0/30 | 1,032 px | 29 not found, 1 wrong element |
+| vision-strict | 0/30 | 709 px | **30 wrong element** |
+
+`vision-strict` is a control, not a strategy: coordinates only, no option to
+decline. It exists because the conversational prompt emitted a coordinate tag
+on **one of eight** tasks, and a baseline that answers one time in eight has
+not been tested. Stripped down it answered 30 of 30 — and was wrong 30 of 30.
+The baseline is not refusing to play; it lands 709 px from a control it can
+see.
+
+**UIA's 100% is close to tautological** — tasks are sampled from the digest and
+UIA answers from that same digest. The vision number is the measurement; the
+UIA number says only that nothing was dropped by the filter and every name
+resolved. Say so in the writeup rather than letting a reviewer say it first.
 
 At thirteen times the tokens the baseline is still 0/6, so it was not starved of
 pixels. See [docs/04-evaluation.md](docs/04-evaluation.md), including the two

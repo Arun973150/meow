@@ -50,7 +50,10 @@ budget", so the regimes are now split by tree size. See
 
 If a genuinely skeletal app turns up, the row comes back. None has so far.
 
-### First run - measured
+### First run - measured (pilot, one application)
+
+Superseded by the full suite above; kept because the two methodology
+bugs it turned up are the useful part.
 
 `python scripts/evaluate.py --tasks 6`, VS Code, DENSE regime, one screen frozen
 for every task and every strategy.
@@ -97,6 +100,63 @@ reason. `ScreenContext.forget()` now disables it for experiments.
 
 A handicapped baseline proves nothing, which is the whole reason Clicky's method
 is reproduced faithfully rather than approximated.
+
+### Full suite - measured
+
+`python scripts/evaluate_suite.py --per-app 5 --strict`, six applications,
+five tasks each, every application frozen before it is measured.
+
+| strategy | hit rate | median miss | median ms | failure modes |
+|---|---|---|---|---|
+| **UIA** | **30/30 (100%)** | **0 px** | 0 (lookup) | none |
+| vision | 0/30 (0%) | 1,032 px | 1,825 | 29 not found, 1 wrong element |
+| vision-strict | 0/30 (0%) | 709 px | 1,810 | **30 wrong element** |
+
+Applications: Settings (RICH, 27 of 53 controls), File Explorer, Chrome,
+Notepad (RICH, 22 of 23), Word (RICH, 47 of 50), VS Code (DENSE, 116 of 541).
+By regime: DENSE 5/5 UIA against 0/5 both vision conditions; RICH 25/25
+against 0/25. Cost: 60 vision calls, ~194k input tokens, $0.0296.
+
+### The control condition, and why it exists
+
+The obvious objection to the pilot was that the baseline had not really been
+measured, because it kept declining to answer - five of six tasks came back
+"not found", which is a model refusing rather than a model failing to see.
+
+Measured directly on VS Code: the conversational prompt emitted a coordinate
+tag on **one of eight** tasks. The model said "it is over here" and produced no
+tag at all. A strategy that answers one time in eight has not been tested.
+
+`StrictVisionGrounding` strips everything else away - no personality, no spoken
+sentence, no option to decline, reply with a tag or nothing, guess if unsure.
+That took tag emission from 1/8 to **8/8**, and across the full suite it
+answered **30 out of 30** times.
+
+It was wrong all thirty, by a median of 709 px.
+
+That is the result worth reporting. The baseline is not losing because it
+refuses to play. It answers every time, and lands 709 px from a control it can
+see, which on a 1280-wide screenshot is most of the way across the window.
+
+### The limitation a reviewer will raise first
+
+**UIA scoring 100% is close to tautological, and the honest reading is that
+vision's 0% is the measurement.**
+
+Tasks are sampled from the UIA digest, and `UIAGrounding` answers by looking a
+name up in that same digest. A hit is nearly guaranteed by construction. What
+the 30/30 does establish is narrower than it looks, and still worth having:
+every sampled control survived the digest filter, and every name resolved
+unambiguously. `DROPPED_BY_DIGEST` is a real failure mode that could have
+fired thirty times and fired zero, which is a statement about the filter rather
+than about the platform.
+
+The vision number carries the weight, because it is scored against ground truth
+it did not produce. An OS-drawn rectangle is an independent label for a vision
+system in a way it is not for the tree that emitted it.
+
+A stronger design would label a held-out set by hand and score both strategies
+against it. That is the obvious next experiment and it is not done here.
 
 ### Task suite
 
