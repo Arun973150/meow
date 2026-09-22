@@ -81,6 +81,7 @@ scripts/companion_demo.py   tap Ctrl+M, the cat wakes and follows the cursor
 scripts/listen_demo.py      tap Ctrl+M and talk - words appear in the bubble
 scripts/check_keys.py       what is installed, which keys are set
 scripts/smoke.py           runs the REAL app and fails on any traceback
+scripts/stress.py          48 edge cases across every module
 scripts/meow.py             THE WHOLE LOOP - routes, answers, points, presses
 ```
 
@@ -224,6 +225,12 @@ the user would have to un-hide every agent by hand. The diagnostics were
 unambiguous that the code was right — `built icon ... visible=True
 available=True` — and it was still not on screen. `meow/agentdock.py` draws
 them beside the cat instead, where Meow owns the pixels.
+
+**Two checks before believing anything works.** `python scripts/smoke.py`
+starts the real app and fails on a traceback; `python scripts/stress.py` throws
+48 edge cases at every module — empty strings, 10,000 characters, Devanagari,
+emoji, SQL, path traversal, reserved Windows filenames, eight threads at once,
+a window killed mid-read. Both are verified to fail on real bugs.
 
 ⚠ **`ast.parse` and a printed banner are not a test.** A `dock.layout` call
 with the wrong number of arguments shipped past both: the file parses, startup

@@ -92,6 +92,10 @@ class Task:
         # so "paste the results here" has something to paste; without it the
         # work exists only as sentences that have already been spoken.
         self.result = ""
+        # What this task could not do without the user. Populated by
+        # declining_confirmer and reported when the task finishes - a task
+        # that quietly skips half its work and says "done" is worse than one
+        # that fails.
         self.skipped: list[str] = []
         # Which conversation in the record this task writes into. Set by the
         # caller once the task starts, and read by the render loop to put an
@@ -187,7 +191,13 @@ def declining_confirmer(task: "Task") -> Callable[[str], bool]:
     the user named themselves, which covers most of what a task does.
     """
     def confirm(question: str) -> bool:
-        task.log(f"skipped, needs you: {question.rstrip('?')}", kind="queued")
+        wanted = question.rstrip("?").strip()
+        task.log(f"skipped, needs you: {wanted}", kind="queued")
+        # Kept as well as logged. The log scrolls and is read while the task
+        # runs; this list is what is left at the END, so the task can say what
+        # it could not do rather than reporting done and leaving the user to
+        # notice the gap themselves.
+        task.skipped.append(wanted)
         return False
 
     return confirm

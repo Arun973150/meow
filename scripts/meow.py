@@ -489,6 +489,14 @@ def main() -> None:
                     if made is not None:
                         panel.produced(thread, str(made.path))
 
+                    # What it could not do without you. Said rather than left
+                    # in a log nobody reopens: a task that skips half its work
+                    # and reports "done" is worse than one that fails.
+                    if task.skipped:
+                        needed = "; ".join(task.skipped[:3])
+                        panel.say(thread, task.title,
+                                  f"i could not do this without you: {needed}")
+
                     panel.end(thread)
                     return last or ("done" if plan.succeeded else "stopped early")
 
