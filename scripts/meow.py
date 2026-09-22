@@ -48,6 +48,7 @@ from meow.cat.follow import CursorFollower, FollowSettings, target_beside_cursor
 from meow.config import MissingKey
 from meow.console import quiet_library_warnings, use_utf8_console
 from meow.harness import Confirmation, Harness
+from meow.memory import Memory
 from meow.mind import Mind
 from meow.panic import DEFAULT_PANIC_KEY, Panic
 from meow.planner import Planner
@@ -82,6 +83,14 @@ ADD_WORDS = ("also", "and also", "add", "as well", "on top of that",
 CLOSE_WORDS = ("close that", "close them", "close it", "dismiss",
                "get rid of", "clear that", "clear them", "close the task")
 
+# Nothing here carries a request on its own. "yeah" and "okay" are in the
+# list because alone they are acknowledgement - the confirmation check
+# runs before this one, so a real yes still gets through.
+NOISE_WORDS = {"oh", "uh", "um", "hmm", "hm", "mm", "mhm", "ah", "eh",
+               "huh", "yeah", "yep", "okay", "ok", "right", "so", "well",
+               "hey", "you", "thanks", "thank", "bye", "a", "the", "i",
+               "and", "like", "just", "its", "it", "is", "that"}
+
 YES_WORDS = ("yes", "yeah", "yep", "sure", "go ahead", "do it", "okay", "ok",
              "please do", "confirm", "alright")
 NO_WORDS = ("no", "nope", "don't", "do not", "stop", "cancel", "leave it",
@@ -105,10 +114,43 @@ def hears_yes(text: str) -> bool | None:
     return None
 
 
+def spoken_words(text: str) -> str:
+    """Lowercased, unpunctuated, single-spaced.
+
+    Transcripts arrive punctuated - "Yeah, close it." - and every phrase
+    below is written without punctuation. "close it" is not inside
+    "close it." because of the full stop, which is why saying "close it"
+    sent the sentence to the agent, which closed Notepad, instead of
+    dismissing the finished task.
+    """
+    letters = "".join(character if character.isalnum() or character.isspace()
+                      else " " for character in text.lower())
+    return " ".join(letters.split())
+
+
 def starts_with_any(text: str, phrases) -> bool:
-    lowered = " ".join(text.lower().split())
+    lowered = spoken_words(text)
     return any(lowered.startswith(phrase) or f" {phrase} " in f" {lowered} "
                for phrase in phrases)
+
+
+def is_noise(text: str) -> bool:
+    """A breath, not a request.
+
+    The transcriber emits these on breaths, background talk and the tail
+    of a sentence it already sent. Passing one to the router is not
+    harmless: "Oh." was routed to plan, handed to a background task, and
+    got its own window before failing with "could not break that into
+    steps". Answering them out loud is its own problem - a companion that
+    replies to every noise teaches people to stop talking near it.
+
+    Only short utterances qualify. Three words of nothing is a noise;
+    four words is someone talking, even if it opens with "oh".
+    """
+    words = spoken_words(text).split()
+    if not words:
+        return True
+    return len(words) <= 3 and all(word in NOISE_WORDS for word in words)
 
 
 def home_position(monitor, width: int, height: int) -> tuple[int, int]:
@@ -157,9 +199,15 @@ def main() -> None:
         finally:
             awaiting_confirmation.clear()
 
+    # ONE memory for every path. Each used to remember separately - mind kept
+    # four turns, the harness kept none at all, and tasks existed outside both -
+    # which is why it felt random rather than forgetful.
+    memory = Memory()
+
     try:
-        mind = Mind()
-        harness = Harness(confirm=ask_out_loud, ask_before_acting=False)
+        mind = Mind(memory=memory)
+        harness = Harness(confirm=ask_out_loud, ask_before_acting=False,
+                          memory=memory, budget=mind.screen.budget)
         speech = None if args.mute else SpeechQueue(ElevenLabsSpeaker())
     except MissingKey as error:
         raise SystemExit(f"\n{error}\n")
@@ -243,18 +291,29 @@ def main() -> None:
 
                 def work(task):
                     """Run the plan inside the task, reporting as it goes."""
+                    actor = f"task {task.number}"
+                    memory.join(actor, task.title)
+
                     def report(kind, text):
                         task.log(text, kind="error" if kind == "error"
                                  else "step" if kind in ("step", "quiet")
                                  else "say")
+                        # So the cat can answer "what is it doing" from shared
+                        # memory, without asking the task - which may be
+                        # mid-request and cannot be interrupted to reply.
+                        memory.update(actor, text)
 
                     # Its OWN harness, with a confirmer that declines rather
                     # than asking. Sharing the foreground one meant a task's
                     # permission question went to the voice loop - the task sat
                     # blocked for twenty seconds and the user, who had moved on,
                     # got "open excel?" out of nowhere.
+                    # Shares the memory, so a step can resolve "the one we
+                    # were just looking at" against what was actually said.
                     own = Harness(confirm=declining_confirmer(task),
-                                  ask_before_acting=False)
+                                  ask_before_acting=False,
+                                  memory=memory, actor=actor,
+                                  budget=mind.screen.budget)
                     worker = Planner(own, on_event=report,
                                      should_stop=lambda: (panic.should_stop()
                                                           or task.should_stop))
@@ -428,9 +487,22 @@ def main() -> None:
                             continue
 
                         said = transcript.text
+                        if is_noise(said):
+                            # Not spoken to, not remembered, not routed.
+                            print(f"  {elapsed:5.1f}s  (ignored: {said})")
+                            continue
                         print(f"  {elapsed:5.1f}s  heard: {said}")
+                        memory.said("user", said)
 
                         if starts_with_any(said, CLOSE_WORDS):
+                            for finished in tasks.visible:
+                                if finished.state.finished:
+                                    # Retired on dismissal rather than on
+                                    # finishing: one the user has not looked at
+                                    # is still worth asking about, one they
+                                    # have dismissed is not, and leaving it in
+                                    # would take room in every later prompt.
+                                    memory.leave(f"task {finished.number}")
                             gone = tasks.dismiss_finished()
                             replies.put(("say", "closed." if gone
                                          else "nothing finished to close."))
@@ -478,6 +550,7 @@ def main() -> None:
                             asked_at = None
                         else:
                             print(f"          says: {payload}")
+                        memory.said("meow", payload)
                         bubble_state.say(payload, elapsed, seconds=REPLY_LINE_SECONDS)
                         animator.set_state(CatState.SPEAKING, elapsed)
                         if speech is not None:
@@ -496,6 +569,8 @@ def main() -> None:
                             TaskState.STOPPED: "stopped"}[finished.state]
                     print(f"  {elapsed:5.1f}s  task {finished.number} {mark}: "
                           f"{finished.summary[:70]}")
+                    memory.update(f"task {finished.number}",
+                                  f"{mark}: {finished.summary[:90]}")
                     if finished.state is TaskState.DONE:
                         replies.put(("say", f"{finished.summary} say close "
                                             f"that when you want it gone."))

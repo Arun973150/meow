@@ -57,6 +57,7 @@ meow/planner.py             PHASE 2 - multi-step tasks as a LangGraph state mach
 meow/risk.py                when to ask, and when asking is just noise
 meow/documents.py           docx / xlsx / pptx into Documents/Meow
 meow/research.py            search + fetch ONLY - the trifecta split
+meow/memory.py              ONE memory - what was said, and who is working
 meow/tasks.py               handed-over work, on its own thread
 meow/taskwindow.py          the small window each task gets
 meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
@@ -127,6 +128,14 @@ no clickable control - ctrl+L for an address bar, Enter to submit a search.
 Control names are matched the way people speak them, degrading from exact to
 word overlap to close spelling, so "that terminal thing" and "minimise" both
 land.
+
+**Every path shares one memory.** `meow/memory.py` holds a short rolling
+transcript and an actor per running task, read before each reply and written
+after. The harness used to open a fresh LangGraph thread per turn, so it
+remembered nothing at all and "now the other one" had nothing to resolve
+against; it is one thread for the session now, trimmed to twelve messages.
+Actors retire when a task is **dismissed**, not when it finishes - what the
+task produced stays reachable, only its status line goes.
 
 **Long work is handed over.** A plan becomes a background task with its own
 small window: the cat says "i am on it" and goes back to listening. Say
@@ -272,6 +281,21 @@ Do not violate these without updating the relevant doc first.
 - **Every GDI handle needs an explicit ctypes `restype` on 64-bit Python.**
   Unset, it truncates to 32 bits and surfaces as "OverflowError: int too long to
   convert" several calls later, pointing at innocent code.
+- **A permanent conversation thread carries stale context forward.** Each
+  turn injects a UIA digest of the focused window; five turns in, the model
+  holds five digests of five different windows whose element numbers point
+  at trees rebuilt since. Tag per-turn blocks and drop the previous turn's.
+  When trimming, cut only on a human message - an orphaned tool result,
+  whose request went with the trim, is rejected outright by the API.
+- **A permanent thread also returns every reply it ever made.** Yield only
+  what is new, or the cat reads its history out loud before answering.
+- **Transcripts arrive punctuated, and phrase matches are written without
+  punctuation.** "close it" is not inside "close it.", so saying "close it"
+  went to the agent, which closed Notepad, instead of dismissing the task.
+  Strip punctuation before any spoken-phrase comparison.
+- **The transcriber emits noise as sentences.** "Oh." was routed to plan and
+  given its own background task and window. Drop short all-filler
+  utterances before routing, not after.
 - **The Windows console is cp1252 and cannot print what a speech API returns.**
   Formatted transcripts carry curly quotes and ellipses, and printing one raises
   `UnicodeEncodeError` *in the print*, so the traceback blames innocent code.

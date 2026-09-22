@@ -33,6 +33,7 @@ from typing import Iterator
 from openai import OpenAI
 
 from .config import openai_api_key
+from .memory import Memory
 from .platform.capture import ScreenShot
 from .pointing import Point, describe_point_protocol, parse_point, strip_points
 from .vision import ScreenContext, ScreenNeed
@@ -153,9 +154,14 @@ class SentenceChunker:
 class Mind:
     """One model call, streamed, with the screen attached when it is needed."""
 
-    def __init__(self, model: str = MODEL, api_key: str | None = None) -> None:
+    def __init__(self, model: str = MODEL, api_key: str | None = None,
+                 memory: Memory | None = None) -> None:
         self._client = OpenAI(api_key=api_key or openai_api_key())
         self.model = model
+        # Shared with the harness and the tasks. The private history
+        # below stays for the message format the API wants; the shared
+        # memory is what makes the paths aware of each other.
+        self.memory = memory or Memory()
         self.history: list[Turn] = []
         self.screen = ScreenContext()
         self.last_error: str | None = None
@@ -214,6 +220,12 @@ class Mind:
             system += describe_point_protocol(self.last_shot)
 
         messages: list[dict] = [{"role": "system", "content": system}]
+        recalled = self.memory.recall(include_turns=False)
+        if recalled:
+            # Only the actors. The turns are already in self.history in
+            # the shape this API wants, and sending both would say
+            # everything twice.
+            messages.append({"role": "system", "content": recalled})
         for turn in self.history[-MAX_HISTORY_TURNS * 2:]:
             messages.append({"role": turn.role, "content": turn.text})
         if self._screen_message is not None:

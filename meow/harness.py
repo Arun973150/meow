@@ -75,18 +75,22 @@ _quiet_langgraph()
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
-    HumanInTheLoopMiddleware, ModelCallLimitMiddleware,
+    HumanInTheLoopMiddleware, ModelCallLimitMiddleware, before_model,
 )
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage, HumanMessage, RemoveMessage, SystemMessage,
+)
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command
 
 from . import actions, apps, documents
 from .actions import Confirmer, Outcome, always_allow
 from .config import get, openai_api_key
 from .grounding import Target
+from .memory import Memory
 from .risk import judge
 from .uia import WindowDigest, digest_foreground
 
@@ -169,12 +173,91 @@ def enable_tracing() -> bool:
     return True
 
 
+# Which turn a context block belongs to. The blocks injected per turn - the
+# window digest, the shared recall, the style reminder - are tagged with the
+# turn that added them, so the ones from earlier turns can be told apart from
+# this turn's and dropped.
+TURN_TAG = "meow_turn"
+
+# How much of the thread survives into the next model call. Twelve is roughly
+# three exchanges once tool calls are counted. Deliberately short: the user
+# asked for shorter memory, and the useful part of talking to a desktop
+# assistant is the last minute of it.
+MAX_THREAD_MESSAGES = 12
+
+
+@before_model
+def keep_the_thread_short(state, runtime):
+    """Trim the running thread, and drop the previous turn's context blocks.
+
+    The thread is permanent now - one id for the whole session - which is what
+    makes "now the other one" resolve against what came before. It also means
+    two things grow without limit unless something cuts them back.
+
+    The cheap problem is cost. Every turn appends, and every turn recharges the
+    whole thread.
+
+    The expensive one is staleness. Each turn injects a UIA digest of whatever
+    window was focused at the time, plus a block of what was recently said.
+    Last turn's digest describes a window that may not be focused any more, and
+    its element numbers refer to a tree that has since been rebuilt. Stale
+    context does not merely cost - it misleads, and a model handed two digests
+    will happily press something out of the wrong one.
+
+    Messages are replaced rather than appended: the reducer behind `messages`
+    only ever adds, so removing anything means clearing it and writing back
+    what should stay.
+    """
+    messages = state["messages"]
+    tagged = [message.additional_kwargs.get(TURN_TAG) for message in messages]
+    current_turn = max((turn for turn in tagged if turn is not None),
+                       default=None)
+
+    kept = [message for message in messages
+            if message.additional_kwargs.get(TURN_TAG) in (None, current_turn)]
+
+    # Keep the tail, but start on a human message. Cutting mid-exchange can
+    # leave a tool result whose request went with the trim, and the API
+    # rejects an orphaned tool message outright.
+    conversation = [m for m in kept if not isinstance(m, SystemMessage)]
+    if len(conversation) > MAX_THREAD_MESSAGES:
+        conversation = conversation[-MAX_THREAD_MESSAGES:]
+        while conversation and not isinstance(conversation[0], HumanMessage):
+            conversation.pop(0)
+
+    # Rebuilt in the original order rather than context-then-conversation.
+    # This turn's blocks were injected next to this turn's request on purpose -
+    # a digest hoisted above three older exchanges reads as history, and the
+    # whole point of it is that it describes the window right now.
+    surviving = set(map(id, conversation))
+    kept = [m for m in kept
+            if isinstance(m, SystemMessage) or id(m) in surviving]
+    if len(kept) == len(messages):
+        return None
+
+    return {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *kept]}
+
+
 class Harness:
     """An agent that can see the controls on screen and operate them."""
 
     def __init__(self, model: str = MODEL, confirm: Confirmer = always_allow,
-                 ask_before_acting: bool = True) -> None:
+                 ask_before_acting: bool = True,
+                 memory: Memory | None = None,
+                 actor: str | None = None,
+                 budget=None) -> None:
         self.confirm = confirm
+        # Shared with every other path. Its own until given one, so a
+        # harness built standalone still works.
+        self.memory = memory or Memory()
+        # Set when this harness IS one of the actors, so it does not read
+        # its own status line back as if it were somebody else.
+        self.actor = actor
+        # Shared with the answer path, which was the only thing counting.
+        # A session spent entirely on act and show reported $0.0000 while
+        # spending real money - the worst possible reading on a prepaid
+        # five dollars.
+        self.budget = budget
         # What the user actually said this turn. The risk policy needs it to
         # tell "open notepad" -> open Notepad, which is their own instruction,
         # from "open that" -> open Notepad, which is the cat's inference.
@@ -441,8 +524,10 @@ class Harness:
             # prompts.
         } if ask_before_acting else {}
 
-        middleware = [ModelCallLimitMiddleware(
-            run_limit=MAX_MODEL_CALLS_PER_RUN, exit_behavior="end")]
+        middleware = [keep_the_thread_short,
+                      ModelCallLimitMiddleware(
+                          run_limit=MAX_MODEL_CALLS_PER_RUN,
+                          exit_behavior="end")]
         if interrupts:
             middleware.insert(0, HumanInTheLoopMiddleware(
                 interrupt_on=interrupts,
@@ -466,7 +551,15 @@ class Harness:
             middleware=middleware,
             checkpointer=InMemorySaver(),
         )
-        self._thread = 0
+        # Numbers the turns, so each turn's context blocks can be tagged and
+        # the previous turn's dropped before the next model call.
+        self._turn = 0
+        # Which replies have already been spoken. The thread is permanent
+        # now, so `messages` carries every reply the session ever made.
+        self._spoken: set[str] = set()
+        # Charged replies, by id. The thread is permanent, so the same
+        # message comes back every turn and would be billed again.
+        self._counted: set[str] = set()
 
     # --- helpers --------------------------------------------------------
 
@@ -555,12 +648,22 @@ class Harness:
         self.transcript = transcript
         self.digest = digest_foreground()
 
-        self._thread += 1
-        config = {"configurable": {"thread_id": f"turn-{self._thread}"}}
+        # ONE thread for the whole session, not one per turn. A new id
+        # each turn meant the checkpointer never had anything to resume,
+        # so every act and show started blank - which is why "now the
+        # other one" had nothing to resolve against.
+        config = {"configurable": {"thread_id": "session"}}
 
-        messages = [SystemMessage(self.digest.to_prompt())] if self.digest else []
+        self._turn += 1
+        tag = {TURN_TAG: self._turn}
+
+        messages = ([SystemMessage(self.digest.to_prompt(), additional_kwargs=tag)]
+                    if self.digest else [])
+        recalled = self.memory.recall(without=self.actor)
+        if recalled:
+            messages.append(SystemMessage(recalled, additional_kwargs=tag))
         messages.append(HumanMessage(transcript))
-        messages.append(SystemMessage(STYLE_REMINDER))
+        messages.append(SystemMessage(STYLE_REMINDER, additional_kwargs=tag))
 
         try:
             yield from self._drain({"messages": messages}, config)
@@ -572,6 +675,8 @@ class Harness:
         self._pending = None
         result = self.agent.invoke(payload, config=config)
 
+        self._count_tokens(result.get("messages", []))
+
         interrupts = result.get("__interrupt__") or []
         if interrupts:
             request = interrupts[0].value
@@ -582,6 +687,15 @@ class Harness:
 
         for message in result.get("messages", []):
             if isinstance(message, AIMessage) and message.content:
+                # Only what is new. Every turn returns the whole thread, so
+                # without this the cat reads its history out loud before
+                # answering - by the fourth turn it repeated three old
+                # sentences first. Also covers resuming after a
+                # confirmation, which re-runs from the top of the thread.
+                marker = message.id or str(id(message))
+                if marker in self._spoken:
+                    continue
+                self._spoken.add(marker)
                 if "call limits exceeded" in str(message.content).lower():
                     # The cap did its job; the user should hear a sentence, not
                     # a middleware diagnostic. "Model call limits exceeded: run
@@ -598,6 +712,26 @@ class Harness:
                 cleaned = text.strip()
                 if cleaned:
                     yield cleaned
+
+    def _count_tokens(self, messages) -> None:
+        """Add this run's usage to the shared budget, once per message.
+
+        Counted from the messages rather than from a callback because the
+        tool-calling rounds are messages too, and those are most of the
+        cost of an act turn - the reply the user hears is the cheap part.
+        """
+        if self.budget is None:
+            return
+        for message in messages:
+            usage = getattr(message, "usage_metadata", None)
+            if not usage:
+                continue
+            marker = message.id or str(id(message))
+            if marker in self._counted:
+                continue
+            self._counted.add(marker)
+            self.budget.record(usage.get("input_tokens", 0),
+                               usage.get("output_tokens", 0))
 
     def respond(self, allowed: bool) -> Iterator[str | Confirmation]:
         """Answer the pending Confirmation and carry on."""
