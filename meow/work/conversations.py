@@ -57,10 +57,9 @@ CREATE INDEX IF NOT EXISTS messages_by_conversation
 
 
 def database_path() -> Path:
-    folder = (Path(os.environ.get("USERPROFILE", Path.home()))
-              / "Documents" / "Meow")
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder / "conversations.db"
+    from ..storage import conversations_database
+
+    return conversations_database()
 
 
 @dataclass(frozen=True)

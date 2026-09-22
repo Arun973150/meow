@@ -68,6 +68,7 @@ from meow.platform.dpi import enable_per_monitor_dpi_awareness
 from meow.platform.hotkey import HotkeyListener, HotkeyUnavailable
 from meow.platform.monitors import get_cursor_position, get_virtual_desktop
 from meow.platform.overlay import Bounds, Overlay
+from meow.storage import migrate_old_layout, stuck_in_the_old_layout
 from meow.language import (
     ADD_WORDS,
     ARTEFACT_WORDS,
@@ -133,6 +134,22 @@ def home_position(monitor, width: int, height: int) -> tuple[int, int]:
 def main() -> None:
     use_utf8_console()
     quiet_library_warnings()
+
+    # An existing install kept everything in one folder, including databases
+    # in a Documents that Explorer does not show. Moved before anything opens
+    # a database, and never merged: two conversation stores with overlapping
+    # ids do not combine, and pretending they do loses messages quietly.
+    moved = migrate_old_layout()
+    if moved:
+        print(f"  moved {len(moved)} file(s) into the new layout")
+    stuck = stuck_in_the_old_layout()
+    if stuck:
+        # Named rather than shrugged at: the chat window holds
+        # conversations.db, so the file that matters most is exactly the one
+        # likely to be left, and two databases with no hint which is live is
+        # the worst outcome of a move.
+        print(f"  still in the old folder (something has them open): "
+              f"{', '.join(stuck)}")
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--key", default="ctrl+m")

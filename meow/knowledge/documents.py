@@ -49,9 +49,9 @@ def output_folder() -> Path:
     One predictable place beats the working directory, which for a voice
     assistant is wherever it happened to be launched from.
     """
-    folder = Path(os.environ.get("USERPROFILE", Path.home())) / "Documents" / "Meow"
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder
+    from ..storage import documents as meow_documents
+
+    return meow_documents()
 
 
 def safe_name(name: str, extension: str) -> str:

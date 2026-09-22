@@ -76,10 +76,9 @@ def this_install() -> str:
     A random id rather than a username or an email: it needs to be unique and
     stable, and nothing else. It is not a secret and it identifies nobody.
     """
-    folder = (Path(os.environ.get("USERPROFILE", Path.home()))
-              / "Documents" / "Meow")
-    folder.mkdir(parents=True, exist_ok=True)
-    stored = folder / "install-id"
+    from ..storage import install_id_file
+
+    stored = install_id_file()
     try:
         existing = stored.read_text(encoding="utf-8").strip()
         if existing:

@@ -76,10 +76,9 @@ def recipe_folder() -> Path:
     the user's, not ours - it has to survive reinstalling Meow, and it has to
     be somewhere a person can actually find and edit.
     """
-    folder = (Path(os.environ.get("USERPROFILE", Path.home()))
-              / "Documents" / "Meow" / "Recipes")
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder
+    from ..storage import recipes_folder
+
+    return recipes_folder()
 
 
 def _meaningful(text: str) -> set[str]:

@@ -487,11 +487,9 @@ _MAILBOX_ONLY = re.compile(r"[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+",
 
 
 def _contacts_path():
-    from pathlib import Path
-    import os
+    from ..storage import contacts_file
 
-    return (Path(os.environ.get("USERPROFILE", Path.home()))
-            / "Documents" / "Meow" / "contacts.txt")
+    return contacts_file()
 
 
 def _addresses(text: str) -> list[tuple[str, str]]:

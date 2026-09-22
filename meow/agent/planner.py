@@ -223,13 +223,9 @@ def checkpoint_path():
     wanted - which is after a crash, a reboot, or a machine that went to sleep
     in the middle of a long job.
     """
-    from pathlib import Path
-    import os
+    from ..storage import plans_database
 
-    folder = (Path(os.environ.get("USERPROFILE", Path.home()))
-              / "Documents" / "Meow")
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder / "plans.db"
+    return plans_database()
 
 
 def make_checkpointer():
