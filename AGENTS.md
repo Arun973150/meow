@@ -302,6 +302,26 @@ Verified it reaches the model with a recipe about an invented application:
 without it, "click the export option in the toolbar" (confidently wrong); with
 it, "tap the three-dot menu at the bottom left and select send out".
 
+**Asking HOW gets instructions, not an action.** "how do i change my dns",
+"where is bluetooth", "show me how to add a slide" route to SHOW, and in that
+mode **every tool that changes anything refuses**. The cat reads the route out
+and points at whatever step is on screen:
+
+> *network and internet, then advanced network settings, then dns server
+> assignment. edit is on screen now.*
+
+⚠ **Enforced in the tools, not the prompt.** A prompt saying "do not click" is a
+request; `Harness.guiding` makes `click_control`, `type_text`, `press_keys`,
+`open_app` and `make_document` return a refusal instead of acting. The
+difference between explaining a setting and changing it is not something to
+leave to a model's judgement.
+
+The route is mined from the page BODY, not the snippet — a snippet is two lines
+chosen to match the query, and "Settings > Personalisation > Colours" is
+something an author writes mid-paragraph. Where no arrow path exists, the
+candidates are used in the order the page listed them, which for "Insert" then
+"New Slide" is the route without the arrows.
+
 **Phase 2.5 done: it can point at settings nobody told it about.** Ask
 "where is the bluetooth setting" and `meow/lookup.py` searches for what it is
 *called*, then finds that exact name in the window in front. Measured against

@@ -115,6 +115,10 @@ You can also open applications, switch between open windows, press \
 keyboard shortcuts, WRITE text about a topic, SEARCH the web, and make \
 Word documents, spreadsheets and slide decks.
 
+When the user asks HOW to do something, or WHERE something is, explain \
+the steps and point at what is on screen. Do not do it for them - they \
+asked to be shown. Use find_how_to and read its answer out.\n
+\n
 If the user asks where a setting is and it is NOT in the control list, \
 use find_how_to - it looks up what the setting is usually called and \
 then finds that name on screen. Do not guess at a location.
@@ -264,6 +268,15 @@ class Harness:
         # Set when this harness IS one of the actors, so it does not read
         # its own status line back as if it were somebody else.
         self.actor = actor
+        # Guide mode. When set, every tool that changes anything
+        # refuses and says so. Set for SHOW turns - "how do I",
+        # "where is" - which are requests for instructions, and
+        # answering those by doing the thing takes an action nobody
+        # asked for AND teaches nothing, so the question comes back.
+        #
+        # A prompt saying "do not click" is a request. A tool that
+        # will not click is a guarantee.
+        self.guiding = False
         # Read once at startup. Recipes are hand-edited between sessions, not
         # during one, and re-reading a folder before every turn would put disk
         # access on the path that can least afford it.
@@ -310,6 +323,8 @@ class Harness:
             self.runs.append(ToolRun("find_how_to", question,
                                      Outcome(result.grounded, result.describe())))
 
+            route = result.directions.spoken() if result.directions else ""
+
             if not result.grounded:
                 # Named, so the cat can say what the guides called it and the
                 # user can decide whether this application simply calls it
@@ -318,6 +333,12 @@ class Harness:
                 if not names:
                     return (f"Found no guidance for {question!r}. Say what the "
                             f"setting is called and I will look for it.")
+                if route:
+                    # A route nobody can point at is still the answer to "how
+                    # do i". Saying it is better than reporting failure.
+                    return (f"The way there is: {route}. None of that is in "
+                            f"{self.digest.app} right now, so say it back to "
+                            f"me once you are in the right window.")
                 return (f"The guides call it: {names}. None of those are in "
                         f"{self.digest.app} right now, so it is probably in a "
                         f"different window or a different version.")
@@ -332,12 +353,19 @@ class Harness:
             outcome = actions.point_at(target)
             self.runs.append(ToolRun("point_at_control", result.matched,
                                      outcome, target))
+            if route:
+                return (f"The way there is: {route}. {result.matched} is on "
+                        f"screen and I am pointing at it. Say click it if you "
+                        f"want it pressed.")
             return (f"It is called {result.matched}. Pointing at it now. "
                     f"Say click it if you want it pressed.")
 
         @tool
         def click_control(name: str) -> str:
             """Press a control on screen. Use its exact name from the list."""
+            refusal = self._explaining(f"clicking {name}")
+            if refusal:
+                return refusal
             target = self._resolve(name)
             if target is None:
                 return self._no_such_control(name)
@@ -368,6 +396,9 @@ class Harness:
         @tool
         def type_text(text: str) -> str:
             """Type text into whatever currently has keyboard focus."""
+            refusal = self._explaining("typing")
+            if refusal:
+                return refusal
             before = verify.look()
             outcome = actions.type_text(text, self._gated("type_text", text))
             self.runs.append(ToolRun("type_text", text, outcome))
@@ -383,6 +414,9 @@ class Harness:
 
             Use when what the user wants is not on screen at all.
             """
+            refusal = self._explaining(f"opening {name}")
+            if refusal:
+                return refusal
             application = apps.find_application(name)
             if application is None:
                 installed = [a.name for a in apps.list_applications()]
@@ -462,6 +496,9 @@ class Harness:
             Use for things with no clickable control - opening a new tab,
             submitting a search, moving focus to an address bar.
             """
+            refusal = self._explaining(f"pressing {keys}")
+            if refusal:
+                return refusal
             before = verify.look()
             outcome = actions.press_shortcut(keys, self._gated("press_keys", keys))
             self.runs.append(ToolRun("press_keys", keys, outcome))
@@ -520,6 +557,9 @@ class Harness:
             """Write a Word document and save it. Give real paragraphs, not a
             topic - compose the text yourself first.
             """
+            refusal = self._explaining("writing a document")
+            if refusal:
+                return refusal
             made = documents.make_docx(name, heading, paragraphs)
             self._last_document = made
             self.runs.append(ToolRun("make_document", name,
@@ -647,6 +687,14 @@ class Harness:
         # Charged replies, by id. The thread is permanent, so the same
         # message comes back every turn and would be billed again.
         self._counted: set[str] = set()
+
+    def _explaining(self, what: str) -> str | None:
+        """The refusal for an acting tool while guiding, or None."""
+        if not self.guiding:
+            return None
+        return (f"Not done: you asked how to do this, so I am "
+                f"explaining rather than doing it. Say 'do it' and I "
+                f"will. ({what} was not carried out.)")
 
     # --- helpers --------------------------------------------------------
 

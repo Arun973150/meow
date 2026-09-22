@@ -507,6 +507,13 @@ def main() -> None:
                 return
 
             if route.intent in (Intent.SHOW, Intent.ACT):
+                # SHOW means being told, not having it done - "how do i change
+                # my dns", "where is bluetooth". In that mode every tool that
+                # changes anything refuses, so the cat explains and points
+                # rather than pressing. Enforced in the tools rather than
+                # asked for in the prompt.
+                harness.guiding = route.intent is Intent.SHOW
+
                 # The harness knows the controls on screen by name, so it never
                 # produces a coordinate and cannot produce a wrong one.
                 stream = harness.answer(transcript)

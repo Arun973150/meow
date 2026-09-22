@@ -161,6 +161,29 @@ class Candidate:
         pass
 
 
+@dataclass(frozen=True)
+class Directions:
+    """An ordered route through a UI, as a guide wrote it.
+
+    "Settings > Personalisation > Colours" is three steps in sequence, and the
+    order IS the instruction. Mining that into a flat set of candidate names
+    threw it away - which was fine while the only job was pointing at whichever
+    one happened to be on screen, and useless for telling someone how to get
+    there themselves.
+    """
+
+    steps: list[str]
+    source: str
+
+    def spoken(self) -> str:
+        """The route as a sentence, for reading aloud."""
+        if not self.steps:
+            return ""
+        if len(self.steps) == 1:
+            return self.steps[0]
+        return ", then ".join(self.steps)
+
+
 @dataclass
 class Lookup:
     """What was looked up, what it suggested, and what was actually found."""
@@ -170,13 +193,24 @@ class Lookup:
     found: Element | None = None
     matched: str = ""
     sources: list[str] = field(default_factory=list)
+    directions: Directions | None = None
 
     @property
     def grounded(self) -> bool:
         return self.found is not None
 
     def describe(self) -> str:
-        """One spoken line. Never reads a URL out loud - nobody wants that."""
+        """What to say out loud. Never reads a URL - nobody wants that.
+
+        The route comes first when there is one. The question was how to do
+        something, and the answer to that is the sequence; where it happens to
+        be on screen right now is useful and secondary.
+        """
+        route = self.directions.spoken() if self.directions else ""
+        if route and self.found is not None:
+            return f"{route}. {self.matched} is on screen now"
+        if route:
+            return route
         if self.found is not None:
             return f"it is called {self.matched}, and it is on screen now"
         if self.candidates:
@@ -221,6 +255,47 @@ def _mine(text: str) -> list[str]:
     return pieces
 
 
+def _paths(text: str) -> list[list[str]]:
+    """The UI routes in this text, each kept as an ORDERED list.
+
+    Separate from `_mine` because order is the whole point here. A route
+    flattened into a set of names can be pointed at; only one still in
+    sequence can be read out as directions.
+
+    Every step is put through the same label test as any other candidate, so a
+    route cannot smuggle an instruction in by writing it after an arrow.
+    """
+    arrow = chr(8594)
+    routes: list[list[str]] = []
+    for path in ARROWED.findall(text):
+        steps = [part.strip()
+                 for part in re.split(">|" + arrow + "|->", path)]
+        steps = [step for step in steps if _looks_like_a_label(step)]
+        if len(steps) > 1:
+            routes.append(steps)
+    return routes
+
+
+def directions_for(text: str, source: str = "") -> Directions | None:
+    """The clearest route in this text.
+
+    The longest wins. A three-step route is more likely to be the whole answer
+    than a two-step fragment of one, and a guide that spells out every step is
+    usually the one written for somebody who did not already know.
+
+    Takes TEXT rather than findings because the routes are usually in the page
+    body, not the snippet. A search snippet is two lines chosen to match the
+    query; "Settings > Personalisation > Colours" is the sort of thing an
+    author writes in the middle of a paragraph, and mining only snippets found
+    no route at all for the most common question there is.
+    """
+    best: Directions | None = None
+    for steps in _paths(text):
+        if best is None or len(steps) > len(best.steps):
+            best = Directions(steps=steps, source=source)
+    return best
+
+
 def suggest_steps(question: str, limit: int = MAX_CANDIDATES
                   ) -> list[Candidate]:
     """Search the web and return candidate control NAMES - never sentences.
@@ -234,9 +309,15 @@ def suggest_steps(question: str, limit: int = MAX_CANDIDATES
     candidates: list[Candidate] = []
     seen: set[str] = set()
     results = []
+    # Everything that was read, kept so the caller can mine the SAME text for
+    # an ordered route rather than searching again for the same question.
+    read: list[str] = []
+    suggest_steps.last_text = read
 
     for finding in search(question):
-        pieces = _mine(f"{finding.title}. {finding.snippet}")
+        haystack = f"{finding.title}. {finding.snippet}"
+        read.append(haystack)
+        pieces = _mine(haystack)
 
         for piece in pieces:
             name = " ".join(piece.split())
@@ -261,6 +342,7 @@ def suggest_steps(question: str, limit: int = MAX_CANDIDATES
     except Exception:  # noqa: BLE001 - a page that will not load is not an error
         return candidates
 
+    read.append(page)
     for piece in _mine(page):
         name = " ".join(piece.split())
         key = name.lower()
@@ -283,9 +365,32 @@ def ground(question: str, digest: WindowDigest,
     path where a name from a web page becomes a coordinate without a control of
     that name existing in the operating system's own tree first.
     """
-    found = candidates if candidates is not None else suggest_steps(question)
+    if candidates is not None:
+        found = candidates
+        read = []
+    else:
+        found = suggest_steps(question)
+        read = list(getattr(suggest_steps, "last_text", []) or [])
+
     lookup = Lookup(question=question, candidates=found,
                     sources=list(dict.fromkeys(c.source for c in found)))
+    # The route, from the same pages the candidates came from. This is what
+    # turns "it is called Personalization" into "settings, then
+    # personalization, then colours" - an answer someone can follow next time
+    # without asking.
+    lookup.directions = directions_for(
+        chr(10).join(read), found[0].source if found else "")
+
+    if lookup.directions is None and len(found) > 1:
+        # No arrow path anywhere. Plenty of guides number their steps instead
+        # of writing Settings > A > B, and the candidates are mined in the
+        # order the page lists them - so for "how do i add a slide", "Insert"
+        # followed by "New Slide" IS the route, just without the arrows.
+        #
+        # Three at most. Beyond that the order stops being a sequence and
+        # starts being a list of everything the page happened to quote.
+        lookup.directions = Directions(steps=[c.name for c in found[:3]],
+                                       source=found[0].source)
 
     if digest is None:
         return lookup

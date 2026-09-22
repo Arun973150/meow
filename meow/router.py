@@ -148,17 +148,23 @@ class JevRouter:
                     # where something is genuinely is an answer. It has to be
                     # show, or the reply is a description of where the button
                     # probably is instead of the cat going to it.
-                    "show": ("Anything about where a thing is on their screen, "
-                             "or a request to find, point at, highlight or "
-                             "navigate to something. Includes 'where is the X' "
-                             "and 'can you take me to X'."),
+                    "show": ("Being SHOWN or TOLD, rather than having it "
+                              "done. Where a thing is on their screen; how to "
+                              "do something; a request to find, point at or "
+                              "highlight. 'Where is the X', 'how do I X', "
+                              "'how can I X', 'show me how to X', 'can you "
+                              "take me to X'. If they want to LEARN it rather "
+                              "than have it happen, it is show."),
                     # The boundary between these two is where the planner
                     # actually gets used, and it was in the wrong place: "open
                     # notepad and type hello there" scored as act, so the
                     # planner never ran for anything a person would call a
                     # multi-step task.
-                    "act": ("ONE action, or two in the same application. "
-                            "Press, click, type, open or close something. "
+                    "act": ("ONE action they want CARRIED OUT. Press, "
+                            "click, type, open or close something. "
+                            "'Open notepad', 'click save', 'do it'. Asking HOW "
+                            "to do a thing is show, not act - the difference "
+                            "is whether they want it explained or done. "
                             "Read the conversation above: a sentence that "
                             "continues what Meow just did is act, even when "
                             "it names no application. After Meow opens "
