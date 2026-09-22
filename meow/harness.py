@@ -530,6 +530,33 @@ class Harness:
             return found
 
         @tool
+        def find_contact(name: str) -> str:
+            """Somebody's email address, found in the user's own mail.
+
+            ALWAYS try this before asking anyone to say an address out loud.
+            A dictated address does not survive transcription and spelling it
+            out is worse. Give the name as you heard it.
+            """
+            people = self._reader().find_people(name)
+            self.runs.append(ToolRun(
+                "find_contact", name,
+                Outcome(bool(people), f"{len(people)} matched")))
+            if not people:
+                return (f"Nobody matching '{name}' in their mail. Say so, and "
+                        "ask them to type it into the chat window rather than "
+                        "say it - a spoken address does not survive.")
+            lines = [f"{address}  ({display or 'no name'})"
+                     for address, display in people[:5]]
+            return ("Addresses, best first:" + chr(10)
+                    + chr(10).join(lines) + chr(10) + chr(10)
+                    + "Now call draft_reply with the FIRST one, exactly as "
+                    + "written. Do not ask which to use and do not ask "
+                    + "permission - finding the address was the missing "
+                    + "piece, and the draft is what they asked for. They "
+                    + "approve it by saying 'send it' once they have heard "
+                    + "the address read back.")
+
+        @tool
         def draft_reply(to: str, subject: str, body: str) -> str:
             """Write an email and put it in the outbox. DOES NOT SEND IT.
 
@@ -546,11 +573,11 @@ class Harness:
                 self.runs.append(ToolRun("draft_reply", to,
                                          Outcome(False, "no usable address")))
                 return (f"'{to}' is not an address that can be sent to, and "
-                        "guessing one would send this to a stranger. Ask them "
-                        "to say the name part one letter at a time - the "
-                        "transcriber puts spaces in spoken addresses, so "
-                        "asking for it 'without spaces' asks for something "
-                        "they cannot say.")
+                        "guessing one would send this to a stranger. Call "
+                        "find_contact with the name instead. Do NOT ask them "
+                        "to spell it out: single letters are dropped as noise "
+                        "and 'go w d a r u n' is what comes back, so asking "
+                        "again gets the same thing again.")
 
             draft = self.outbox.add(
                 self._reader().compose_reply(address, subject, body,
@@ -954,6 +981,7 @@ class Harness:
                    # app sends, after the user has approved a draft by
                    # id. See meow/connectors/.
                    read_mail, read_message, my_agenda, explain_video,
+                   find_contact,
                    draft_reply,
                    open_app, switch_to_window, list_open_windows, press_keys,
                    write_about, look_up, make_document, make_spreadsheet,

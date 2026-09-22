@@ -19,6 +19,8 @@ anywhere else. See `drafts.py`.
 
 from __future__ import annotations
 
+import re
+
 from .composio import Composio, Result
 from .connect import Connector, toolkit_for
 from .drafts import Draft
@@ -98,6 +100,108 @@ class Reader:
         if not result.ok:
             return f"Could not read that message: {result.error}"
         return UNTRUSTED + str(result.data)[:MAX_BODY_CHARACTERS * 2]
+
+    def known_people(self) -> list[tuple[str, str]]:
+        """Addresses the user wrote down themselves, in a plain text file.
+
+        `Documents/Meow/contacts.txt`, one per line:
+
+            arun gowda = gowdaarun032@gmail.com
+            mum = sudha@example.com
+
+        This exists because a lookup cannot invent an address for somebody
+        who has never written to you, and dictating one does not survive the
+        microphone - spelling it out is worse, since single letters are
+        dropped as noise. Typing it once, anywhere, beats saying it correctly
+        never. Same idea as a recipe: when it cannot do something, write the
+        line.
+        """
+        path = _contacts_path()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return []
+
+        people = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, _, address = line.partition("=")
+            address = address.strip().lower()
+            if _BARE.fullmatch(address) or _MAILBOX_ONLY.fullmatch(address):
+                people.append((address, name.strip()))
+        return people
+
+    def find_people(self, name: str) -> list[tuple[str, str]]:
+        """Real addresses for a spoken name, taken from the user's own mail.
+
+        Dictating an address does not survive transcription - "gowda arun 032
+        at gmail dot com" came back as "Gaurav around 032 gmail.com", and
+        spelling it out fared worse, because single letters are exactly what
+        the noise filter drops. Nobody needs to dictate an address for
+        somebody they already correspond with, and that is almost everybody
+        they will ever mail.
+
+        Returns (address, display name) pairs, best first.
+        """
+        wanted = " ".join(str(name).lower().split())
+        if not wanted:
+            return []
+
+        # What the user wrote down wins over anything guessed from mail: they
+        # typed it on purpose, and it is the only source that can hold an
+        # address they have never corresponded with.
+        written = [(address, label) for address, label in self.known_people()
+                   if any(word in f"{label} {address}".lower()
+                          for word in wanted.split())]
+        if written:
+            return written
+
+        # from:/to: tokenise, so from:arun does NOT match arunspotifyxo@
+        # gmail.com - and a half-heard first name is exactly what arrives from
+        # a microphone. The plain search is the fallback, and it reaches
+        # addresses that appear anywhere in a message.
+        messages = []
+        for query in (f"from:{wanted} OR to:{wanted}", wanted):
+            result = self._call("GMAIL_FETCH_EMAILS",
+                                {"query": query, "max_results": 25})
+            if result.ok:
+                batch = (result.data.get("messages")
+                         or result.data.get("data") or [])
+                if isinstance(batch, list):
+                    messages.extend(batch)
+            if messages:
+                break
+        if not messages:
+            return []
+
+        found: dict[str, str] = {}
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            for field in ("sender", "from", "to"):
+                for display, address in _addresses(str(message.get(field) or "")):
+                    # First spelling of a display name wins; later mail from
+                    # the same person often has none at all.
+                    found.setdefault(address, display)
+
+        # A plain search returns whole messages, so most addresses in them
+        # have nothing to do with the name. Anything the name does not appear
+        # in is dropped rather than ranked low: offering a stranger's address
+        # as a weak match is how mail goes to the wrong person.
+        related = {address: display for address, display in found.items()
+                   if any(word in f"{display} {address}".lower()
+                          for word in wanted.split())}
+
+        def closeness(pair: tuple[str, str]) -> tuple[int, int]:
+            address, display = pair
+            haystack = f"{display} {address}".lower()
+            exact = 0 if wanted in haystack else 1
+            overlap = -sum(1 for word in wanted.split() if word in haystack)
+            return (exact, overlap)
+
+        return sorted(related.items(), key=closeness)
 
     def _summarise_messages(self, result: Result) -> str:
         """Sender, subject and a slice of each - not whole mailboxes."""
@@ -179,6 +283,43 @@ class Reader:
         return Draft(kind="email",
                      payload={"to": to, "subject": subject, "body": body},
                      summary=f"reply to {to}", source=source)
+
+
+# An address, and the same address inside "Name <here>". Two patterns rather
+# than one: a single greedy expression for the display name ate into the
+# address itself, turning no-reply@accounts.google.com into a person called
+# "no-repl" at "y@accounts.google.com".
+_MAILBOX = r"[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+"
+_NAMED = re.compile(r'"?([^"<,;]*?)"?\s*<\s*(' + _MAILBOX + r')\s*>',
+                    re.IGNORECASE)
+_BARE = re.compile(r"(?<![\w.%+-<])(" + _MAILBOX + r")(?![\w.%+-]*>)",
+                   re.IGNORECASE)
+
+
+_MAILBOX_ONLY = re.compile(r"[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+",
+                           re.IGNORECASE)
+
+
+def _contacts_path():
+    from pathlib import Path
+    import os
+
+    return (Path(os.environ.get("USERPROFILE", Path.home()))
+            / "Documents" / "Meow" / "contacts.txt")
+
+
+def _addresses(text: str) -> list[tuple[str, str]]:
+    """(display name, address) pairs out of a mail header value."""
+    pairs = []
+    remaining = str(text)
+    for match in _NAMED.finditer(remaining):
+        pairs.append((match.group(1).strip(), match.group(2).lower()))
+    # Whatever was inside angle brackets is already accounted for; blanking it
+    # stops the bare pattern finding the same address a second time.
+    remaining = _NAMED.sub(" ", remaining)
+    for match in _BARE.finditer(remaining):
+        pairs.append(("", match.group(1).lower()))
+    return pairs
 
 
 def _first_caption_track(data: dict) -> str:

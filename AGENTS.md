@@ -477,6 +477,30 @@ bare "yes" does not send — the one irreversible thing needs a sentence that
 could only mean it. The chat window shows the draft with the exact recipient
 and body, and its buttons say **send** and **discard** rather than yes and no.
 
+⚠ **Nobody can dictate an email address, and spelling it out is WORSE.**
+Normalising the transcription was not enough. "at the rate" came back as
+"around" and produced `gaurav@032gmail.com` - syntactically valid, so it passed
+every check, and only a human reading it back caught it. Asked to spell it, the
+transcriber returned `go w d a r u n`, `It's go w d a then a`, and a bare `G.`
+was DROPPED ENTIRELY by the short-utterance noise filter. Three minutes, no
+address. This is not fixable at the transcription layer, so the address is
+never dictated: `find_contact` resolves a spoken NAME against
+`Documents/Meow/contacts.txt` first and the user's own mail second, and the
+tool tells the model to draft immediately rather than ask which to use.
+
+⚠ **`Documents/Meow/contacts.txt` is how an address gets in at all.** One
+`name = address` per line. A lookup cannot invent an address for somebody who
+has never written to you, and that is exactly the case that matters for a first
+email. Typing it once beats saying it correctly never - the same bargain as a
+recipe.
+
+⚠ **Gmail's `from:` TOKENISES.** `from:arun` does not match
+`arunspotifyxo@gmail.com`, and a half-heard first name is what a microphone
+delivers. A plain search is the fallback - and because that returns whole
+messages, any address the name does not appear in is DROPPED rather than ranked
+low. Offering a stranger's address as a weak match is how mail reaches the
+wrong person.
+
 ⚠ **A spoken email address never arrives as a valid email address.** The
 transcriber hears "gowda arun zero three two at gmail dot com" and writes
 `Gauda Arun 032 gmail.com` - spaces through the middle, the @ gone, sometimes
