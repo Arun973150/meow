@@ -25,6 +25,7 @@ Personal study project. One developer, part-time. **Scope is the primary risk.**
 | [docs/04-evaluation.md](docs/04-evaluation.md) | the ablation study |
 | [docs/05-phases.md](docs/05-phases.md) | build order |
 | [docs/06-prior-art.md](docs/06-prior-art.md) | verified facts about Clicky, ports, platform APIs |
+| [docs/07-live-test.md](docs/07-live-test.md) | the twenty-minute spoken test — what only a microphone can check |
 
 ## Status
 
@@ -255,7 +256,12 @@ unambiguous that the code was right — `built icon ... visible=True
 available=True` — and it was still not on screen. `meow/agentdock.py` draws
 them beside the cat instead, where Meow owns the pixels.
 
-**Two checks before believing anything works.** `python scripts/smoke.py`
+**Three checks before believing anything works.** [docs/07-live-test.md](docs/07-live-test.md) is the third — thirteen spoken
+scenarios covering what no script can: whether it heard you, whether the text
+that arrived is the text you asked for, whether an icon is where you can
+click it. Each step names the real bug it is watching for.
+
+**Two automated checks.** `python scripts/smoke.py`
 starts the real app and fails on a traceback; `python scripts/stress.py` throws
 48 edge cases at every module — empty strings, 10,000 characters, Devanagari,
 emoji, SQL, path traversal, reserved Windows filenames, eight threads at once,
