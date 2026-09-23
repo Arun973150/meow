@@ -629,6 +629,29 @@ def main() -> None:
                         bubble_state.dismiss(elapsed)
                         animator.set_state(CatState.IDLE, elapsed)
 
+                if transcriber is not None and transcriber.last_error:
+                    # The socket died - a handshake timeout, a dropped
+                    # network, an expired token. This used to be recorded and
+                    # never read, so the cat sat in its LISTENING pose with a
+                    # dead connection while the only sign was a raw
+                    # "_ssl.c:983: The handshake operation timed out" in the
+                    # terminal. The honest move is to stop pretending to
+                    # listen and say the microphone is not connected.
+                    detail = transcriber.last_error
+                    print(f"  {elapsed:5.1f}s  listening failed: {detail[:70]}")
+                    replies.put(("say", "i could not reach the speech service. "
+                                        "tap again to retry."))
+                    bubble_state.say("could not connect. tap again.", elapsed,
+                                     seconds=4.0)
+                    shut_down_audio(microphone, transcriber)
+                    microphone = transcriber = None
+                    active = False
+                    animator.set_state(CatState.IDLE, elapsed)
+                    # No `continue`: the rest of this frame still has to draw
+                    # the cat and drain the reply queue, which is where the
+                    # sentence above comes out. The block below is guarded on
+                    # `transcriber`, which is now None.
+
                 if transcriber is not None:
                     for transcript in transcriber.poll():
                         if not transcript.is_final:

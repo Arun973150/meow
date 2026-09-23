@@ -1119,6 +1119,15 @@ Do not violate these without updating the relevant doc first.
   Formatted transcripts carry curly quotes and ellipses, and printing one raises
   `UnicodeEncodeError` *in the print*, so the traceback blames innocent code.
   Call `meow.console.use_utf8_console()` first.
+- **A dead speech socket looked exactly like listening.** The transcriber
+  records a failed handshake in `last_error` and the loop never read it, so a
+  `_ssl.c:983: The handshake operation timed out` left the cat sitting in its
+  LISTENING pose with no connection - the only sign being a raw SSL line in
+  the terminal. The user reasonably gave up and pressed Ctrl+C, which is how
+  this was found. The loop checks it every frame now, says it could not reach
+  the service, and returns to idle so the next tap opens a fresh connection.
+  Retrying is left to the person: activation is theirs, and an automatic
+  retry against a down service is a storm nobody asked for.
 - **Closing the AssemblyAI socket takes ~1s** - it is a termination handshake,
   not a socket close. Never do it on the render thread.
 
