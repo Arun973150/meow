@@ -1080,6 +1080,16 @@ Do not violate these without updating the relevant doc first.
   which says it twice and is ignored anyway. A bare "yes" carries no
   instruction, so whatever was half-planned gets done: one live reply ended
   "would you like to see it?" and the yes retyped a whole paragraph.
+- **The cat is called Momo, and the name lives in `config.cat_name()`.**
+  `CAT_NAME` in `.env` changes it. It is said in the greeting and goes
+  into BOTH system prompts - the harness and the answer path are
+  different models - so hard-coding it would mean editing three files
+  to rename a cat.
+- **The greeting is said ONCE, on the first wake of a session.** The
+  hotkey gets tapped dozens of times an hour, and a companion that
+  introduces itself every time is one people stop tapping. After the
+  first, waking is silent - the animation already says it is
+  listening.
 - **The speech bubble is not a transcript.** Voice is the primary channel; the
   bubble is a glanceable cue, hard-capped at 90 characters and 3 lines. If it
   ever grows to hold whole replies, the cat has become a chat window.

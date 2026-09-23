@@ -4,11 +4,11 @@ Tap Ctrl+M and talk. It routes what you said, answers out loud, looks at your
 screen when the question needs it, points at things, and presses them after
 asking. Tap Pause at any moment and it all stops.
 
-    python scripts/meow.py
-    python scripts/meow.py --mute            # no speech, bubble only
-    python scripts/meow.py --no-jev          # keyword routing, no Jev calls
+    meow
+    meow --mute              # no speech, bubble only
+    meow --no-jev            # keyword routing, no Jev calls
 
-Ctrl+C to quit. Run scripts/check_keys.py first.
+Ctrl+C to quit. Run `meow doctor` first.
 
 The path a sentence takes:
 
@@ -55,7 +55,7 @@ from meow.cat.follow import CursorFollower, FollowSettings, target_beside_cursor
 from meow.work.agentdock import AgentDock
 from meow.chat.launcher import ChatPanel
 from meow.connectors import Outbox, Sender
-from meow.config import MissingKey
+from meow.config import MissingKey, cat_name
 from meow.console import quiet_library_warnings, use_utf8_console
 from meow.agent.harness import Confirmation, Harness, enable_tracing
 from meow.agent.memory import Memory
@@ -86,6 +86,11 @@ from meow.language.routing import too_short_to_hand_over
 from meow.agent.router import Intent, Router
 from meow.work.tasks import TaskRunner, TaskState, asking_confirmer
 from meow.voice import AssemblyAIStreaming, ElevenLabsSpeaker, Microphone, SpeechQueue
+
+# Said once, on the first wake of a session. Lowercase and short,
+# because it is written for the ear and it also has to fit the
+# speech bubble, which is hard-capped at 90 characters.
+GREETING = f"hello, i am {cat_name().lower()}. i am here to help you."
 
 TARGET_FPS = 60
 HOME_MARGIN = 24
@@ -293,6 +298,7 @@ def main() -> None:
     microphone: Microphone | None = None
     transcriber: AssemblyAIStreaming | None = None
     active = False
+    greeted = False
 
     replies: queue.Queue[tuple[str, str]] = queue.Queue()
     working = threading.Event()
@@ -571,6 +577,15 @@ def main() -> None:
                     active = not active
                     if active:
                         print(f"  {elapsed:5.1f}s  listening")
+                        # Said ONCE, on the first wake of a session. The
+                        # hotkey gets tapped dozens of times an hour, and a
+                        # companion that introduces itself every time is one
+                        # people stop tapping. After this the wake is silent -
+                        # the cat's animation already says it is listening.
+                        if not greeted:
+                            greeted = True
+                            replies.put(("say", GREETING))
+                            bubble_state.say(GREETING, elapsed, seconds=3.0)
                         microphone = Microphone()
                         transcriber = AssemblyAIStreaming()
                         microphone.start()

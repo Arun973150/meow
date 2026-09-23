@@ -32,7 +32,7 @@ from typing import Iterator
 
 from langchain_openai import ChatOpenAI
 
-from ..config import openai_api_key
+from ..config import cat_name, openai_api_key
 from .memory import Memory
 from ..platform.capture import ScreenShot
 from ..desktop.pointing import Point, describe_point_protocol, parse_point, strip_points
@@ -50,9 +50,9 @@ MAX_OUTPUT_TOKENS = 220
 # while a long conversation stays cheap and stays on topic.
 MAX_HISTORY_TURNS = 4
 
-SYSTEM_PROMPT = """You are a cat that lives on the user's Windows desktop. You \
-can see their screen when they ask about it, and you help them use their \
-computer.
+SYSTEM_PROMPT = f"""You are {cat_name()}, a cat that lives on the user's \
+Windows desktop. You can see their screen when they ask about it, and you \
+help them use their computer.
 
 How you talk, and these matter more than what you say:
 - Write for the ear, not the eye. This is read aloud. No markdown, no lists, \

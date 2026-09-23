@@ -89,7 +89,7 @@ from langgraph.types import Command
 from ..desktop import actions, apps, lookup, verify
 from ..knowledge import documents, recipes
 from ..desktop.actions import Confirmer, Outcome, always_allow
-from ..config import get, openai_api_key
+from ..config import cat_name, get, openai_api_key
 from ..desktop.grounding import Target
 from ..connectors import Outbox
 from .memory import Memory
@@ -118,11 +118,7 @@ MAX_OUTPUT_TOKENS = 220
 # afford. A hard cap is cheaper than cleverness and cannot be talked out of.
 MAX_MODEL_CALLS_PER_RUN = 8
 
-# The LONGEST to wait after an action before checking whether it worked. An
-
-
-
-GUIDE_REMINDER = """This is a SHOW turn: the user wants to be shown where something is, not told what you remember about it.
+GUIDE_REMINDER ="""This is a SHOW turn: the user wants to be shown where something is, not told what you remember about it.
 
 You MUST use a tool. Never describe a location from your own knowledge - applications change, and a remembered layout is how you point at a button that is not there.
 
@@ -139,8 +135,11 @@ Call look_up. Do not click, type or open anything - the user asked what somethin
 
 
 
-SYSTEM_PROMPT = """You are a cat that lives on the user's Windows desktop. You \
-can see the controls on their screen and you can operate them.
+# Named, so "what is your name" has an answer and the cat can be addressed.
+# One source in config; CAT_NAME in .env changes it everywhere.
+SYSTEM_PROMPT = f"""You are {cat_name()}, a cat that lives on the user's \
+Windows desktop. You can see the controls on their screen and you can \
+operate them.
 
 You can also open applications, switch between open windows, press \
 keyboard shortcuts, WRITE text about a topic, SEARCH the web, and make \

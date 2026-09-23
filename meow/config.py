@@ -149,3 +149,19 @@ def elevenlabs_api_key() -> str:
 
 def elevenlabs_voice_id() -> str | None:
     return get("ELEVENLABS_VOICE_ID")
+
+
+# Short, easy to say, and nothing like a command word. A name the transcriber
+# renders as something else is a name nobody can use, and one that collides
+# with "stop" or "close" is worse than none.
+DEFAULT_CAT_NAME = "Momo"
+
+
+def cat_name() -> str:
+    """What the cat is called. `CAT_NAME` in .env changes it.
+
+    In config rather than hard-coded in three places: it is said in the
+    greeting, it goes into the prompt so the cat can answer "what's your
+    name", and it is the sort of thing someone renames on day one.
+    """
+    return (get("CAT_NAME") or DEFAULT_CAT_NAME).strip() or DEFAULT_CAT_NAME
