@@ -47,7 +47,25 @@ from langgraph.graph import END, START, StateGraph
 
 from ..config import openai_api_key
 
-MODEL = "gpt-4o-mini"
+# A REASONING model, and only here. Breaking "find research on solar
+# panel costs and put it in a spreadsheet" into ordered steps is the
+# one job in this project where thinking before answering is worth
+# paying for, and the one where nobody is listening to silence: a plan
+# is handed over and reported on, not spoken as it is composed.
+#
+# Measured against gpt-4o-mini on the same one-sentence reply:
+#     gpt-4o-mini  2.24s   47 tokens    0 thinking
+#     gpt-5-mini   6.01s  370 tokens  298 thinking
+#
+# Six seconds is why it is NOT in mind.py or harness.py. Those speak,
+# and the target is ~2.5s to the first spoken word.
+MODEL = "gpt-5-mini"
+
+# Budget, not length. gpt-5-mini spent 220 tokens thinking and returned an
+# EMPTY string; at 600 it still returned nothing; at 1200 it thought for
+# 384 and then answered. A reasoning model given a short cap produces
+# silence, and silence from a planner reads as a plan it could not make.
+PLAN_TOKENS = 1600
 
 # A spoken request needing more than this is not a plan, it is a project, and
 # the honest answer is to say so. It also caps what a runaway plan can do.
@@ -272,7 +290,7 @@ class Planner:
         # something is happening, and saying it out loud as well delays it.
         self.narrate = False
         self._client = ChatOpenAI(model=model, api_key=openai_api_key(),
-                                  max_completion_tokens=400)
+                                  max_completion_tokens=PLAN_TOKENS)
 
         graph = StateGraph(PlanState)
         graph.add_node("plan", self._plan)
@@ -447,7 +465,7 @@ class Planner:
 def make_plan(goal: str, model: str = MODEL) -> Plan:
     """Just the planning half, without running anything. Used by tests."""
     client = ChatOpenAI(model=model, api_key=openai_api_key(),
-                        max_completion_tokens=400)
+                        max_completion_tokens=PLAN_TOKENS)
     reply = client.invoke([SystemMessage(PLANNER_PROMPT), HumanMessage(goal)])
     steps = parse_steps(str(reply.content))
     return Plan(goal=goal, steps=steps, abandoned=not steps)
