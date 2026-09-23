@@ -786,6 +786,48 @@ token budget thinking, returning one query instead of three.
 real Windows Settings: dark mode -> `Personalization`, bluetooth ->
 `Bluetooth & devices`, dns -> `Network & internet`.
 
+**Phase A: grounding for windows the tree cannot see.** Blender draws its
+whole interface in OpenGL. UIA returns FIVE elements - Minimize, Maximize,
+Close, System, System - and not one menu, tool or panel.
+`meow/desktop/computeruse.py` grounds those windows through OpenAI's
+`computer` tool, which is what Clicky does and what this project's ablation
+never tested.
+
+Measured on a real Blender window, three for three: the Move tool in the left
+toolbar, the Render menu, the Scale X field. The Move tool is the case that
+matters - a low-contrast glyph in an icon column that Canny edge detection
+missed entirely.
+
+⚠ **The ablation's "vision scored 0/30" should be read narrowly.** It
+measured `gpt-4o-mini` emitting a `[POINT:x,y]` tag from a conversational
+prompt. Declaring the `computer` tool activates coordinate-specific training
+and is a different capability. Say that in the writeup rather than letting a
+reviewer say it.
+
+⚠ **A window showing only its title bar was classified RICH.** `classify`
+tested `usable == 0`, and Blender's five chrome buttons are not zero - so a
+hybrid asking "can the tree see this?" was told YES and never fell through to
+vision. The cat was blind and did not know it. `uia.only_chrome` makes that
+EMPTY.
+
+⚠ **It is the FALLBACK and must stay one.** UIA is free, exact, returns an
+invokable handle, and answers in 268ms; this costs two API calls and took
+**8.2 seconds** end to end. It belongs in teaching and pointing, never in
+`click_control`.
+
+⚠ **Model support is narrow and was measured, not assumed.** `gpt-4o-mini`,
+`gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-4.1*`, `gpt-4o`, `o3` and `o4-mini`
+all REFUSE the computer tool. Only `gpt-5.5` and the 5.6/6 family accept it.
+`gpt-5.6-luna` is the cheap one that works and carries 2.5M free tokens/day on
+tiers 1-2 with data sharing enabled - which would make screenshots of the
+user's screen training data, so it is a deliberate choice rather than a
+default.
+
+⚠ **The tool shape has three traps.** It takes no `display_width`
+parameter; actions come back as `actions`, a LIST, not `action`; and it
+insists on requesting its own screenshot before it will click, so every point
+costs two round trips.
+
 **The containment rule is the whole design.** A web page is untrusted, so it is
 never allowed to say what to DO - only what to LOOK FOR. Candidates are mined
 as label-shaped strings, anything opening with an imperative verb is dropped

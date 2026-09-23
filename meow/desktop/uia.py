@@ -463,7 +463,31 @@ def _meaningful(text: str) -> set[str]:
     return words
 
 
-def classify(usable: int, total: int, query_seconds: float) -> Regime:
+# The title-bar buttons every top-level window has, whoever drew the rest of
+# it. They say nothing about whether the APPLICATION is reachable.
+WINDOW_CHROME = {"minimize", "minimise", "maximize", "maximise", "restore",
+                 "close", "system", "application", "move", "size"}
+
+
+def only_chrome(elements) -> bool:
+    """True when the tree holds nothing but the title bar.
+
+    Blender draws its entire interface in OpenGL, so UIA sees five elements -
+    Minimize, Maximize, Close, System, System - and not one of its menus,
+    tools or panels. Counting those five as content made `classify` answer
+    RICH, which is the worst possible answer: a hybrid asking "can UIA see
+    this window?" is told yes and never falls through to vision, so the cat
+    is blind and does not know it.
+    """
+    named = [str(element.name or "").strip().lower() for element in elements]
+    real = [name for name in named if name]
+    if not real:
+        return True
+    return all(name in WINDOW_CHROME for name in real)
+
+
+def classify(usable: int, total: int, query_seconds: float,
+             elements=None) -> Regime:
     """RICH, DENSE, EMPTY - or TRUNCATED, a refusal to classify."""
     if query_seconds > QUERY_DEADLINE_SECONDS:
         # The window did not answer in time, so its tree was not seen. Saying
@@ -471,6 +495,10 @@ def classify(usable: int, total: int, query_seconds: float) -> Regime:
         # wake mechanism that never existed.
         return Regime.TRUNCATED
     if usable == 0:
+        return Regime.EMPTY
+    if elements is not None and only_chrome(elements):
+        # A window that exposes its title bar and nothing else is, for every
+        # purpose this project has, empty.
         return Regime.EMPTY
     if total > 400:
         return Regime.DENSE
@@ -513,7 +541,7 @@ def digest_foreground(cursor: tuple[int, int] | None = None,
         app=app,
         title=title,
         elements=ranked[:limit],
-        regime=classify(len(usable), total, query_seconds),
+        regime=classify(len(usable), total, query_seconds, usable),
         total_found=total,
         usable_found=len(usable),
         query_seconds=query_seconds,
