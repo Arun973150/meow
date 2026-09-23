@@ -792,6 +792,26 @@ ellipses, translucent highlights and labels, on a full-screen overlay of their
 own. `meow/tools/teaching.py` turns that into `show_on_screen`,
 `draw_a_move` and `clear_the_screen`.
 
+⚠ **On a canvas the tree does not fail to answer - it answers WRONGLY and
+FAST.** Asked to mark "the knight on b1" on chess.com, `locate_anything` got a
+UIA match in two seconds rather than seven, drew a circle on some Chrome
+control a thousand pixels from the board, and said the knight was marked. The
+user could see nothing. `digest.find` degrades to word overlap, which is right
+for "that terminal thing" and catastrophic here. The measurement had already
+said so: across 44 targets UIA answered 18 times and was right 0 of those,
+missing by up to 1,288px, with only 5 in the digest at all. The teaching tools
+use `lookup.already_on_screen` - a word from the request must BE a control's
+name or begin it - and anything looser goes to sight.
+
+⚠ **The harness was given the digest and NO image, ever.** Asked for the
+best chess move it said "i can't see the current board state", while the
+ANSWER path - which does get a screenshot - read the position correctly in the
+same session. The control list describes the WINDOW, not the page inside it:
+on chess.com it lists Chrome's tabs and says nothing about the board.
+`look_at_screen` is a TOOL rather than an image on every turn, because
+invariant 11 says send nothing unless it is needed and most turns need no
+pixels.
+
 ⚠ **A Win32 window belongs to the thread that CREATED it.** The drawing
 board was built lazily inside a tool, tools run on a per-turn worker, and the
 worker exits at the end of the turn - so Windows destroyed the overlay and the

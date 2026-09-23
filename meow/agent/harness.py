@@ -127,6 +127,7 @@ You MUST use a tool. Never describe a location from your own knowledge - applica
 - To show a MOVE or a relationship between two things, call draw_a_move.
 - For a setting that is somewhere else entirely, call find_how_to and read out the route.
 - Only once show_on_screen has ALSO failed is it fair to say it is not on this screen.
+- If the question is about what is ON the screen - a chess position, a diagram, a game, a photo, a video timeline - call look_at_screen FIRST. The control list describes the WINDOW, not the page inside it: on a chess site it lists the browser's tabs and buttons and nothing about the board. Never say you cannot see their screen; look.
 
 Change nothing. Every tool that would is refused on this turn anyway."""
 
@@ -151,6 +152,10 @@ When the user asks HOW to do something, or WHERE something is, explain \
 the steps and point at what is on screen. Do not do it for them - they \
 asked to be shown. Use find_how_to and read its answer out.\n
 \n
+To see what is actually ON the screen - a chess position, a diagram, a game, a photo - use look_at_screen. The control list describes the window, not the page inside it, so never say you cannot see their screen: look.
+
+
+
 To show somebody WHERE something is, use show_on_screen. It draws a mark \
 round the thing on their screen and finds it by sight, so it works on \
 pictures, canvases, chess boards and diagrams where there are no controls \
@@ -354,7 +359,7 @@ class Harness:
         # time and somebody watching, not three read at once.
         self.last_directions = None
         self._board = None
-        self._grounding = None
+        self._seeing = None
         self.tracing = enable_tracing()
 
         # Tools close over `self` so they can reach the digest and record runs.
@@ -497,6 +502,45 @@ class Harness:
             return ""
         return " ".join(str(reply.content).split())
 
+    def describe_screen(self, shot, looking_for: str = "") -> str:
+        """What is actually on the screen, in words.
+
+        The harness is given the UIA digest and NO image, which is right for
+        Notepad and useless for a chess board: the digest lists Chrome's tabs
+        and buttons and says nothing about the game. Asked for the best move
+        it answered "i can't see the current board state", while the ANSWER
+        path - which does get a screenshot - read the position correctly in
+        the same session.
+
+        A tool rather than an image on every turn, because invariant 11 says
+        send nothing unless it is needed, and most turns do not need pixels.
+        Low detail at full size: 2,833 tokens, flat regardless of resolution.
+        """
+        import base64
+        import io as _io
+
+        from langchain_core.messages import HumanMessage
+
+        buffer = _io.BytesIO()
+        shot.image.convert("RGB").save(buffer, format="JPEG", quality=70)
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        asked = looking_for or "everything that matters"
+        try:
+            reply = self._writer.invoke([HumanMessage(content=[
+                {"type": "text",
+                 "text": f"Describe what is on this screen, concentrating on "
+                         f"{asked}. Be concrete and specific - name pieces, "
+                         f"positions, labels, values. If it is a game or a "
+                         f"diagram, describe the actual state of it. No "
+                         f"preamble."},
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/jpeg;base64,{encoded}",
+                               "detail": "low"}},
+            ])])
+        except Exception:  # noqa: BLE001 - a blind turn is not a crash
+            return ""
+        return " ".join(str(getattr(reply, "content", "")).split())
+
     def note(self, sentence: str) -> None:
         """Say something now, mid-tool, without waiting for the turn to end.
 
@@ -533,20 +577,36 @@ class Harness:
     def locate_anything(self, description: str):
         """Find something on screen, tree first and pixels second.
 
-        The tree is free, exact, and answers in 268ms - it wins wherever there
-        IS a tree. Where there is not, `Regime.EMPTY` says so and the
-        computer-use model is asked instead, which costs two API calls and
-        several seconds. Measured on hand-labelled targets: 76% on a chess
-        board, 12-17% in dense professional toolbars.
+        The tree is free, exact, and answers in 268ms, so it is asked first -
+        but only its STRONG tiers count here. `digest.find` degrades to word
+        overlap, which is right for "that terminal thing" and catastrophic for
+        this: asked to mark "the knight on b1" on chess.com, it matched some
+        Chrome control and drew a circle a thousand pixels from the board, in
+        two seconds rather than seven. The cat then said the knight was marked
+        and the user could see nothing.
 
-        That rate is only tolerable because nothing downstream clicks.
+        The measurement had already said so - across 44 hand-labelled targets
+        UIA answered 18 times and was right 0 of those, missing by up to
+        1,288px, while only 5 targets were in the digest at all. On a canvas
+        the tree does not fail to answer; it answers wrongly and fast.
+
+        `already_on_screen` is the strict tier: a word from the request has to
+        BE a control's name or begin it. Anything looser goes to sight, which
+        scored 76% on exactly this board.
         """
-        if getattr(self, "_grounding", None) is None:
-            from ..desktop.computeruse import ComputerUseGrounding
-            from ..desktop.grounding import HybridGrounding
+        from ..desktop import lookup
 
-            self._grounding = HybridGrounding(vision=ComputerUseGrounding())
-        return self._grounding.locate(description)
+        digest = self.digest if self.digest is not None else digest_foreground()
+        if digest is not None:
+            element = lookup.already_on_screen(description, digest)
+            if element is not None:
+                return Target.from_element(element)
+
+        if getattr(self, "_seeing", None) is None:
+            from ..desktop.computeruse import ComputerUseGrounding
+
+            self._seeing = ComputerUseGrounding()
+        return self._seeing.locate(description)
 
     def record_verdict(self, verdict) -> None:
         """Hang a verifier's verdict on the run that was just recorded.

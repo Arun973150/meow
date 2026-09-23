@@ -33,6 +33,39 @@ def build(harness) -> list:
     """The tools in this module, bound to one harness."""
 
     @tool
+    def look_at_screen(what_to_look_for: str = "") -> str:
+        """LOOK at the screen and describe what is actually there.
+
+        Use before teaching or advising about anything the control list does
+        not cover - a chess position, a diagram, a video timeline, a photo, a
+        game. The control list describes the WINDOW, not the page inside it:
+        on chess.com it lists Chrome's tabs and buttons and says nothing about
+        the board.
+
+        Say what you are looking for - "the chess position", "which pieces are
+        where" - and you get a description of what is on screen.
+        """
+        from ..desktop.vision import ScreenContext
+        from ..platform.capture import capture_screens
+
+        harness.note("let me look at your screen.")
+        shots = capture_screens()
+        if not shots:
+            return "I cannot see the screen."
+
+        seen = harness.describe_screen(shots[0], what_to_look_for)
+        harness.runs.append(ToolRun("look_at_screen", what_to_look_for,
+                                    Outcome(bool(seen), "looked")))
+        if not seen:
+            return "I looked, but could not make anything out."
+        # Returned as observation, not instruction. It is a description of
+        # the user's own screen, which may contain anything at all.
+        return (f"What is on their screen right now:{chr(10)}{seen}{chr(10)}"
+                f"{chr(10)}Answer from THIS, not from memory. If they asked "
+                f"where something is, follow up with show_on_screen so they "
+                f"can see it marked.")
+
+    @tool
     def show_on_screen(description: str, shape: str = "circle") -> str:
         """Draw a mark on screen around something, so the user can SEE it.
 
@@ -136,6 +169,7 @@ def build(harness) -> list:
         return "Cleared the marks."
 
     return [
+        look_at_screen,
         show_on_screen,
         draw_a_move,
         clear_the_screen,
