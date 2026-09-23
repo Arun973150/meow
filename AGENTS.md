@@ -792,6 +792,15 @@ ellipses, translucent highlights and labels, on a full-screen overlay of their
 own. `meow/tools/teaching.py` turns that into `show_on_screen`,
 `draw_a_move` and `clear_the_screen`.
 
+⚠ **An empty control list means the tree cannot see IN, not that the thing
+is absent.** Asked "show me the white queen" on chess.com, the cat said "the
+white queen is not on this screen" - because `GUIDE_REMINDER` named only
+`point_at_control` and `find_how_to`, both of which read the accessibility
+tree, and a chess board has no controls. The drawing tools were loaded and
+never mentioned. Same trap as the planner prompt: **adding a tool means
+updating the prompt that would choose it**, and the failure looks like the
+feature not working rather than the model not knowing.
+
 ⚠ **Curves are the reason this is not three primitives.** A bond path, a
 knight's sweep, an arrow bending round a panel - drawn as two straight
 segments those read as mistakes rather than gestures. PIL has no curve, so
