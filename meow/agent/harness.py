@@ -112,6 +112,12 @@ from ..tools.support import (
 from ..desktop.uia import WindowDigest, digest_foreground
 
 MODEL = "gpt-4o-mini"
+
+# The model that LOOKS. Separate from the one that talks, because they are
+# different jobs with different failures: gpt-4o-mini reads a chess board
+# wrongly at every detail level tried, and this one reads it right. Same
+# model as grounding, and on the 2.5M/day free tier.
+SEEING_MODEL = "gpt-5.6-luna"
 MAX_OUTPUT_TOKENS = 220
 
 # An agent that keeps deciding to click is the failure this project can least
@@ -507,39 +513,64 @@ class Harness:
 
         The harness is given the UIA digest and NO image, which is right for
         Notepad and useless for a chess board: the digest lists Chrome's tabs
-        and buttons and says nothing about the game. Asked for the best move
-        it answered "i can't see the current board state", while the ANSWER
-        path - which does get a screenshot - read the position correctly in
-        the same session.
+        and says nothing about the game.
 
-        A tool rather than an image on every turn, because invariant 11 says
-        send nothing unless it is needed, and most turns do not need pixels.
-        Low detail at full size: 2,833 tokens, flat regardless of resolution.
+        **It uses the SEEING model, not the writing one, and that is the whole
+        point.** Measured on a real chess position, asked only to name the two
+        white knights:
+
+            gpt-4o-mini  low  512px   Nf3, Nc3     wrong
+            gpt-4o-mini  high 768px   Nf3, Ng1     wrong
+            gpt-4o-mini  high 1024px  Nc3, Nf3     wrong
+            gpt-5.6-luna             Nb1, Nf3     right
+
+        Three detail levels, three wrong answers, all inventing a knight that
+        was not there - so this was never an image fidelity problem and
+        spending five times the tokens on `detail=high` would have bought
+        nothing. It is a model capability. The cat told the user to play a
+        knight from b1 to f3: not a legal knight move, and f3 already held
+        their own knight.
         """
         import base64
         import io as _io
 
-        from langchain_core.messages import HumanMessage
+        import httpx
 
         buffer = _io.BytesIO()
-        shot.image.convert("RGB").save(buffer, format="JPEG", quality=70)
+        # PNG, not JPEG. Compression artefacts on a 30px chess square are the
+        # difference between a bishop and a pawn.
+        shot.image.convert("RGB").save(buffer, format="PNG")
         encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
         asked = looking_for or "everything that matters"
         try:
-            reply = self._writer.invoke([HumanMessage(content=[
-                {"type": "text",
-                 "text": f"Describe what is on this screen, concentrating on "
-                         f"{asked}. Be concrete and specific - name pieces, "
-                         f"positions, labels, values. If it is a game or a "
-                         f"diagram, describe the actual state of it. No "
-                         f"preamble."},
-                {"type": "image_url",
-                 "image_url": {"url": f"data:image/jpeg;base64,{encoded}",
-                               "detail": "low"}},
-            ])])
+            response = httpx.post(
+                "https://api.openai.com/v1/responses",
+                headers={"Authorization": f"Bearer {openai_api_key()}",
+                         "Content-Type": "application/json"},
+                json={"model": SEEING_MODEL, "input": [{"role": "user",
+                      "content": [
+                          {"type": "input_text",
+                           "text": f"Describe what is on this screen, "
+                                   f"concentrating on {asked}. Be concrete: "
+                                   f"name pieces, positions, labels, values. "
+                                   f"If it is a game or a diagram, describe "
+                                   f"its actual state. Say plainly if "
+                                   f"something is too small to read rather "
+                                   f"than guessing. No preamble."},
+                          {"type": "input_image",
+                           "image_url": f"data:image/png;base64,{encoded}"},
+                      ]}]},
+                timeout=120)
         except Exception:  # noqa: BLE001 - a blind turn is not a crash
             return ""
-        return " ".join(str(getattr(reply, "content", "")).split())
+        if response.status_code != 200:
+            return ""
+        said = ""
+        for item in response.json().get("output", []):
+            for piece in (item.get("content") or []):
+                if piece.get("type") == "output_text":
+                    said += piece.get("text", "")
+        return " ".join(said.split())
 
     def note(self, sentence: str) -> None:
         """Say something now, mid-tool, without waiting for the turn to end.

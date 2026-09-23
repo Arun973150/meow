@@ -803,6 +803,24 @@ missing by up to 1,288px, with only 5 in the digest at all. The teaching tools
 use `lookup.already_on_screen` - a word from the request must BE a control's
 name or begin it - and anything looser goes to sight.
 
+⚠ **Reading a screen and TALKING are different jobs with different
+failures.** Asked to name the two white knights on a real chess position,
+`gpt-4o-mini` was wrong at every detail level tried - `low` 512px gave
+"Nf3, Nc3", `high` 768px gave "Nf3, Ng1", `high` 1024px gave "Nc3, Nf3" - each
+time inventing a knight that was not on the board. `gpt-5.6-luna` and
+`gpt-5-mini` both answered "Nb1, Nf3", correctly. So this was never image
+fidelity and `detail=high` would have cost five times the tokens for nothing.
+`SEEING_MODEL` is separate from `MODEL` for that reason, and it is the same
+model as grounding, on the same free tier. PNG not JPEG: compression
+artefacts on a 30px chess square are the difference between a bishop and a
+pawn.
+
+⚠ **It is not a chess engine, and reading the board correctly does not make
+it one.** The advice that started this was "move your knight from b1 to f3" -
+not a legal knight move, onto a square already holding their own knight. The
+position-reading is fixed; the ADVICE is a general model's guess and should be
+treated as one.
+
 ⚠ **The harness was given the digest and NO image, ever.** Asked for the
 best chess move it said "i can't see the current board state", while the
 ANSWER path - which does get a screenshot - read the position correctly in the
