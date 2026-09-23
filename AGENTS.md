@@ -670,6 +670,21 @@ window" — because *window* alone was enough, and *window* alone means nothing.
 All of a phrase's words must be present; single-word triggers still match
 singly.
 
+⚠ **A walkthrough is only as good as its route, and MINED routes are not
+good enough.** Measured: "how do i change dark mode to light mode" mined
+`Theme, Display` - plausible, and not the path - and "how do i change my dns"
+mined nothing at all, so no walkthrough started. A recipe can now carry one:
+
+```
+route: dark mode = Personalization > Colors
+route: dns = Network & internet > Advanced network settings
+```
+
+Checked BEFORE anything is fetched. Local, free, trusted and correct, which
+are four things a page off the internet is not reliably. The longest matching
+key wins, so a recipe can hold both `dns` and `dns server address`. This is
+invariant 1 again: when it cannot do something, write the line.
+
 **Being taught, one step at a time, with somebody watching.** Asking how to
 do something used to get the whole route read out in one breath - "settings,
 then personalisation, then colours" - and then silence. That is a recitation.

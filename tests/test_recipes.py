@@ -175,3 +175,52 @@ def test_the_chrome_recipe_covers_the_profile_picker(shelf, said):
     found = shelf.find(said)
     assert found, f"{said!r} matched no recipe"
     assert "Chrome" in found[0].title
+
+
+@pytest.mark.parametrize("said, expected", [
+    ("how do i change dark mode to light mode",
+     ["Personalization", "Colors"]),
+    ("i dont know how to change dark mode", ["Personalization", "Colors"]),
+    ("how do i change my dns",
+     ["Network & internet", "Advanced network settings"]),
+    ("where is bluetooth", ["Bluetooth & devices", "Devices"]),
+])
+def test_a_written_route_beats_a_mined_one(shelf, said, expected):
+    """Mining a route off a web page is unreliable in both directions: "how do
+    i change dark mode" mined "Theme, Display" - plausible, and not the path -
+    and "how do i change my dns" mined nothing at all. A route somebody wrote
+    down is local, free, trusted and correct.
+    """
+    assert shelf.route_for(said) == expected
+
+
+def test_no_route_for_something_nobody_wrote_one_for(shelf):
+    """It must not invent a path, or find_how_to would stop looking things up."""
+    assert shelf.route_for("how do i open notepad") == []
+    assert shelf.route_for("what is the capital of france") == []
+
+
+def test_the_most_specific_written_route_wins():
+    recipe = recipes.parse(
+        "# a thing\n"
+        "when: alpha\n"
+        "route: dns = Network > Advanced\n"
+        "route: dns server address = Network > Advanced > DNS assignment\n"
+        "\n"
+        "Body.\n")
+    shelf = recipes.Shelf(recipes=[recipe])
+    assert shelf.route_for("change my dns") == ["Network", "Advanced"]
+    assert shelf.route_for("set the dns server address") == [
+        "Network", "Advanced", "DNS assignment"]
+
+
+def test_a_route_line_is_not_left_in_the_body():
+    """Or it reads as prose when the recipe is put in front of the model."""
+    recipe = recipes.parse(
+        "# a thing\n"
+        "when: alpha\n"
+        "route: dark mode = Personalization > Colors\n"
+        "\n"
+        "The real body.\n")
+    assert "route:" not in recipe.body
+    assert recipe.body.strip() == "The real body."

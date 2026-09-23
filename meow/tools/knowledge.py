@@ -64,6 +64,29 @@ def build(harness) -> list:
                         f"it, {where_on_screen(target)}. Say where it is and "
                         f"that they can ask you to click it.")
 
+        # A route somebody WROTE DOWN, before anything is fetched. Local,
+        # free, trusted and correct - four things a mined route is not
+        # reliably: "how do i change dark mode" mined "Theme, Display", which
+        # is plausible and is not the path, and "how do i change my dns" mined
+        # nothing at all. Recipes are the project's answer to "it cannot do
+        # this yet", and a route is the smallest useful thing one can hold.
+        written = harness.shelf.route_for(question)
+        if written:
+            harness.last_directions = lookup.Directions(
+                steps=written, source="a recipe")
+            harness.runs.append(ToolRun(
+                "find_how_to", question,
+                Outcome(True, f"route from a recipe: {' > '.join(written)}")))
+            # "Do not call another tool" is here because it did: told to say
+            # one sentence, the model went on to point_at_control and landed
+            # on VS Code's Help menu, so the user heard the right first step
+            # followed by "look for the help menu on your screen".
+            return (f"Tell them you will walk them through it, and that the "
+                    f"first thing is {written[0]}. Say ONLY that. Do not "
+                    f"list the other steps - they are said one at a time as "
+                    f"they get there - and do NOT call another tool: the "
+                    f"walkthrough points at each step itself.")
+
         result = lookup.ground(question, harness.digest)
         harness.runs.append(ToolRun("find_how_to", question,
                                  Outcome(result.grounded, result.describe())))

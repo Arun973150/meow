@@ -69,6 +69,19 @@ FILLER = {
 
 TRIGGER_LINE = re.compile(r"^\s*when\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
 
+# An optional route through a UI, written by hand:
+#
+#     route: dark mode = Personalization > Colors
+#
+# The left side is what somebody would ask for, the right is the actual
+# sequence of controls. This exists because mining a route off a web page
+# is unreliable in both directions: "how do i change dark mode" mined
+# "Theme, Display" - plausible and not the real path - and "how do i change
+# my dns" mined nothing at all. A route somebody wrote down is local, free,
+# trusted and correct, which is four things a fetched page is not.
+ROUTE_LINE = re.compile(r"^\s*route\s*:\s*(.+?)\s*=\s*(.+)$",
+                        re.IGNORECASE | re.MULTILINE)
+
 
 def shipped_folder() -> Path:
     """The recipes that come with Meow. INSIDE the package, deliberately.
@@ -110,6 +123,8 @@ class Recipe:
     triggers: str
     body: str
     path: str = ""
+    # {what someone asks for: [control, control, ...]}
+    routes: dict = field(default_factory=dict)
 
     @property
     def body_terms(self) -> set[str]:
@@ -231,16 +246,33 @@ def parse(text: str, path: str = "") -> Recipe | None:
         triggers = " ".join(collected).strip()
         break
 
+    # Hand-written routes. Kept out of the body as well, so a route line does
+    # not also read as prose when the recipe is put in front of the model.
+    routes: dict[str, list[str]] = {}
+    route_line_numbers: set[int] = set()
+    for index, line in enumerate(lines):
+        matched = ROUTE_LINE.match(line)
+        if not matched:
+            continue
+        asked = " ".join(matched.group(1).lower().split())
+        steps = [step.strip() for step in
+                 re.split(r">|→|,", matched.group(2)) if step.strip()]
+        if asked and len(steps) > 1:
+            routes[asked] = steps
+        route_line_numbers.add(index)
+
     body_lines = [line for index, line in enumerate(lines)
                   if not line.startswith("#")
-                  and index not in trigger_line_numbers]
+                  and index not in trigger_line_numbers
+                  and index not in route_line_numbers]
     body = "\n".join(body_lines).strip()
 
     if not title or not body:
         # A file with no heading or no body is half-written, not a recipe.
         # Skipped rather than guessed at, and the caller reports it.
         return None
-    return Recipe(title=title, triggers=triggers, body=body, path=path)
+    return Recipe(title=title, triggers=triggers, body=body, path=path,
+                  routes=routes)
 
 
 @dataclass
@@ -257,6 +289,32 @@ class Shelf:
                 if score >= MINIMUM_SCORE]
         good.sort(key=lambda row: row[0], reverse=True)
         return [recipe for _, recipe in good[:limit]]
+
+    def route_for(self, request: str) -> list[str]:
+        """A hand-written route matching this request, best first, or [].
+
+        Checked BEFORE the web. A route somebody wrote down is local, free,
+        trusted and correct; a route mined from a fetched page is none of
+        those reliably - "how do i change dark mode" mined "Theme, Display",
+        which is plausible and is not the path, and "how do i change my dns"
+        mined nothing at all.
+
+        Matched on the words of the route's own key, so "how do i change dark
+        mode to light mode" finds `dark mode`. The longest matching key wins:
+        a recipe can hold both `dns` and `dns server`, and the more specific
+        one is the one somebody bothered to write.
+        """
+        wanted = _meaningful(request)
+        if not wanted:
+            return []
+        best: list[str] = []
+        best_words = 0
+        for recipe in self.recipes:
+            for asked, steps in recipe.routes.items():
+                key_words = _meaningful(asked)
+                if key_words and key_words <= wanted and len(key_words) > best_words:
+                    best, best_words = list(steps), len(key_words)
+        return best
 
     def to_prompt(self, request: str, limit: int = MAX_RECIPES) -> str:
         """The block that goes in the prompt. Empty when nothing matches."""
