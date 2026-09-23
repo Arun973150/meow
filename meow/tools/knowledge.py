@@ -68,6 +68,9 @@ def build(harness) -> list:
         harness.runs.append(ToolRun("find_how_to", question,
                                  Outcome(result.grounded, result.describe())))
 
+        # Handed to the app, which decides whether it is worth walking
+        # somebody through rather than reading out.
+        harness.last_directions = result.directions
         route = result.directions.spoken() if result.directions else ""
 
         if not result.grounded:
@@ -81,6 +84,16 @@ def build(harness) -> list:
             if route:
                 # A route nobody can point at is still the answer to "how
                 # do i". Saying it is better than reporting failure.
+                if len(result.directions.steps) > 1:
+                    # A walkthrough is about to start and will say each step
+                    # as they reach it. Reading all three out first is the
+                    # recitation it exists to replace - somebody who cannot
+                    # hold three steps is not helped by hearing them twice.
+                    first = result.directions.steps[0]
+                    return (f"Tell them you will walk them through it, and "
+                            f"that the first thing is {first}. Say ONLY that "
+                            f"- do not list the other steps, they will be "
+                            f"said one at a time as they get there.")
                 return (f"The way there is: {route}. None of that is in "
                         f"{harness.digest.app} right now, so say it back to "
                         f"me once you are in the right window.")
@@ -99,6 +112,11 @@ def build(harness) -> list:
         harness.runs.append(ToolRun("point_at_control", result.matched,
                                  outcome, target))
         if route:
+            if len(result.directions.steps) > 1:
+                return (f"{result.matched} is on screen and I am pointing at "
+                        f"it. Tell them that, and that you will say each next "
+                        f"step as they get to it. Do NOT list the rest of the "
+                        f"route - it is said one step at a time.")
             return (f"The way there is: {route}. {result.matched} is on "
                     f"screen and I am pointing at it. Say click it if you "
                     f"want it pressed.")

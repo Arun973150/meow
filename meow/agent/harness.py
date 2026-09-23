@@ -340,6 +340,11 @@ class Harness:
         self.researching = False
         self.runs: list[ToolRun] = []
         self.last_error: str | None = None
+        # The route a SHOW turn mined, if it mined one. The app
+        # reads it to start a walkthrough - somebody who says
+        # "i don't know how to do this" needs one step at a
+        # time and somebody watching, not three read at once.
+        self.last_directions = None
         self.tracing = enable_tracing()
 
         # Tools close over `self` so they can reach the digest and record runs.
@@ -598,6 +603,7 @@ class Harness:
         is a second of silence for nothing.
         """
         self.last_error = None
+        self.last_directions = None
         self.runs.clear()
         self.transcript = transcript
         # Handed in when the caller started reading the screen while routing

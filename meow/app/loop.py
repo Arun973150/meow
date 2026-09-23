@@ -53,6 +53,7 @@ from meow.cat.bubble import (
 from meow.cat.cursor import CatCursor
 from meow.cat.follow import CursorFollower, FollowSettings, target_beside_cursor
 from meow.work.agentdock import AgentDock
+from meow.app.guiding import Guide
 from meow.chat.launcher import ChatPanel
 from meow.connectors import Outbox, Sender
 from meow.config import MissingKey, cat_name
@@ -311,8 +312,28 @@ def main() -> None:
         confirm_answer.__setitem__("value", False), confirm_ready.set()))
     panic.on_panic("tasks", tasks.stop_all)
 
+    def _point_during_walkthrough(name: str, digest) -> None:
+        """Point at the step the user is on. Pointing only - never presses."""
+        if digest is None or args.no_pointer:
+            return
+        element = digest.find(name)
+        if element is None:
+            return
+        from meow.desktop import actions
+        from meow.desktop.grounding import Target
+
+        actions.point_at(Target.from_element(element))
+
+    guide = Guide(say=lambda sentence: replies.put(("say", sentence)),
+                  point=_point_during_walkthrough,
+                  should_stop=lambda: panic.tripped)
+    panic.on_panic("walkthrough", guide.cancel)
+
     def ask(transcript: str) -> None:
         """Route the sentence and run whichever path it asked for."""
+        # Whatever they just said, they are no longer following the
+        # old route. A walkthrough is help, not a mode to escape.
+        guide.cancel()
         working.set()
         try:
             route = router.resolve(transcript)
@@ -481,6 +502,14 @@ def main() -> None:
                     replies.put(("say", event))
                 if harness.last_error:
                     replies.put(("error", harness.last_error))
+
+                # A route with more than one step is not something to read
+                # out and leave them with. Somebody who says "i don't know
+                # how to change dark mode" cannot hold three steps AND find
+                # them, so the cat walks them through it: one step, then it
+                # watches the screen and says the next when they have done it.
+                if route.intent is Intent.SHOW:
+                    guide.begin(harness.last_directions, transcript)
 
                 # Anything drafted this turn goes into the window, with
                 # the exact recipient and body, so the decision is made

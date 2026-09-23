@@ -670,6 +670,38 @@ window" — because *window* alone was enough, and *window* alone means nothing.
 All of a phrase's words must be present; single-word triggers still match
 singly.
 
+**Being taught, one step at a time, with somebody watching.** Asking how to
+do something used to get the whole route read out in one breath - "settings,
+then personalisation, then colours" - and then silence. That is a recitation.
+Somebody who says "i don't know how to change dark mode" is telling you they
+cannot hold three steps AND find them, so `meow/agent/walkthrough.py` says ONE
+step, waits, and watches. When the screen shows they did it, it says the next.
+It never repeats itself at them and it never asks whether they managed - it
+looks.
+
+⚠ **A step is done when the screen CHANGES with the next step on it - both
+halves.** Visibility alone is not proof: a Windows Settings page LISTS the
+page below it, so "Personalization" and "Colors" are both on screen the moment
+you reach Personalization. The first version announced "that is it, colors,
+you are there" while they were still a click away. One step per observed
+change is what tells a page being open from a page being listed.
+
+⚠ **Somebody who skips ahead is followed, not corrected.** If the current
+step has GONE and a later one is showing, they knew part of the route and
+walked it. Sending them back to a step they have already passed is worse than
+saying nothing.
+
+⚠ **Names in a walkthrough are matched with `strict_match`.** The steps came
+off a web page. Under fuzzy matching everything exists, and a walkthrough that
+says "you are there" because something vaguely similar is on screen is worse
+than one that waits.
+
+**The watcher is on its own thread** (`meow/app/guiding.py`), because a UIA
+digest is 268ms typical and 1.18s for VS Code - polling that between frames
+would stutter the cat at the exact moment somebody is watching it point. And
+the next sentence out of the user's mouth cancels it: a walkthrough is help,
+not a mode you have to escape.
+
 ⚠ **A SHOW turn must POINT, not describe.** Refusing the acting tools was
 only half of it: asked "where is the file menu", the model answered out of its
 own memory and pointed at nothing. A remembered layout is precisely what this
