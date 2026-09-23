@@ -96,6 +96,51 @@ class HeldOutReport:
                 f"{answered:>4}/{len(outcomes):<4} "
                 f"{times[len(times) // 2]:>8,.0f}")
 
+        # Per target, because the rate alone hides the shape of the failure.
+        # "It gets pieces and misses coordinates" is actionable; "65%" is not.
+        lines += ["", "  each target:"]
+        # Keyed by POSITION as well as description. Two labels were both
+        # called "square infront of king" and one silently overwrote the
+        # other - seventeen labels, sixteen rows.
+        ordered: dict = {}
+        for outcome in self.outcomes:
+            key = (outcome.description, outcome.app)
+            slot = ordered.setdefault(key, [])
+            existing = next((row for row in slot
+                             if outcome.strategy not in row), None)
+            if existing is None:
+                slot.append({})
+                existing = slot[-1]
+            existing[outcome.strategy] = outcome
+        by_description = {}
+        for (description, _app), rows in ordered.items():
+            for number, row in enumerate(rows, 1):
+                suffix = f" #{number}" if len(rows) > 1 else ""
+                by_description[description + suffix] = row
+        for description, results in by_description.items():
+            marks = []
+            for name, outcome in results.items():
+                if outcome.hit:
+                    marks.append(f"{name} HIT")
+                elif outcome.answered:
+                    marks.append(f"{name} {outcome.distance:.0f}px")
+                else:
+                    marks.append(f"{name} -")
+            lines.append(f"    {description[:30]:32} {' | '.join(marks)}")
+
+        apps = sorted({o.app for o in self.outcomes if o.app})
+        if len(apps) > 1:
+            lines += ["", "  by application:"]
+            for app in apps:
+                parts = []
+                for name in sorted({o.strategy for o in self.outcomes}):
+                    here = [o for o in self.outcomes
+                            if o.app == app and o.strategy == name]
+                    if here:
+                        parts.append(f"{name} "
+                                     f"{sum(1 for o in here if o.hit)}/{len(here)}")
+                lines.append(f"    {app:22} {'  '.join(parts)}")
+
         in_tree = sum(1 for o in self.outcomes
                       if o.in_digest and o.strategy == "uia")
         total = sum(1 for o in self.outcomes if o.strategy == "uia")
