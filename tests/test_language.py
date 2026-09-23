@@ -185,3 +185,34 @@ def test_asking_how_stays_show_and_asking_what_does_not(said, expected):
     """
     route, _ = correct(Route(Intent.SHOW, False, False, "jev"), said)
     assert route.intent is expected, f"{said!r} -> {route.intent}"
+
+
+@pytest.mark.parametrize("said", [
+    "so i want the best move i could do here",
+    "what should be my next move",
+    "is my knight already on f3",
+    "can you look at my screen and tell me the best move",
+    "whose turn is it",
+])
+def test_a_question_about_the_screen_reaches_a_tool(said):
+    """The answer path gets a low-detail screenshot and gpt-4o-mini, which was
+    measured reading a chess board wrongly at every detail level - three
+    tries, three invented knights. Live, it advised a knight from b1 to f3
+    onto a square already holding that knight, and later "a5 to c6, which
+    checks the king" with no knight on a5 and no check.
+    """
+    route, why = correct(Route(Intent.ANSWER, True, False, "jev"), said)
+    assert route.intent is Intent.ACT, f"{said!r} stayed {route.intent}"
+    assert why
+
+
+@pytest.mark.parametrize("said", [
+    "what is the capital of france",
+    "who won the world cup in 2018",
+])
+def test_ordinary_questions_do_not_go_looking(said):
+    """Looking costs a vision call and several seconds. It must fire on
+    questions about the screen, not on questions.
+    """
+    route, _ = correct(Route(Intent.ANSWER, False, False, "jev"), said)
+    assert route.intent is Intent.ANSWER

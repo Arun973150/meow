@@ -44,6 +44,34 @@ CONNECTOR_WORDS = ("inbox", "email", "emails", "e-mail", "mail", "gmail",
 # what makes producing a file about a topic a plan.
 
 
+# Questions that can only be answered by LOOKING at what is on screen. The
+# answer path gets a low-detail screenshot and gpt-4o-mini, which was measured
+# reading a chess board wrongly at every detail level - three tries, three
+# invented knights. The harness has `look_at_screen`, which uses the seeing
+# model and reads the same board correctly, and it has the recipe that says to
+# look before advising. So these have to reach the harness.
+#
+# Live, before this: "what should be my next move" was answered "you could
+# play e4", then "move your knight to f3" onto a square already holding their
+# knight, then "knight a5 to c6, which checks the king" - with no knight on a5
+# and no check. Confident, fluent, and invented.
+LOOKING_WORDS = ("board", "position", "piece", "pieces", "chess", "puzzle",
+                 "sudoku", "checkmate", "knight", "bishop", "rook", "pawn",
+                 "queen", "king", "turn", "diagram", "graph", "chart")
+
+LOOKING_PHRASES = ("best move", "next move", "my move", "should i play",
+                   "whose turn", "what do you see", "on my screen",
+                   "look at my screen", "see my screen", "what is this")
+
+
+def needs_to_look(transcript: str) -> bool:
+    """Can this only be answered by looking at the screen?"""
+    words = spoken_words(transcript)
+    if any(phrase in words for phrase in LOOKING_PHRASES):
+        return True
+    return any(word in words.split() for word in LOOKING_WORDS)
+
+
 def needs_a_connected_account(transcript: str) -> bool:
     """Does answering this require asking a service rather than a model?"""
     return any(word in spoken_words(transcript).split()
@@ -107,6 +135,13 @@ def correct(route: Route, transcript: str) -> tuple[Route, str]:
         # the case the refusal exists to protect.
         return (replace(route, intent=Intent.ACT),
                 "that needs a connected account, so acting")
+
+    if route.intent is Intent.ANSWER and needs_to_look(transcript):
+        # The answer path holds no tools, so it answers about a chess board
+        # from a low-detail screenshot and a model that cannot read one. The
+        # harness can look properly and can mark what it finds.
+        return (replace(route, intent=Intent.ACT),
+                "that needs looking at the screen, so acting")
 
     if route.intent is Intent.ANSWER and wants_the_web(transcript):
         # "Do a research on gpu prices in india" and "look up the best laptops

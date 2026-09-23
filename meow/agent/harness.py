@@ -115,9 +115,12 @@ MODEL = "gpt-4o-mini"
 
 # The model that LOOKS. Separate from the one that talks, because they are
 # different jobs with different failures: gpt-4o-mini reads a chess board
-# wrongly at every detail level tried, and this one reads it right. Same
-# model as grounding, and on the 2.5M/day free tier.
-SEEING_MODEL = "gpt-5.6-luna"
+# wrongly at every detail level tried, and this one reads it right.
+#
+# gpt-5-mini rather than gpt-5.6-luna, which also read it correctly. Both
+# work; this one carries 10M free tokens a day against luna's 2.5M, and is
+# already the planner, so the app keeps one fewer model in play.
+SEEING_MODEL = "gpt-5-mini"
 MAX_OUTPUT_TOKENS = 220
 
 # An agent that keeps deciding to click is the failure this project can least

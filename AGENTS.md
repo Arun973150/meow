@@ -815,6 +815,15 @@ model as grounding, on the same free tier. PNG not JPEG: compression
 artefacts on a 30px chess square are the difference between a bishop and a
 pawn.
 
+⚠ **A question about the SCREEN must reach the harness, not the answer
+path.** "What should be my next move" is shaped like a question, so Jev called
+it ANSWER - and the answer path has a low-detail screenshot and gpt-4o-mini,
+the combination measured as unable to read a board. It produced "move your
+knight to f3" onto a square already holding that knight, and "knight a5 to c6,
+which checks the king" with no knight on a5 and no check. `needs_to_look` in
+`meow/language/routing.py` promotes those to ACT, where `look_at_screen` and
+the games recipe are.
+
 ⚠ **It is not a chess engine, and reading the board correctly does not make
 it one.** The advice that started this was "move your knight from b1 to f3" -
 not a legal knight move, onto a square already holding their own knight. The
