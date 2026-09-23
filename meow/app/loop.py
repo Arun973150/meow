@@ -328,6 +328,8 @@ def main() -> None:
                   point=_point_during_walkthrough,
                   should_stop=lambda: panic.tripped)
     panic.on_panic("walkthrough", guide.cancel)
+    panic.on_panic("marks", lambda: (
+        harness._board and harness._board.clear()))
 
     def ask(transcript: str) -> None:
         """Route the sentence and run whichever path it asked for."""
@@ -872,6 +874,15 @@ def main() -> None:
                         bubble_renderer.palette = BubblePalette.for_background(luminance)
 
                 bubble_state.update(elapsed, timestep)
+
+                # The teaching marks. Free when nothing is drawn, and
+                # throttled when something is - a full-screen canvas at 2x
+                # supersample is 34ms to render, so it redraws only when the
+                # picture would actually differ. Ticked from here because
+                # marks expire on their own and something has to notice.
+                marks = getattr(harness, "_board", None)
+                if marks is not None:
+                    marks.draw()
 
                 try:
                     overlay.draw(rgba_to_premultiplied_bgra(

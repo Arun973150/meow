@@ -345,6 +345,8 @@ class Harness:
         # "i don't know how to do this" needs one step at a
         # time and somebody watching, not three read at once.
         self.last_directions = None
+        self._board = None
+        self._grounding = None
         self.tracing = enable_tracing()
 
         # Tools close over `self` so they can reach the digest and record runs.
@@ -486,6 +488,40 @@ class Harness:
         except Exception:  # noqa: BLE001 - a failed compose is not a crash
             return ""
         return " ".join(str(reply.content).split())
+
+    def board(self):
+        """The full-screen layer marks are drawn on. Built on first use.
+
+        Lazy because most turns never draw anything, and an overlay costs a
+        window. None when there is no screen to draw on, which the tools
+        report rather than crash over.
+        """
+        if getattr(self, "_board", None) is None:
+            try:
+                from ..desktop.annotate import Board
+
+                self._board = Board()
+            except Exception:  # noqa: BLE001 - no screen is not a crash
+                self._board = None
+        return self._board
+
+    def locate_anything(self, description: str):
+        """Find something on screen, tree first and pixels second.
+
+        The tree is free, exact, and answers in 268ms - it wins wherever there
+        IS a tree. Where there is not, `Regime.EMPTY` says so and the
+        computer-use model is asked instead, which costs two API calls and
+        several seconds. Measured on hand-labelled targets: 76% on a chess
+        board, 12-17% in dense professional toolbars.
+
+        That rate is only tolerable because nothing downstream clicks.
+        """
+        if getattr(self, "_grounding", None) is None:
+            from ..desktop.computeruse import ComputerUseGrounding
+            from ..desktop.grounding import HybridGrounding
+
+            self._grounding = HybridGrounding(vision=ComputerUseGrounding())
+        return self._grounding.locate(description)
 
     def record_verdict(self, verdict) -> None:
         """Hang a verifier's verdict on the run that was just recorded.

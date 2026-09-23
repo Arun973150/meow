@@ -83,7 +83,11 @@ def test_every_tool_group_is_reachable():
     """Adding a module without listing it in ORDER would lose it silently."""
     harness = _harness()
     total = sum(len(module.build(harness)) for module in tools.ORDER)
-    assert total == len(tools.build(harness)) == 30
+    # Consistency, not a magic number. Pinning the count meant adding a tool
+    # broke a SAFETY test for a reason that had nothing to do with safety,
+    # which teaches people to edit the number rather than read the failure.
+    assert total == len(tools.build(harness))
+    assert total >= 30, f"tools disappeared: {total}"
 
 
 def test_a_verdict_of_no_is_visible_to_the_planner():

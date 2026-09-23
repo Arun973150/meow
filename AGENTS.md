@@ -786,6 +786,57 @@ token budget thinking, returning one query instead of three.
 real Windows Settings: dark mode -> `Personalization`, bluetooth ->
 `Bluetooth & devices`, dns -> `Network & internet`.
 
+**Phase B: it can draw on the screen.** `meow/desktop/annotate.py` - arrows
+straight or curved, lines, Bezier curves, freehand paths, boxes, circles,
+ellipses, translucent highlights and labels, on a full-screen overlay of their
+own. `meow/tools/teaching.py` turns that into `show_on_screen`,
+`draw_a_move` and `clear_the_screen`.
+
+⚠ **Curves are the reason this is not three primitives.** A bond path, a
+knight's sweep, an arrow bending round a panel - drawn as two straight
+segments those read as mistakes rather than gestures. PIL has no curve, so
+they are sampled from a Bezier by De Casteljau. And they are specified the way
+somebody would SAY one: `bow` is a fraction of the distance, because a model
+asked for four control points produces nonsense.
+
+⚠ **An arrowhead takes its angle from the last two SAMPLED points**, not
+from start and end, or a bowed arrow points where a straight line would have
+gone.
+
+⚠ **A full-screen canvas at 2x supersample takes 34ms to render.** A
+time-based throttle does not help - one render exceeds the interval, so "is it
+due" is always true. It redraws only when the picture would actually DIFFER,
+with opacity quantised to 0.2 so a fade costs five redraws rather than sixty a
+second. Measured: 2ms/frame average with a live mark, 0ms when empty.
+
+⚠ **Labels used PIL's default BITMAP font**, drawn at 2x and shrunk, so
+they came out half-size and unreadable. They need a real outline font asked
+for at the supersampled size.
+
+⚠ **The mark layer is excluded from capture, and that matters more here
+than for the cat.** The grounding model reads a screenshot to decide where to
+point; marks appearing in it would have the cat pointing at its own arrows.
+
+**Measured grounding, 44 hand-labelled targets across five applications:**
+
+| | computer-use | uia |
+|---|---|---|
+| Chrome (a chess board) | 13/17 | 0/17 |
+| Photoshop | 6/10 | 3/10 |
+| Resolve | 2/3 | 0/3 |
+| Premiere | 1/6 | 0/6 |
+| Illustrator | 1/8 | 0/8 |
+| **all** | **23/44 (52%)** | **3/44** |
+
+Exact is 52%; within 50px is 61% and within 100px 68%, and for POINTING a mark
+30px out still indicates the right icon. Only 5/44 were in the UIA digest at
+all - and UIA still answered 18 times, matching descriptions onto unrelated
+controls up to 1,288px away. Blind and confident.
+
+**Teaching CONTENT works now; teaching dense professional UI does not.** Chess
+at 76% against Illustrator at 12% is the whole argument for doing C before D,
+and for the crop-and-zoom refinement before D at all.
+
 **Phase A: grounding for windows the tree cannot see.** Blender draws its
 whole interface in OpenGL. UIA returns FIVE elements - Minimize, Maximize,
 Close, System, System - and not one menu, tool or panel.

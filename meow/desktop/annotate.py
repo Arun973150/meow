@@ -53,6 +53,17 @@ FADE_FRACTION = 0.25
 
 # Readable on a dark timeline and on a white page both. Alpha is applied
 # separately, so these are opaque.
+# Opacity is rounded to this before deciding whether to redraw. A full-screen
+# canvas at 2x supersample is ~9 million pixels and takes 34ms to render, so
+# a fade animated continuously would redraw sixty times a second and halve the
+# cat's frame rate. Quantised, a fade costs five redraws and looks the same.
+#
+# A time-based throttle does NOT work here and was tried first: one render
+# takes longer than the interval, so "is it due yet" is always true and
+# nothing is saved. Redrawing only when the picture would actually differ is
+# the only thing that helps.
+OPACITY_STEP = 0.2
+
 INK = (255, 92, 48)
 ACCENT = (64, 196, 255)
 
@@ -341,9 +352,15 @@ class Board:
             exclude_from_capture=True, click_through=True)
         self._showing = False
         self._blank = True
+        self._last_render = 0.0
+        self._last_signature = None
 
     def draw(self) -> None:
-        """Push the current marks. Cheap when nothing is live."""
+        """Push the current marks. Cheap when nothing is live.
+
+        Safe to call every frame: it returns immediately when the board is
+        empty, and throttles when it is not.
+        """
         from ..cat import rgba_to_premultiplied_bgra
 
         self.sketch.prune()
@@ -356,6 +373,16 @@ class Board:
                 self._showing = False
             self._blank = True
             return
+
+        # Re-render when the marks changed, or on the throttle while anything
+        # is fading. Without this the loop rebuilds 37MB of pixels sixty times
+        # a second to animate an arrow nobody is watching that closely.
+        signature = tuple(
+            (id(mark), round(mark.opacity / OPACITY_STEP))
+            for mark in self.sketch.marks)
+        if signature == self._last_signature and self._showing:
+            return
+        self._last_signature = signature
 
         image = self.sketch.render(self.monitor.width, self.monitor.height,
                                    self.origin)
