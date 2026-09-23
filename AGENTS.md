@@ -748,6 +748,27 @@ hostile page achieves is drawing attention to a button already on screen;
 pressing it needs the user to say so, which goes through `meow/agent/risk.py` where
 the instruction comes from the person.
 
+⚠ **A TIE is a question, not a match.** `WindowDigest.find` ranked word
+overlap with `score > best_score`, so when several controls scored
+IDENTICALLY the first one silently won. Asked to "open the water profile"
+against Chrome's picker, every card tied on the word "profile" and the cat
+announced "i'm pointing at the arunn5189@gmail.com profile" - confident,
+specific and wrong, with no hint it had chosen between eight equals. `find`
+returns None on a tie now and `digest.rivals()` hands the names back so the
+cat can ask which. Pointing at the wrong thing confidently is the worst
+failure available here: a miss is visible and recoverable, a wrong click is
+neither.
+
+⚠ **`find_how_to` checks the SCREEN before the web.** "Guide me towards how
+to minimize the vs code" searched the web, read out a route about minimising
+to the system tray, and reported that none of it was on screen - while the
+Minimize button sat in the title bar. "Teach me how to minimize the vs code"
+pointed at the button. Same request, opposite answers, decided by which tool
+the model happened to reach for. `lookup.already_on_screen` runs first and
+costs no network and no model call. It is stricter than `find` on purpose: a
+word from the question has to BE a control's name or start it, so "dark mode"
+still falls through to the web.
+
 ⚠ **Use `lookup.strict_match`, never `digest.find`, for a web-derived name.**
 `find` degrades to substring and word-overlap matching, which is right for
 speech and wrong here: the candidate "Settings" matched a VS Code GitLens

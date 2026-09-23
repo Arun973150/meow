@@ -519,6 +519,18 @@ class Harness:
         six model calls that way without ever discovering that
         "Terminal (Ctrl+`)" exists.
         """
+        # Several equally good matches is a question, not a miss. Asked for
+        # "the water profile" against Chrome's picker, every card tied on the
+        # word "profile" - the old tiebreak picked the first silently and the
+        # cat announced it as if it were certain.
+        tied = self.digest.rivals(name) if self.digest else []
+        if len(tied) > 1:
+            listed = ", ".join(f'"{option}"' for option in tied[:6])
+            return (f"{len(tied)} things match {name!r} equally well: "
+                    f"{listed}. Read those back and ask which one they mean. "
+                    f"Do NOT pick one - they are equal matches, and choosing "
+                    f"between equals is guessing.")
+
         near = self.digest.suggest(name) if self.digest else []
         if not near:
             return f"There is no control called {name!r} on screen."

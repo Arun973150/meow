@@ -409,3 +409,77 @@ def ground(question: str, digest: WindowDigest,
     # version of this application, which is the common case and is useful to
     # hear.
     return lookup
+
+
+# Words that carry no target. A question is mostly framing - "can you guide me
+# towards like how to minimize the vs code" is eleven words, one of which names
+# the thing.
+_ASKING = {
+    "can", "could", "would", "will", "you", "your", "yours", "me", "my", "mine",
+    "i", "the", "a", "an", "to", "for", "of", "in", "on", "at", "is", "are",
+    "do", "does", "did", "how", "what", "where", "which", "please", "like",
+    "just", "show", "tell", "teach", "guide", "towards", "toward", "help",
+    "want", "need", "get", "make", "this", "that", "it", "and", "or", "so",
+    "now", "here", "there", "thing", "something", "way", "again", "hey",
+}
+
+
+def already_on_screen(question: str, digest: WindowDigest) -> Element | None:
+    """The control the question is about, if it is right there. Else None.
+
+    `find_how_to` used to search the WEB first, always. Asked to "guide me
+    towards how to minimize the vs code" it returned a route about minimizing
+    to the system tray and then said none of it was on screen - while the
+    Minimize button sat in the title bar. Asked to "teach me how to minimize
+    the vs code" it pointed at the button. Same request, opposite answers,
+    because the model chose a different tool.
+
+    So the screen is consulted BEFORE the web, which also makes the two
+    phrasings behave the same and costs nothing: no network, no model.
+
+    This is deliberately stricter than `WindowDigest.find`. That degrades to
+    word overlap and therefore always finds something - it is what matched
+    "the water profile" to a control called "arunn5189@gmail.com", on the
+    strength of the word "profile", which every profile card contains. Here a
+    word from the question has to BE a control's name, or start it.
+    """
+    words = [word for word in _normalise(question).replace("-", " ").split()
+             if word not in _ASKING and len(word) > 2]
+    if not words:
+        return None
+
+    for word in words:
+        exact = [element for element in digest.elements
+                 if _normalise(element.name) == word]
+        if len(exact) == 1:
+            return exact[0]
+        if len(exact) > 1:
+            # Several controls with the same name is not a match, it is a
+            # question. Picking one by length - which is what `find` does -
+            # is how the cat pointed confidently at the wrong profile.
+            return None
+
+    for word in words:
+        starting = [element for element in digest.elements
+                    if _normalise(element.name).startswith(word)]
+        if len(starting) == 1:
+            return starting[0]
+    return None
+
+
+def ambiguous_on_screen(question: str, digest: WindowDigest) -> list[str]:
+    """Names that match the question equally well, when more than one does.
+
+    Returned so the cat can ask WHICH rather than choose. "Open the water
+    profile" against a picker holding eight profiles is not a failure to
+    understand - it is a real ambiguity, and the honest move is to read the
+    names out.
+    """
+    words = [word for word in _normalise(question).replace("-", " ").split()
+             if word not in _ASKING and len(word) > 2]
+    for word in words:
+        matches = [element.name for element in digest.elements
+                   if _normalise(element.name) == word]
+        if len(matches) > 1:
+            return matches
+    return []

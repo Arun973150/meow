@@ -17,6 +17,7 @@ from langchain_core.tools import tool
 from ..desktop import actions, lookup
 from ..desktop.actions import Outcome
 from .record import ToolRun
+from .support import where_on_screen
 
 
 def build(harness) -> list:
@@ -33,6 +34,35 @@ def build(harness) -> list:
         """
         if harness.digest is None:
             return "I cannot see a window to search."
+
+        # The SCREEN before the web, always. Asked to "guide me towards how to
+        # minimize the vs code" this searched the web, read out a route about
+        # minimising to the system tray, and reported that none of it was on
+        # screen - while the Minimize button sat in the title bar. Asked to
+        # "teach me how to minimize the vs code" it pointed at the button.
+        # Same request, opposite answers, decided by which tool the model
+        # happened to pick. Checking here costs no network and no model call,
+        # and makes the two phrasings behave the same.
+        several = lookup.ambiguous_on_screen(question, harness.digest)
+        if several:
+            harness.runs.append(ToolRun(
+                "find_how_to", question,
+                Outcome(False, f"{len(several)} things match")))
+            listed = ", ".join(several[:6])
+            return (f"Several things here match that: {listed}. Read those "
+                    f"back and ask which one they mean. Do NOT pick one - "
+                    f"they are equally good matches and choosing is guessing.")
+
+        here = lookup.already_on_screen(question, harness.digest)
+        if here is not None:
+            target = harness._resolve(here.name)
+            if target is not None:
+                outcome = actions.point_at(target)
+                harness.runs.append(
+                    ToolRun("point_at_control", here.name, outcome, target))
+                return (f"{here.name} is on this screen and I am pointing at "
+                        f"it, {where_on_screen(target)}. Say where it is and "
+                        f"that they can ask you to click it.")
 
         result = lookup.ground(question, harness.digest)
         harness.runs.append(ToolRun("find_how_to", question,

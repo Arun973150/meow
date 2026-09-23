@@ -149,6 +149,48 @@ class WindowDigest:
             )
         return "\n".join(lines)
 
+    def _by_overlap(self, wanted_words: set) -> list:
+        """Elements sharing words with the request, best first.
+
+        Split out so `find` and `rivals` score identically - two copies of a
+        scoring rule drift, and the one that decides what gets CLICKED is not
+        the place for that.
+        """
+        scored = []
+        for element in self.elements:
+            name_words = _meaningful(element.name.lower())
+            if not name_words:
+                continue
+            shared = wanted_words & name_words
+            if not shared:
+                continue
+            scored.append(
+                (element, len(shared) / len(name_words) + len(shared) * 0.1))
+        scored.sort(key=lambda row: row[1], reverse=True)
+        return scored
+
+    def rivals(self, text: str) -> list[str]:
+        """Names that match this request EQUALLY well, when more than one does.
+
+        Empty when the request is unambiguous. The tools use it to read the
+        options back rather than choose, because choosing between equals is
+        guessing with a confident voice.
+        """
+        wanted = " ".join(str(text).lower().split())
+        if not wanted:
+            return []
+        # Only the loosest tier can tie in a way worth asking about. An exact
+        # name match is an answer even if two controls share it.
+        wanted_words = _meaningful(wanted)
+        if not wanted_words:
+            return []
+        ranked = self._by_overlap(wanted_words)
+        if not ranked or ranked[0][1] < 0.5:
+            return []
+        top = ranked[0][1]
+        tied = [element.name for element, score in ranked if score == top]
+        return tied if len(tied) > 1 else []
+
     def find(self, text: str) -> Element | None:
         """Best element matching a description, however loosely phrased.
 
@@ -183,22 +225,23 @@ class WindowDigest:
         if not wanted_words:
             return None
 
-        best, best_score = None, 0.0
-        for element in self.elements:
-            name_words = _meaningful(element.name.lower())
-            if not name_words:
-                continue
-            shared = wanted_words & name_words
-            if not shared:
-                continue
-            score = len(shared) / len(name_words) + len(shared) * 0.1
-            if score > best_score:
-                best, best_score = element, score
+        ranked = self._by_overlap(wanted_words)
 
         # Half the control's words have to be accounted for. Below that it is
         # matching on a stray "the" and pressing something unrelated, which is
         # worse than admitting it cannot find the thing.
-        if best is not None and best_score >= 0.5:
+        if ranked and ranked[0][1] >= 0.5:
+            best, best_score = ranked[0]
+            # A TIE is not a match, it is a question. Asked to open "the water
+            # profile" against Chrome's picker, every profile card scored the
+            # same on the word "profile" - and `score > best_score` meant the
+            # first one silently won. The cat said "i'm pointing at the
+            # arunn5189@gmail.com profile" with no hint it had chosen between
+            # eight equals. Ambiguity that resolves itself arbitrarily is the
+            # worst failure available here: confident, specific and wrong.
+            tied = [element for element, score in ranked if score == best_score]
+            if len(tied) > 1:
+                return None
             return best
 
         # Last resort: close spelling. This exists for "minimise", which shares

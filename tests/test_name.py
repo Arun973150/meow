@@ -12,7 +12,15 @@ import pytest
 from meow import config
 
 
-def test_there_is_a_default_name():
+def test_there_is_a_default_name(monkeypatch):
+    """With nothing set. The first version of this asserted cat_name() equals
+    the default outright, which fails the moment somebody renames their own
+    cat in .env - a test of the machine it happens to run on, not of the code.
+    """
+    monkeypatch.delenv("CAT_NAME", raising=False)
+    monkeypatch.setattr(config, "get",
+                        lambda name, default=None: None
+                        if name == "CAT_NAME" else config.get(name, default))
     assert config.cat_name() == config.DEFAULT_CAT_NAME
 
 
@@ -20,14 +28,18 @@ def test_the_name_can_be_changed_in_one_place(monkeypatch):
     """CAT_NAME in .env. It is said in the greeting and it goes into both
     prompts, so hard-coding it would mean changing three files to rename a cat.
     """
-    monkeypatch.setenv("CAT_NAME", "Biscuit")
+    monkeypatch.setattr(config, "get",
+                        lambda name, default=None:
+                        "Biscuit" if name == "CAT_NAME" else None)
     assert config.cat_name() == "Biscuit"
 
 
 @pytest.mark.parametrize("value", ["", "   "])
 def test_an_empty_name_falls_back(monkeypatch, value):
     """A blank line in .env should not produce a cat called nothing."""
-    monkeypatch.setenv("CAT_NAME", value)
+    monkeypatch.setattr(config, "get",
+                        lambda name, default=None, _v=value:
+                        _v if name == "CAT_NAME" else None)
     assert config.cat_name() == config.DEFAULT_CAT_NAME
 
 
