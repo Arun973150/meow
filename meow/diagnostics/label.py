@@ -54,6 +54,9 @@ class Label:
     # target even in the digest?", which is the difference between UIA missing
     # something it could see and being asked for something it never had.
     nearest_uia_name: str = ""
+    # image pixels -> screen pixels is a DIVISION by scale, then add origin.
+    scale: float = 1.0
+    origin: tuple = (0, 0)
     marked_at: float = field(default_factory=time.time)
 
 
@@ -94,6 +97,8 @@ def load(name: str = "labels.json") -> list[Label]:
     labels = []
     for item in raw:
         item["point"] = tuple(item["point"])
+        if "origin" in item:
+            item["origin"] = tuple(item["origin"])
         labels.append(Label(**item))
     return labels
 
@@ -112,6 +117,8 @@ def _capture_context(index: int) -> tuple[str, str, str, str, str]:
     from ..platform.capture import capture_screens
 
     app = window = digest_file = screenshot_file = nearest = ""
+    scale = 1.0
+    origin = (0, 0)
     digest = digest_foreground()
     if digest is not None:
         app, window = digest.app, digest.title
@@ -131,14 +138,25 @@ def _capture_context(index: int) -> tuple[str, str, str, str, str]:
             }, indent=2), encoding="utf-8")
 
     try:
-        shots = capture_screens(detail="low")
+        shots = capture_screens()
         if shots:
-            screenshot_file = f"screen-{index:03d}.jpg"
-            (folder() / screenshot_file).write_bytes(shots[0].data)
+            # `.image`, a PIL Image - NOT `.data`. Writing `.data` raised an
+            # AttributeError that the except below swallowed, so every label
+            # was saved with no screenshot at all and the vision arm of the
+            # evaluation could never have run. Silent, and indistinguishable
+            # from success.
+            screenshot_file = f"screen-{index:03d}.png"
+            shots[0].image.convert("RGB").save(folder() / screenshot_file)
+            # Without these the picture cannot be mapped back to the screen.
+            # A model answers in IMAGE pixels; the hand-marked point is in
+            # SCREEN pixels; `scale` and the monitor origin are the only way
+            # to compare them.
+            scale = shots[0].scale
+            origin = (shots[0].monitor.left, shots[0].monitor.top)
     except Exception:  # noqa: BLE001 - a missing screenshot is not fatal
         screenshot_file = ""
 
-    return app, window, digest_file, screenshot_file, nearest
+    return app, window, digest_file, screenshot_file, nearest, scale, origin
 
 
 def _name_under(point: tuple[int, int]) -> str:
@@ -195,7 +213,8 @@ def main() -> int:
 
         point = get_cursor_position()
         index = len(labels)
-        app, window, digest_file, screenshot_file, _ = _capture_context(index)
+        (app, window, digest_file, screenshot_file, _,
+         scale, origin) = _capture_context(index)
         nearest = _name_under(point)
 
         print(f"  marked {point} in {app or 'unknown'}"
@@ -211,7 +230,7 @@ def main() -> int:
         labels.append(Label(
             description=description, point=point, app=app, window=window,
             digest_file=digest_file, screenshot_file=screenshot_file,
-            nearest_uia_name=nearest))
+            nearest_uia_name=nearest, scale=scale, origin=tuple(origin)))
         save(labels)
         print(f"  saved {len(labels)}. Esc to finish, F8 to mark another.")
         print()

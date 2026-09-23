@@ -204,7 +204,42 @@ def _vision(screenshot: Path, description: str, model) -> Target | None:
                    name=description, source=Source.VISION)
 
 
-def run(labels, strategies=("uia", "uia+model", "vision")) -> HeldOutReport:
+class _SavedShot:
+    """A label's screenshot, shaped like the live one.
+
+    `ComputerUseGrounding` takes whatever `capture_screens()` returns, so
+    replaying a labelled set means handing it the same shape with the scale
+    and origin recorded at labelling time. Without those the model's IMAGE
+    coordinates cannot be compared with a point marked in SCREEN coordinates,
+    and the whole score is off by the downscale factor.
+    """
+
+    class _Monitor:
+        def __init__(self, left, top):
+            self.left, self.top = left, top
+
+    def __init__(self, image, scale, origin):
+        self.image = image
+        self.scale = scale or 1.0
+        self.monitor = self._Monitor(*(origin or (0, 0)))
+
+
+def _computer_use(label, place) -> Target | None:
+    """Ground through the computer tool, from the saved picture."""
+    from PIL import Image
+
+    from ..desktop.computeruse import ComputerUseGrounding
+
+    try:
+        image = Image.open(place / label.screenshot_file)
+    except OSError:
+        return None
+    shot = _SavedShot(image, getattr(label, "scale", 1.0),
+                      tuple(getattr(label, "origin", (0, 0))))
+    return ComputerUseGrounding(frozen=shot).locate(label.description)
+
+
+def run(labels, strategies=("uia", "computer-use")) -> HeldOutReport:
     """Replay every strategy over a labelled set."""
     report = HeldOutReport(labels=len(labels))
     if not labels:
@@ -237,6 +272,8 @@ def run(labels, strategies=("uia", "uia+model", "vision")) -> HeldOutReport:
             elif name == "vision" and label.screenshot_file and model is not None:
                 target = _vision(place / label.screenshot_file,
                                  label.description, model)
+            elif name == "computer-use" and label.screenshot_file:
+                target = _computer_use(label, place)
             milliseconds = (time.perf_counter() - started) * 1000
 
             point = tuple(label.point)
