@@ -42,6 +42,12 @@ def build(harness) -> list:
 
         shape: circle, box, arrow or highlight.
         """
+        # Said BEFORE the slow part. Grounding by sight is two API round
+        # trips and takes about seven seconds, and seven seconds of silence
+        # after a question reads as broken rather than as looking. The mark
+        # appears when it lands; this covers the wait.
+        harness.note(f"let me find {description} on your screen.")
+
         target = harness.locate_anything(description)
         if target is None:
             harness.runs.append(ToolRun("show_on_screen", description,
@@ -72,7 +78,10 @@ def build(harness) -> list:
             centre = target.centre
             radius = max(28, (right - left) // 2 + pad)
             board.sketch.circle(centre, radius)
-        board.draw()
+        # NOT drawn here. A Win32 window belongs to the thread that
+        # made it, tools run on a per-turn worker, and painting
+        # from another thread onto a window whose creator has
+        # exited is WinError 1400. The render loop paints.
 
         harness.runs.append(ToolRun("show_on_screen", description,
                                     Outcome(True, f"drew a {shape}"), target))
@@ -88,6 +97,7 @@ def build(harness) -> list:
         should go to, one part of a diagram to another, a clip to where it
         belongs on a timeline.
         """
+        harness.note("let me look at your screen.")
         start = harness.locate_anything(from_description)
         end = harness.locate_anything(to_description)
         missing = [name for name, found in
@@ -108,7 +118,6 @@ def build(harness) -> list:
         board.sketch.circle(start.centre, 34, colour=ACCENT, seconds=8.0)
         board.sketch.arrow(start.centre, end.centre, bow=0.28,
                            colour=INK, seconds=8.0)
-        board.draw()
         harness.runs.append(ToolRun(
             "draw_a_move", f"{from_description} -> {to_description}",
             Outcome(True, "drew the move"), end))
@@ -120,7 +129,8 @@ def build(harness) -> list:
         """Rub out every mark drawn so far."""
         board = harness.board()
         if board is not None:
-            board.clear()
+            # Marks only; the render thread notices they have gone.
+            board.sketch.clear()
         harness.runs.append(ToolRun("clear_the_screen", "",
                                     Outcome(True, "cleared")))
         return "Cleared the marks."

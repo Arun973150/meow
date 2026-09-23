@@ -497,6 +497,21 @@ class Harness:
             return ""
         return " ".join(str(reply.content).split())
 
+    def note(self, sentence: str) -> None:
+        """Say something now, mid-tool, without waiting for the turn to end.
+
+        Grounding by sight takes about seven seconds. The reply only arrives
+        after it, so the turn is silent for the whole of it - and silence is
+        the thing this project has fought hardest, because it reads as stuck
+        rather than as working.
+        """
+        speak = getattr(self, "on_note", None)
+        if speak is not None:
+            try:
+                speak(sentence)
+            except Exception:  # noqa: BLE001 - a missed line is not a crash
+                pass
+
     def board(self):
         """The full-screen layer marks are drawn on. Built on first use.
 
@@ -504,13 +519,15 @@ class Harness:
         window. None when there is no screen to draw on, which the tools
         report rather than crash over.
         """
-        if getattr(self, "_board", None) is None:
-            try:
-                from ..desktop.annotate import Board
-
-                self._board = Board()
-            except Exception:  # noqa: BLE001 - no screen is not a crash
-                self._board = None
+        # NEVER built here. A Win32 window belongs to the thread that
+        # created it and dies when that thread exits - and tools run on a
+        # per-turn worker. Building it lazily from a tool produced a window
+        # that was destroyed seconds later, and the render loop then painted
+        # into a dead handle: "WinError 1400: Invalid window handle", from a
+        # line that had nothing to do with the mistake.
+        #
+        # The application makes it on the thread that owns the message loop
+        # and hands it over. None is fine: the tools say they cannot draw.
         return self._board
 
     def locate_anything(self, description: str):

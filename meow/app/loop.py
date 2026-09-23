@@ -230,6 +230,19 @@ def main() -> None:
                           memory=memory, budget=mind.screen.budget,
                           outbox=outbox)
         harness.on_note = lambda text: replies.put(("say", text))
+        # Made HERE, on the thread that owns the message loop, and handed to
+        # the harness. A Win32 window belongs to its creating thread and is
+        # destroyed when that thread exits - built lazily inside a tool it
+        # lived on a per-turn worker, died seconds later, and the render loop
+        # then painted into a dead handle: "WinError 1400: Invalid window
+        # handle", raised from a line with nothing to do with the cause.
+        try:
+            from meow.desktop.annotate import Board
+
+            harness._board = Board(monitor)
+        except Exception as error:  # noqa: BLE001 - drawing is not essential
+            print(f"  no drawing layer ({type(error).__name__})")
+            harness._board = None
         speech = None if args.mute else SpeechQueue(ElevenLabsSpeaker())
     except MissingKey as error:
         raise SystemExit(f"\n{error}\n")
@@ -882,7 +895,14 @@ def main() -> None:
                 # marks expire on their own and something has to notice.
                 marks = getattr(harness, "_board", None)
                 if marks is not None:
-                    marks.draw()
+                    try:
+                        marks.draw()
+                    except OSError:
+                        # A window handle can still die under us: the display
+                        # changes, the session locks, a driver resets. One
+                        # dead overlay must not take the cat down with it.
+                        print("  the drawing layer went away")
+                        harness._board = None
 
                 try:
                     overlay.draw(rgba_to_premultiplied_bgra(

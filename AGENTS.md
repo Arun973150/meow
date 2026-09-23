@@ -792,6 +792,22 @@ ellipses, translucent highlights and labels, on a full-screen overlay of their
 own. `meow/tools/teaching.py` turns that into `show_on_screen`,
 `draw_a_move` and `clear_the_screen`.
 
+⚠ **A Win32 window belongs to the thread that CREATED it.** The drawing
+board was built lazily inside a tool, tools run on a per-turn worker, and the
+worker exits at the end of the turn - so Windows destroyed the overlay and the
+render loop then painted into a dead handle. `OSError: [WinError 1400]
+Invalid window handle`, raised from a line with nothing to do with the
+mistake, seconds after the feature had visibly WORKED. The application builds
+it on the thread that owns the message loop and hands it over; tools add marks
+and never paint. The tick also survives a handle dying anyway - a display
+change, a locked session, a driver reset - rather than taking the cat with it.
+
+⚠ **Grounding by sight is ~7 seconds, so it says something first.** Two API
+round trips, and the reply only arrives after them, so the turn was silent for
+the whole of it. Silence is what this project has fought hardest: it reads as
+stuck rather than as looking. `harness.note()` speaks mid-tool - "let me find
+the white queen on your screen" - and the mark appears when it lands.
+
 ⚠ **An empty control list means the tree cannot see IN, not that the thing
 is absent.** Asked "show me the white queen" on chess.com, the cat said "the
 white queen is not on this screen" - because `GUIDE_REMINDER` named only
