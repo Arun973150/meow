@@ -103,3 +103,148 @@ def test_coordinates_are_screen_not_window():
 
 def test_nothing_drawn_is_fully_transparent():
     assert all(pixel[3] == 0 for pixel in Sketch().render(40, 40).getdata())
+
+
+# --- target rings, numbers, spotlight, groups, pinning ----------------------
+
+
+def test_target_rings_are_concentric_and_do_not_collapse():
+    """The innermost ring came out as a scribble: the wobble is three pixels
+    and the ring was seven across, so most of its radius was hand.
+    """
+    from meow.desktop.annotate import Sketch
+
+    sketch = Sketch()
+    sketch.rings((200, 150), 46)
+    image = sketch.render(400, 300)
+    # Ink on the outer ring, and ink again much closer in. A single circle
+    # would give the first and not the second.
+    assert _ink_near(image, (200 + 44, 150)), "no outer ring"
+    assert _ink_near(image, (200 + 26, 150)), "no inner ring"
+
+
+def test_a_tiny_ring_is_dropped_rather_than_drawn_as_noise():
+    from meow.desktop.annotate import Sketch
+
+    sketch = Sketch()
+    sketch.rings((60, 60), 9)
+    # Renders without raising, and the shape stays recognisable - the point
+    # is that nothing tries to wobble a nine-pixel circle by three.
+    assert sketch.render(140, 140) is not None
+
+
+def test_a_number_is_filled_so_it_is_legible_on_anything():
+    from meow.desktop.annotate import Sketch
+
+    sketch = Sketch()
+    sketch.number((100, 100), 7)
+    image = sketch.render(200, 200)
+    # The centre of a badge is painted, not hollow. An outlined digit over a
+    # screenshot is the least readable thing available.
+    assert image.getpixel((100, 100))[3] > 200
+
+
+def test_a_spotlight_dims_everything_except_its_region():
+    from meow.desktop.annotate import Sketch
+
+    sketch = Sketch()
+    sketch.spotlight([(100, 100, 300, 200)])
+    image = sketch.render(400, 300)
+    inside = image.getpixel((200, 150))
+    outside = image.getpixel((20, 20))
+    assert inside[3] == 0, "the lit region must not be dimmed"
+    assert outside[3] > 100, "everything else must be"
+
+
+def test_a_spotlight_is_drawn_under_the_marks_whatever_the_order():
+    """Added after an arrow, a shadow drawn in sequence would dim the arrow."""
+    from meow.desktop.annotate import Sketch
+
+    sketch = Sketch()
+    sketch.number((60, 60), 1)
+    sketch.spotlight([(200, 100, 380, 260)])
+    image = sketch.render(400, 300)
+    # The badge sits outside the lit region and is still opaque.
+    assert image.getpixel((60, 60))[3] > 200
+
+
+def test_marks_belong_to_groups_and_a_group_clears_alone():
+    from meow.desktop.annotate import Sketch
+
+    sketch = Sketch()
+    sketch.rings((10, 10), 20, group="step-1")
+    sketch.number((20, 20), 1, group="step-1")
+    sketch.box(0, 0, 50, 50, group="window")
+
+    assert sketch.groups() == ["step-1", "window"]
+    assert sketch.clear(group="step-1") == 2
+    assert sketch.groups() == ["window"]
+    assert len(sketch.marks) == 1
+
+
+def test_a_pinned_mark_never_expires():
+    """A walkthrough step takes a minute to follow, and a ring that faded
+    after six seconds left somebody looking at where it used to be.
+    """
+    from meow.desktop.annotate import PINNED, Mark
+
+    pinned = Mark("circle", [(0, 0), (10, 10)], seconds=PINNED)
+    pinned.born -= 600
+    assert pinned.pinned
+    assert not pinned.expired
+    assert pinned.opacity == 1.0
+
+
+def test_an_ordinary_mark_still_expires():
+    from meow.desktop.annotate import Mark
+
+    passing = Mark("circle", [(0, 0), (10, 10)], seconds=2.0)
+    passing.born -= 3
+    assert passing.expired
+
+
+def test_the_same_mark_wobbles_the_same_way_every_render():
+    """A fade re-renders the same mark five times and it has to look like one
+    line each time. `id()` would do until CPython reuses an address.
+    """
+    from meow.desktop.annotate import Sketch
+
+    sketch = Sketch()
+    sketch.box(20, 20, 180, 120)
+    first = list(sketch.render(200, 150).getdata())
+    second = list(sketch.render(200, 150).getdata())
+    assert first == second
+
+
+def test_two_marks_of_the_same_shape_do_not_share_a_hand():
+    from meow.desktop.annotate import Sketch
+
+    one = Sketch(); one.box(20, 20, 180, 120)
+    two = Sketch(); two.box(20, 20, 180, 120)
+    assert list(one.render(200, 150).getdata()) != list(
+        two.render(200, 150).getdata())
+
+
+def test_a_label_can_point_at_what_it_names():
+    from meow.desktop.annotate import Sketch
+
+    plain = Sketch(); plain.label((100, 220), "razor tool")
+    leading = Sketch(); leading.label((100, 220), "razor tool", leader=(300, 40))
+    # The leader puts ink up near the target, where the plain label has none.
+    assert not _ink_near(plain.render(400, 300), (300, 60), radius=14)
+    assert _ink_near(leading.render(400, 300), (300, 60), radius=14)
+
+
+def _ink_near(image, point, radius: int = 7) -> bool:
+    """Is anything drawn within `radius` of this point?
+
+    Needed because every stroke is deliberately wobbly now - asking whether
+    one exact pixel is painted would test the hand rather than the shape.
+    """
+    x, y = point
+    for dx in range(-radius, radius + 1):
+        for dy in range(-radius, radius + 1):
+            inside = (0 <= x + dx < image.width and 0 <= y + dy < image.height)
+            if inside and image.getpixel((x + dx, y + dy))[3] > 40:
+                return True
+    return False

@@ -22,12 +22,29 @@ much here: the grounding model reads a screenshot, and marks drawn on the
 screen would appear in the next one. The cat would then be pointing at its
 own arrows.
 
-**Every mark expires.** A teaching overlay that accumulates is a window
-somebody has to clean up, and nobody ever does.
+**Marks are drawn, not plotted.** Perfectly circular circles and perfectly
+straight lines read as a machine's output overlaid on somebody's work; a
+slightly wobbly ring reads as a person having drawn round the thing. Two
+strokes with a low-frequency sine offset along the path normal, which is the
+Rough.js trick and costs arithmetic rather than rendering. `HAND_DRAWN = False`
+turns it off, and the geometry underneath is unchanged either way - the wobble
+is applied at stroke time, so nothing downstream has to know about it.
+
+**Every mark expires, unless it is pinned.** A teaching overlay that
+accumulates is a window somebody has to clean up, and nobody ever does. But a
+walkthrough step can take a minute to follow, and a ring that faded after six
+seconds left somebody looking at the place it used to be - so `seconds=PINNED`
+stays until something clears it, and a walkthrough owns the clearing.
+
+**Marks belong to GROUPS.** A walkthrough replaces the marks for step two
+without touching the ones explaining the window; a spotlight for one step is
+not the spotlight for the next. Without a group the only options were clearing
+everything or waiting for a fade.
 """
 
 from __future__ import annotations
 
+import itertools
 import math
 import time
 from dataclasses import dataclass, field
@@ -67,6 +84,53 @@ OPACITY_STEP = 0.2
 INK = (255, 92, 48)
 ACCENT = (64, 196, 255)
 
+# A mark with this lifetime never expires. Zero rather than None so the field
+# stays a float, and checked explicitly: `age >= 0` is true the instant a mark
+# is born, so a naive comparison would expire a pinned mark immediately.
+PINNED = 0.0
+
+# --- the hand-drawn look -----------------------------------------------------
+#
+# Machine-perfect geometry overlaid on somebody's work reads as a screenshot
+# annotation tool. A wobbly ring reads as a person having drawn round the
+# thing, which is what this is pretending to be.
+HAND_DRAWN = True
+
+# Two passes, slightly apart, is what makes it read as pen rather than noise.
+# One pass with a wobble just looks like a bad line.
+SKETCH_PASSES = 2
+
+# Sideways wobble, in pre-supersample pixels. Three is visible at arm's length
+# and still lands inside the thing being circled; at eight the ring stops
+# agreeing with the rectangle it came from.
+WOBBLE_PIXELS = 3.0
+
+# Wobbles along the length of the stroke. Low on purpose: per-point random
+# offsets give a fuzzy line, and the hand-drawn look comes from a few long
+# deviations rather than many short ones.
+WOBBLE_CYCLES = 1.7
+
+# Rings in a target, and how much smaller each one is than the last. Clicky
+# calls these target rings and they are the clearest "here" available - a
+# single circle has to be sized to the thing, and two concentric ones say
+# "this point" regardless of what is under them.
+TARGET_RINGS = 3
+RING_STEP = 0.42
+
+# How dark the screen goes outside a spotlight. Dimming the irrelevant and
+# lighting the relevant is the one teaching cue this project did not have, and
+# it is the one with evidence behind it: cued material beats uncued by about
+# nine points. Too dark and it reads as a modal dialog over their work.
+SHADOW = (8, 10, 16)
+SHADOW_ALPHA = 150
+
+# Radius of a numbered badge, before supersampling, and the size of its digit.
+# Numbers are two jobs in one shape: "do these three in order" for a person,
+# and the Set-of-Mark primitive for a model, which answers with an ID far
+# better than it answers with a coordinate.
+BADGE_RADIUS = 17
+BADGE_POINTS = 19
+
 # Point size of a label, before supersampling. PIL's default is a BITMAP font
 # that does not scale, so a label drawn at 2x and shrunk back came out at half
 # size and unreadable - the text has to be asked for at the supersampled size,
@@ -75,14 +139,21 @@ LABEL_POINTS = 17
 _FONTS = ("segoeui.ttf", "arial.ttf", "DejaVuSans.ttf")
 
 
-def _font(scale: int):
+def _font(scale: int, points: int = LABEL_POINTS):
     """A scalable font at the supersampled size, or the bitmap fallback."""
     for name in _FONTS:
         try:
-            return ImageFont.truetype(name, LABEL_POINTS * scale)
+            return ImageFont.truetype(name, points * scale)
         except OSError:
             continue
     return ImageFont.load_default()
+
+
+# Every mark gets one, so its wobble is the same on every re-render. `id()`
+# would do until CPython reuses an address and two marks suddenly share a
+# hand. A fade re-renders the same mark five times and it has to look like
+# one line each time.
+_seeds = itertools.count(1)
 
 
 @dataclass
@@ -96,19 +167,32 @@ class Mark:
     text: str = ""
     bow: float = 0.0
     seconds: float = DEFAULT_SECONDS
+    # What this mark belongs to, so a walkthrough can replace the marks for
+    # one step without clearing the ones explaining the window.
+    group: str = ""
     born: float = field(default_factory=time.monotonic)
+    seed: int = field(default_factory=lambda: next(_seeds))
 
     @property
     def age(self) -> float:
         return time.monotonic() - self.born
 
     @property
+    def pinned(self) -> bool:
+        return self.seconds <= PINNED
+
+    @property
     def expired(self) -> bool:
-        return self.age >= self.seconds
+        # Checked explicitly rather than falling out of the comparison: a
+        # pinned mark has `seconds == 0`, and `age >= 0` is true the instant
+        # it is born, so the obvious expression expires it immediately.
+        return not self.pinned and self.age >= self.seconds
 
     @property
     def opacity(self) -> float:
         """1.0, then a fade at the end rather than a disappearance."""
+        if self.pinned:
+            return 1.0
         remaining = self.seconds - self.age
         fading = self.seconds * FADE_FRACTION
         if remaining >= fading or fading <= 0:
@@ -154,6 +238,81 @@ def bowed(start: tuple, end: tuple, bow: float) -> list:
     return [start, control, end]
 
 
+def ellipse_outline(left, top, right, bottom, steps: int = CURVE_STEPS) -> list:
+    """An ellipse as a closed polyline.
+
+    Needed because a hand-drawn ring cannot be `pen.ellipse` - the wobble is
+    applied along a path, and PIL's ellipse has no path to apply it to. The
+    polyline is also what makes a circle and a rounded box the same code at
+    stroke time.
+    """
+    centre = ((left + right) / 2.0, (top + bottom) / 2.0)
+    radius = ((right - left) / 2.0, (bottom - top) / 2.0)
+    points = []
+    for step in range(steps + 1):
+        angle = step / steps * math.tau
+        points.append((centre[0] + radius[0] * math.cos(angle),
+                       centre[1] + radius[1] * math.sin(angle)))
+    return points
+
+
+def rectangle_outline(left, top, right, bottom, radius: float = 0.0) -> list:
+    """A rounded rectangle as a closed polyline, corners sampled as arcs."""
+    radius = max(0.0, min(radius, (right - left) / 2.0, (bottom - top) / 2.0))
+    if radius <= 0:
+        return [(left, top), (right, top), (right, bottom), (left, bottom),
+                (left, top)]
+
+    per_corner = 8
+    corners = (
+        ((right - radius, top + radius), 270),
+        ((right - radius, bottom - radius), 0),
+        ((left + radius, bottom - radius), 90),
+        ((left + radius, top + radius), 180),
+    )
+    points: list = []
+    for (centre, start) in corners:
+        for step in range(per_corner + 1):
+            angle = math.radians(start + 90 * step / per_corner)
+            points.append((centre[0] + radius * math.cos(angle),
+                           centre[1] + radius * math.sin(angle)))
+    points.append(points[0])
+    return points
+
+
+def wobbled(points: list, seed: int, amount: float,
+            phase: float = 0.0) -> list:
+    """The same path, pushed sideways by a slow sine. Deterministic per seed.
+
+    Offsets are applied along the NORMAL to the path, not in x and y, so a
+    wobbled circle stays a circle that someone drew badly rather than becoming
+    an oval. The frequency is deliberately low - per-point random offsets give
+    a fuzzy line, and what reads as a hand is a few long deviations.
+    """
+    if amount <= 0 or len(points) < 2:
+        return list(points)
+
+    # Two numbers out of the seed: where the wobble starts and how fast it
+    # runs. Arithmetic rather than `random`, because this is called from the
+    # render path and must not touch global state a test might be seeding.
+    scramble = (seed * 2654435761) & 0xFFFFFFFF
+    start = (scramble & 1023) / 1023.0 * math.tau + phase
+    cycles = WOBBLE_CYCLES * (0.7 + ((scramble >> 10) & 255) / 255.0 * 0.6)
+
+    total = len(points) - 1
+    out = []
+    for index, (x, y) in enumerate(points):
+        ahead = points[min(index + 1, total)]
+        behind = points[max(index - 1, 0)]
+        dx, dy = ahead[0] - behind[0], ahead[1] - behind[1]
+        length = math.hypot(dx, dy) or 1.0
+        # Perpendicular to the direction of travel.
+        nx, ny = -dy / length, dx / length
+        push = math.sin(start + index / max(1, total) * cycles * math.tau)
+        out.append((x + nx * push * amount, y + ny * push * amount))
+    return out
+
+
 class Sketch:
     """The marks currently on screen."""
 
@@ -191,8 +350,51 @@ class Sketch:
         """A translucent wash over a region, for "look at this part"."""
         return self._add(Mark("highlight", [(left, top), (right, bottom)], **kw))
 
-    def label(self, at, text: str, **kw) -> Mark:
-        return self._add(Mark("label", [tuple(at)], text=text, **kw))
+    def label(self, at, text: str, leader=None, **kw) -> Mark:
+        """Text on a plate. With `leader`, a line from the plate to a point.
+
+        A label with nowhere to point is a caption; the leader is what makes
+        it an annotation. Without it, "the razor tool" sat next to four icons
+        and named none of them.
+        """
+        points = [tuple(at)] + ([tuple(leader)] if leader else [])
+        return self._add(Mark("label", points, text=text, **kw))
+
+    def rings(self, centre, radius: int = 34, **kw) -> Mark:
+        """Concentric rings around a point - "this, here".
+
+        A single circle has to be sized to the thing it encloses, which means
+        knowing how big the thing is. Rings say "this point" whatever is under
+        them, which is what grounding by sight can honestly claim when it is
+        right to within thirty pixels.
+        """
+        return self._add(Mark("rings", [tuple(centre), (radius, radius)], **kw))
+
+    def number(self, at, index: int, **kw) -> Mark:
+        """A numbered badge. "Do these three, in this order."
+
+        Also the Set-of-Mark primitive: a model handed numbered candidates
+        and asked for an ID answers far better than one asked for a
+        coordinate - measured elsewhere at 30% to 87% on the same model.
+        """
+        return self._add(Mark("number", [tuple(at)], text=str(index), **kw))
+
+    def spotlight(self, regions, **kw) -> Mark:
+        """Dim the screen except for these rectangles.
+
+        `regions` is a list of (left, top, right, bottom). Dimming the
+        irrelevant and lighting the relevant is the teaching cue with the most
+        evidence behind it, and the one this project did not have.
+
+        Drawn UNDERNEATH every other mark regardless of when it was added -
+        see `render`. A spotlight added after an arrow would otherwise dim the
+        arrow.
+        """
+        points: list = []
+        for region in regions:
+            left, top, right, bottom = region
+            points.extend([(left, top), (right, bottom)])
+        return self._add(Mark("spotlight", points, **kw))
 
     # --- housekeeping -----------------------------------------------------
 
@@ -200,14 +402,35 @@ class Sketch:
         self.marks.append(mark)
         return mark
 
-    def clear(self) -> None:
-        self.marks.clear()
+    def clear(self, group: str | None = None) -> int:
+        """Rub out everything, or one group. Returns how many went.
+
+        A group rather than everything, because a walkthrough replaces the
+        marks for step two without touching the ones explaining the window -
+        and before groups the only choices were clearing the lot or waiting
+        for a fade.
+        """
+        if group is None:
+            gone = len(self.marks)
+            self.marks.clear()
+            return gone
+        before = len(self.marks)
+        self.marks = [mark for mark in self.marks if mark.group != group]
+        return before - len(self.marks)
 
     def prune(self) -> bool:
         """Drop expired marks. True when something went."""
         before = len(self.marks)
         self.marks = [mark for mark in self.marks if not mark.expired]
         return len(self.marks) != before
+
+    def groups(self) -> list[str]:
+        """Which groups currently have marks, in the order they appeared."""
+        seen: list[str] = []
+        for mark in self.marks:
+            if mark.group and mark.group not in seen:
+                seen.append(mark.group)
+        return seen
 
     @property
     def empty(self) -> bool:
@@ -225,13 +448,15 @@ class Sketch:
         """
         scale = SUPERSAMPLE
         canvas = Image.new("RGBA", (width * scale, height * scale), (0, 0, 0, 0))
-        pen = ImageDraw.Draw(canvas, "RGBA")
 
         def place(point):
             return ((point[0] - origin[0]) * scale,
                     (point[1] - origin[1]) * scale)
 
+        pen = ImageDraw.Draw(canvas, "RGBA")
         for mark in self.marks:
+            if mark.kind == "spotlight":
+                continue
             alpha = int(255 * mark.opacity)
             if alpha <= 0:
                 continue
@@ -239,7 +464,84 @@ class Sketch:
             thickness = max(1, mark.width * scale)
             self._draw(pen, mark, colour, thickness, place, scale)
 
-        return canvas.resize((width, height), Image.LANCZOS)
+        marks = canvas.resize((width, height), Image.LANCZOS)
+
+        # Spotlights last in the code and FIRST in the picture. A shadow is a
+        # layer with holes in it rather than a shape, so it cannot be drawn
+        # with the pen, and drawn in sequence it would dim every mark added
+        # before it.
+        #
+        # Built at OUTPUT size rather than supersampled: it is a soft dark
+        # region whose only curve is a corner radius, and building it at 2x
+        # and shrinking it cost 37ms to make something nobody can tell apart.
+        shadows = [mark for mark in self.marks
+                   if mark.kind == "spotlight" and mark.opacity > 0]
+        if not shadows:
+            return marks
+        return Image.alpha_composite(
+            self._shadow(shadows, (width, height), origin), marks)
+
+    @staticmethod
+    def _shadow(marks, size, origin) -> Image.Image:
+        """A dark layer with the lit regions punched out of it.
+
+        Built as a MASK and pasted, not drawn: PIL's RGBA draw mode blends,
+        so drawing a transparent rectangle over the shadow does nothing at
+        all. The alpha channel is painted instead, which is the only way to
+        make a hole.
+        """
+        strongest = max(mark.opacity for mark in marks)
+        mask = Image.new("L", size, int(SHADOW_ALPHA * strongest))
+        cutter = ImageDraw.Draw(mask)
+        for mark in marks:
+            corners = [(point[0] - origin[0], point[1] - origin[1])
+                       for point in mark.points]
+            for (left, top), (right, bottom) in zip(corners[::2], corners[1::2]):
+                cutter.rounded_rectangle(
+                    [min(left, right), min(top, bottom),
+                     max(left, right), max(top, bottom)],
+                    radius=10, fill=0)
+        shadow = Image.new("RGBA", size, (*SHADOW, 255))
+        shadow.putalpha(mask)
+        return shadow
+
+    def _stroke(self, pen, points, colour, thickness, mark, scale) -> list:
+        """Draw a path. Twice and wobbling, when the look is hand-drawn.
+
+        Returns the points actually drawn for the LAST pass, so an arrowhead
+        can align with the line it is on rather than with the clean geometry
+        the line was computed from.
+        """
+        if len(points) < 2:
+            return list(points)
+        if not HAND_DRAWN:
+            pen.line(points, fill=colour, width=thickness, joint="curve")
+            return list(points)
+
+        # Clamped to the SIZE of the thing being drawn. A fixed three pixels
+        # is a hand on a circle sixty across and a destroyed shape on one
+        # seven across - the innermost target ring came out as a scribble,
+        # because the wobble was most of its radius.
+        xs = [point[0] for point in points]
+        ys = [point[1] for point in points]
+        span = min(max(xs) - min(xs), max(ys) - min(ys))
+        amount = min(WOBBLE_PIXELS * scale, span * 0.07)
+        if amount <= 0.5:
+            pen.line(points, fill=colour, width=thickness, joint="curve")
+            return list(points)
+
+        # Each pass is thinner than the nominal width - two full-width strokes
+        # side by side read as a double line rather than as one pen - and the
+        # second is shallower than the first, so the two cross instead of
+        # running parallel. Parallel is a drafting convention; crossing is a
+        # pen going over its own line.
+        pass_width = max(1, int(thickness * 0.72))
+        drawn = points
+        for index in range(SKETCH_PASSES):
+            drawn = wobbled(points, mark.seed + index * 977,
+                            amount * (1.0 - index * 0.4), phase=index * 1.9)
+            pen.line(drawn, fill=colour, width=pass_width, joint="curve")
+        return drawn
 
     def _draw(self, pen, mark, colour, thickness, place, scale) -> None:
         kind = mark.kind
@@ -247,45 +549,86 @@ class Sketch:
         if kind in ("line", "arrow"):
             control = bowed(mark.points[0], mark.points[1], mark.bow)
             sampled = [place(p) for p in bezier(control)]
-            pen.line(sampled, fill=colour, width=thickness, joint="curve")
+            drawn = self._stroke(pen, sampled, colour, thickness, mark, scale)
             if kind == "arrow":
-                self._head(pen, sampled, colour, thickness)
+                self._head(pen, drawn, colour, thickness)
             return
 
         if kind in ("curve", "path"):
             points = [place(p) for p in (
                 bezier(mark.points) if kind == "curve" else mark.points)]
-            if len(points) >= 2:
-                pen.line(points, fill=colour, width=thickness, joint="curve")
+            self._stroke(pen, points, colour, thickness, mark, scale)
             return
 
         if kind == "box":
             (left, top), (right, bottom) = (place(p) for p in mark.points)
-            pen.rounded_rectangle([left, top, right, bottom],
-                                  radius=6 * scale, outline=colour,
-                                  width=thickness)
+            self._stroke(pen, rectangle_outline(left, top, right, bottom,
+                                                6 * scale),
+                         colour, thickness, mark, scale)
             return
 
         if kind == "circle":
             centre = place(mark.points[0])
             radius = mark.points[1][0] * scale
-            pen.ellipse([centre[0] - radius, centre[1] - radius,
-                         centre[0] + radius, centre[1] + radius],
-                        outline=colour, width=thickness)
+            self._stroke(pen, ellipse_outline(centre[0] - radius,
+                                              centre[1] - radius,
+                                              centre[0] + radius,
+                                              centre[1] + radius),
+                         colour, thickness, mark, scale)
+            return
+
+        if kind == "rings":
+            centre = place(mark.points[0])
+            radius = mark.points[1][0] * scale
+            for ring in range(TARGET_RINGS):
+                size = radius * (1.0 - ring * RING_STEP)
+                # Below this a ring is a dot, and three dots inside each
+                # other is not a target.
+                if size <= 7 * scale:
+                    break
+                # Each ring fainter than the one outside it, so the eye runs
+                # inward to the point rather than stopping at the outline.
+                faded = (*mark.colour,
+                         max(30, int(colour[3] * (1.0 - ring * 0.22))))
+                self._stroke(pen, ellipse_outline(centre[0] - size,
+                                                  centre[1] - size,
+                                                  centre[0] + size,
+                                                  centre[1] + size),
+                             faded, max(1, thickness - ring), mark, scale)
             return
 
         if kind == "ellipse":
             (left, top), (right, bottom) = (place(p) for p in mark.points)
-            pen.ellipse([left, top, right, bottom], outline=colour,
-                        width=thickness)
+            self._stroke(pen, ellipse_outline(left, top, right, bottom),
+                         colour, thickness, mark, scale)
             return
 
         if kind == "highlight":
             (left, top), (right, bottom) = (place(p) for p in mark.points)
+            # The wash is a real rectangle: a wobbly fill looks like a
+            # mistake, while a wobbly outline looks drawn. Different jobs.
             wash = (*mark.colour, int(colour[3] * 0.22))
             pen.rounded_rectangle([left, top, right, bottom],
-                                  radius=8 * scale, fill=wash,
-                                  outline=colour, width=max(1, thickness // 2))
+                                  radius=8 * scale, fill=wash)
+            self._stroke(pen, rectangle_outline(left, top, right, bottom,
+                                                8 * scale),
+                         colour, max(1, thickness // 2), mark, scale)
+            return
+
+        if kind == "number":
+            centre = place(mark.points[0])
+            radius = BADGE_RADIUS * scale
+            # A filled badge, not an outline. A number has to be legible on
+            # whatever is underneath it, and an outlined digit over a
+            # screenshot is the least readable thing available.
+            pen.ellipse([centre[0] - radius, centre[1] - radius,
+                         centre[0] + radius, centre[1] + radius],
+                        fill=(*mark.colour, colour[3]),
+                        outline=(255, 255, 255, colour[3]),
+                        width=max(1, scale))
+            font = _font(scale, BADGE_POINTS)
+            pen.text(centre, mark.text, fill=(255, 255, 255, colour[3]),
+                     font=font, anchor="mm")
             return
 
         if kind == "label":
@@ -295,6 +638,14 @@ class Sketch:
             # busy screenshot somebody most needs it explained on.
             box = pen.textbbox((x, y), mark.text, font=font)
             pad = 5 * scale
+            if len(mark.points) > 1:
+                # The leader runs from the edge of the plate to the thing,
+                # drawn FIRST so the plate covers where it starts.
+                target = place(mark.points[1])
+                anchor = (box[0] + (box[2] - box[0]) / 2,
+                          box[1] + (box[3] - box[1]) / 2)
+                self._stroke(pen, [anchor, target], colour,
+                             max(1, thickness // 2), mark, scale)
             pen.rounded_rectangle(
                 [box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad],
                 radius=5 * scale, fill=(16, 16, 20, int(colour[3] * 0.82)))
@@ -392,9 +743,11 @@ class Board:
             self._showing = True
         self._blank = False
 
-    def clear(self) -> None:
-        self.sketch.clear()
+    def clear(self, group: str | None = None) -> int:
+        """Rub out everything, or one group. Returns how many marks went."""
+        gone = self.sketch.clear(group)
         self.draw()
+        return gone
 
     def close(self) -> None:
         try:

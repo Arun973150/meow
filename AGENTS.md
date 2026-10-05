@@ -602,7 +602,7 @@ resolved day and time back.
 
 ⚠ **There is NO send tool in the harness, and there must never be one.** The
 harness holds the screen, which is private data and untrusted content both;
-one send tool closes the trifecta in a single move. 32 tools, none of them
+one send tool closes the trifecta in a single move. 35 tools, none of them
 send-shaped, and `meow/testing/stress.py` checks that.
 
 **Approval is explicit.** Saying "send it" sends the newest waiting draft, and
@@ -989,6 +989,69 @@ never mentioned. Same trap as the planner prompt: **adding a tool means
 updating the prompt that would choose it**, and the failure looks like the
 feature not working rather than the model not knowing.
 
+**SHAPES: rings, numbers, spotlight, groups, pinning, and a hand.** The
+`Sketch` vocabulary had nine kinds and `show_on_screen` could reach four -
+curve, path, ellipse, line and label were built, tested and **unreachable from
+a spoken sentence.** Same trap as the planner prompt and the drawing tools
+before it: the capability existed and nothing could ask for it.
+
+| mark | for |
+|---|---|
+| `rings` | concentric target rings on a POINT - the default, and the honest one |
+| `number` | a numbered badge: "these three, in this order", and the Set-of-Mark primitive |
+| `spotlight` | dims the whole screen except the lit regions |
+| `label(leader=)` | words joined to the thing by a line |
+
+⚠ **Rings are the DEFAULT for a reason, and it is honesty.** Grounding by
+sight is right to within about thirty pixels when it is right at all, and a
+circle drawn tight round a rectangle asserts an extent that was never
+measured. Rings say "this point", which is what was actually found.
+
+**A spotlight is the one teaching cue with evidence behind it.** Dimming the
+irrelevant and lighting the relevant - cued material beats uncued by about
+nine points in the signalling literature, and it is the cue this project did
+not have.
+
+⚠ **A shadow is a layer with HOLES, not a shape.** PIL's RGBA draw mode
+blends, so drawing a transparent rectangle over a dim layer does nothing at
+all. The alpha channel is painted as a mask instead, which is the only way to
+make a hole. And it is drawn first in the picture and last in the code: a
+spotlight added after an arrow would otherwise dim the arrow.
+
+⚠ **Build the shadow at OUTPUT size, not supersampled.** It is a soft dark
+region whose only curve is a corner radius; at 2x it cost **37ms** to make
+something nobody can tell apart. Nine marks plus a spotlight went 139ms to
+73ms. Most of what remains is the pre-existing cost of allocating a
+2560x1600 canvas and LANCZOS-ing it back down, which only happens when the
+picture would actually differ.
+
+**Marks are drawn, not plotted.** Machine-perfect geometry over somebody's
+work reads as a screenshot annotation tool; a wobbly ring reads as a person
+having drawn round the thing. Two strokes with a low-frequency sine offset
+along the path NORMAL - the Rough.js trick, arithmetic rather than rendering.
+`HAND_DRAWN = False` turns it off and the geometry underneath is unchanged.
+
+⚠ **Wobble has to be clamped to the SIZE of the shape.** A fixed three pixels
+is a hand on a circle sixty across and a destroyed shape on one seven across:
+the innermost target ring came out as a scribble, because the wobble was most
+of its radius. Clamped to 7% of the smaller span, and a ring smaller than
+seven pixels is dropped rather than drawn as noise.
+
+⚠ **The second stroke is SHALLOWER, not just out of phase.** Equal amplitude
+with a phase shift gives two parallel lines, which is a drafting convention.
+Crossing is a pen going over its own line.
+
+⚠ **Each mark carries its own `seed`.** A fade re-renders the same mark five
+times and it has to look like one line each time. `id()` would do until
+CPython reuses an address and two marks suddenly share a hand.
+
+**Pinned marks and groups.** `seconds=PINNED` never expires - a walkthrough
+step takes a minute to follow, and a ring that faded after six seconds left
+somebody looking at where it used to be. `expired` checks `pinned` explicitly,
+because `age >= 0` is true the instant a mark is born and the obvious
+expression expires a pinned mark immediately. `clear(group=...)` replaces the
+marks for one step without touching the ones explaining the window.
+
 ⚠ **Curves are the reason this is not three primitives.** A bond path, a
 knight's sweep, an arrow bending round a panel - drawn as two straight
 segments those read as mistakes rather than gestures. PIL has no curve, so
@@ -1218,7 +1281,7 @@ happened. The model rounds are most of it and the rest was waiting.
 ROUTER (reflex: route · needs_screen · risky — gpt-4.1-nano, strict schema)
  │
  ├──▶ RESEARCH   search + fetch only. No files. No desktop. No send.
- ├──▶ HARNESS    32 tools · 2 prompts · reactive | deliberate(planner)
+ ├──▶ HARNESS    35 tools · 2 prompts · reactive | deliberate(planner)
  └──▶ EXPLAINER  manim pipeline, fixed shape
 ```
 
@@ -1234,7 +1297,7 @@ meow connectors      which services are connected, and connect one
 meow stress          64 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               272 fast checks - no Windows, no keys, no network
+pytest               283 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

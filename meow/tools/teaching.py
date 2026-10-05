@@ -24,9 +24,13 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-from ..desktop.annotate import ACCENT, INK
+from ..desktop.annotate import ACCENT, INK, PINNED
 from .record import ToolRun
 from ..desktop.actions import Outcome
+
+# Numbered sequences are their own group, so numbering a second one replaces
+# the first. Two sets of digits on the same screen is worse than none.
+STEP_BADGES = "step-badges"
 
 
 def build(harness) -> list:
@@ -66,14 +70,32 @@ def build(harness) -> list:
                 f"can see it marked.")
 
     @tool
-    def show_on_screen(description: str, shape: str = "circle") -> str:
+    def show_on_screen(description: str, shape: str = "rings",
+                       label: str = "") -> str:
         """Draw a mark on screen around something, so the user can SEE it.
 
         Use whenever explaining where a thing is - "the white queen", "the
         razor tool", "the left kidney on this diagram". Works on pictures and
         canvases where there are no controls at all.
 
-        shape: circle, box, arrow or highlight.
+        shape, and when each one is right:
+          rings      concentric rings on a POINT. The default, and the honest
+                     one when the thing has no obvious edges - a piece on a
+                     board, an icon in a crowded toolbar.
+          circle     one ring sized to the thing. For something with a clear
+                     round-ish extent.
+          box        a rectangle round it. For panels, fields, table cells.
+          ellipse    an oval round it, for a wide or tall region.
+          highlight  a translucent wash over it. For a region to READ, like a
+                     paragraph or a row of settings.
+          spotlight  dims the whole screen except this. For "ignore all of
+                     that, look here" on a dense interface. Use it sparingly -
+                     it covers their work.
+          arrow      an arrow coming in to it from below left.
+
+        label: optional words to write beside it, joined to the thing by a
+        line - "the razor tool", "this is the keyframe". Say what it IS, never
+        where it is.
         """
         # Said BEFORE the slow part. Grounding by sight is two API round
         # trips and takes about seven seconds, and seven seconds of silence
@@ -95,22 +117,40 @@ def build(harness) -> list:
 
         left, top, right, bottom = (target.left, target.top,
                                     target.right, target.bottom)
+        centre = target.centre
         pad = 18
+        sketch = board.sketch
+
         if shape == "box":
-            board.sketch.box(left - pad, top - pad, right + pad, bottom + pad)
+            sketch.box(left - pad, top - pad, right + pad, bottom + pad)
+        elif shape == "ellipse":
+            sketch.ellipse(left - pad, top - pad, right + pad, bottom + pad)
         elif shape == "highlight":
-            board.sketch.highlight(left - pad, top - pad,
-                                   right + pad, bottom + pad)
+            sketch.highlight(left - pad, top - pad, right + pad, bottom + pad)
+        elif shape == "spotlight":
+            # Generous padding: a spotlight cropped tight to a control hides
+            # the thing next to it that gives it meaning.
+            sketch.spotlight([(left - pad * 3, top - pad * 2,
+                               right + pad * 3, bottom + pad * 2)])
         elif shape == "arrow":
-            centre = target.centre
             # Comes in from below-left, so the head does not sit on top of the
             # thing it is indicating.
-            board.sketch.arrow((centre[0] - 180, centre[1] + 140), centre,
-                               bow=0.25)
+            sketch.arrow((centre[0] - 180, centre[1] + 140), centre, bow=0.25)
+        elif shape == "circle":
+            sketch.circle(centre, max(28, (right - left) // 2 + pad))
         else:
-            centre = target.centre
-            radius = max(28, (right - left) // 2 + pad)
-            board.sketch.circle(centre, radius)
+            # Rings are the default, and that is a claim about honesty rather
+            # than taste. Grounding by sight is right to within about thirty
+            # pixels when it is right at all, and a circle drawn tight round a
+            # rectangle asserts an extent that was never measured. Rings say
+            # "this point", which is what was actually found.
+            sketch.rings(centre, max(30, (right - left) // 2 + pad))
+
+        if label:
+            # Offset below and left of the thing, so the plate does not cover
+            # what it is naming, with a leader back to it.
+            sketch.label((centre[0] - 150, centre[1] + 110), label,
+                         leader=centre, colour=ACCENT)
         # NOT drawn here. A Win32 window belongs to the thread that
         # made it, tools run on a per-turn worker, and painting
         # from another thread onto a window whose creator has
@@ -148,7 +188,7 @@ def build(harness) -> list:
 
         # Bowed, because a straight line between two squares on a board reads
         # as a boundary rather than a movement.
-        board.sketch.circle(start.centre, 34, colour=ACCENT, seconds=8.0)
+        board.sketch.rings(start.centre, 34, colour=ACCENT, seconds=8.0)
         board.sketch.arrow(start.centre, end.centre, bow=0.28,
                            colour=INK, seconds=8.0)
         harness.runs.append(ToolRun(
@@ -156,6 +196,70 @@ def build(harness) -> list:
             Outcome(True, "drew the move"), end))
         return (f"Drawn an arrow from {from_description} to "
                 f"{to_description}. Say what the move is, not where it is.")
+
+    @tool
+    def number_the_steps(things: list[str]) -> str:
+        """Number several things on screen, in the order they are to be used.
+
+        For teaching a sequence that lives in ONE window - "click the fill
+        tool, then the colour swatch, then the canvas". Draws a numbered
+        badge on each, so the whole order is visible at once instead of
+        being held in their head.
+
+        Not for a route through menus and pages: those are steps on different
+        screens, and find_how_to walks them one at a time. This is for things
+        that are all in front of them now.
+
+        Up to four. Each one has to be found on screen, which can take several
+        seconds apiece when the accessibility tree cannot see them.
+        """
+        wanted = [thing for thing in things if thing and thing.strip()][:4]
+        if len(wanted) < 2:
+            return ("Numbering needs at least two things. For one, use "
+                    "show_on_screen.")
+
+        board = harness.board()
+        if board is None:
+            return "I cannot draw on this screen."
+
+        harness.note(f"let me find those {len(wanted)} things on your screen.")
+
+        # Cleared as a GROUP, so numbering a second sequence replaces the
+        # first instead of leaving two sets of digits on screen.
+        board.sketch.clear(group=STEP_BADGES)
+
+        found: list[str] = []
+        missing: list[str] = []
+        for position, thing in enumerate(wanted, start=1):
+            target = harness.locate_anything(thing)
+            if target is None:
+                missing.append(thing)
+                continue
+            board.sketch.rings(target.centre, 30, seconds=PINNED,
+                               group=STEP_BADGES)
+            # Offset up and right of the ring, so the badge does not cover
+            # the thing it is numbering.
+            badge = (target.centre[0] + 34, target.centre[1] - 32)
+            board.sketch.number(badge, position, colour=ACCENT,
+                                seconds=PINNED, group=STEP_BADGES)
+            found.append(thing)
+
+        harness.runs.append(ToolRun(
+            "number_the_steps", ", ".join(wanted)[:60],
+            Outcome(bool(found), f"numbered {len(found)} of {len(wanted)}")))
+
+        if not found:
+            board.sketch.clear(group=STEP_BADGES)
+            return ("I could not find any of those on this screen, so I have "
+                    "drawn nothing. Do not guess at where they are.")
+        numbered = ", ".join(f"{n}" for n in range(1, len(found) + 1))
+        answer = (f"Numbered {numbered} on their screen: "
+                  f"{'; '.join(found)}. Say what to do in that order, "
+                  f"referring to the numbers. The marks stay until cleared.")
+        if missing:
+            answer += (f" NOT found, so not numbered: {'; '.join(missing)} - "
+                       f"say so rather than describing where they might be.")
+        return answer
 
     @tool
     def clear_the_screen() -> str:
@@ -172,5 +276,6 @@ def build(harness) -> list:
         look_at_screen,
         show_on_screen,
         draw_a_move,
+        number_the_steps,
         clear_the_screen,
     ]
