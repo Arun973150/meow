@@ -55,7 +55,8 @@ meow/voice/tts.py           Speaker protocol + ElevenLabs eleven_flash_v2_5
 meow/cli.py                 one command: meow · doctor · stress · smoke · routing
 meow/app/loop.py            THE WHOLE LOOP - routes, answers, points, presses
 meow/desktop/               uia · actions · grounding · pointing · verify ·
-                            lookup · apps · vision - the thesis lives here
+                            lookup · apps · vision · annotate · marking -
+                            the thesis lives here
 meow/agent/                 harness · planner · router · risk · memory ·
                             mind · evaluation - the parts that decide
 meow/work/                  tasks · taskwindow · agentdock · conversations
@@ -72,7 +73,7 @@ meow/tools/knowledge.py     look things up, and how to do them
 meow/tools/workspace.py     documents, and what a task already made
 meow/tools/support.py       measured constants, below harness and tools both
 meow/tools/record.py        ToolRun - shared, so neither imports the other
-meow/testing/stress.py      64 edge cases across every module
+meow/testing/stress.py      70 edge cases across every module
 meow/testing/smoke.py       runs the REAL app and fails on any traceback
 meow/diagnostics/           keys · connectors · the ablation
 tests/                      pytest - language, dictation, and the invariants
@@ -277,7 +278,7 @@ click it. Each step names the real bug it is watching for.
 
 **Two automated checks.** `meow smoke`
 starts the real app and fails on a traceback; `meow stress` throws
-64 edge cases at every module — empty strings, 10,000 characters, Devanagari,
+70 edge cases at every module — empty strings, 10,000 characters, Devanagari,
 emoji, SQL, path traversal, reserved Windows filenames, eight threads at once,
 a window killed mid-read. Both are verified to fail on real bugs.
 
@@ -951,6 +952,68 @@ token budget thinking, returning one query instead of three.
 real Windows Settings: dark mode -> `Personalization`, bluetooth ->
 `Bluetooth & devices`, dns -> `Network & internet`.
 
+**SPATIAL CONTEXT: the user can draw on their own screen.** Tap
+**Ctrl+Shift+M**, circle the thing, then ask about it. Everything else in this
+project runs one way - the cat looks and marks what it found - and this is the
+way back.
+
+**It is a grounding signal, not a gesture.** Sight scored **23 of 44**
+hand-labelled targets and the failures cluster exactly where the screen is
+busiest: Illustrator 1/8, Premiere 1/6. The search space is a whole
+professional interface, and a circle collapses it to one region. Nothing else
+available changes the problem that much - it turns "find the razor tool
+somewhere in Resolve" into "find it in this box", which is a different
+question.
+
+**The region is CROPPED and ENLARGED, not just described.** `ZOOM_TO = 1024`
+on the longest side, capped at 4x. Enlarging adds no information and is still
+the technique: accuracy depends on how many pixels the target occupies in what
+the model is SHOWN, which is why zoom is the training-free method that moves
+the number at all - measured elsewhere at **+13.4% on ScreenSpot-Pro**. Both
+`locate_anything` and `look_at_screen` use it.
+
+⚠ **The marks overlay stops being click-through while somebody draws, and
+that is the whole trick.** Every overlay here passes clicks to what is
+underneath, which is right for all of them except this one: a click-through
+layer lets the drag land in Photoshop, so somebody circling a thing to ask
+about it is drawing on their own artwork. `Overlay.set_click_through()` swaps
+`WS_EX_TRANSPARENT` on the window that already exists - recreating it would
+lose the capture-exclusion affinity and flicker. **Verified that invariant 7
+survives the swap**, in `meow stress`.
+
+⚠ **`SetWindowLongPtrW`, never `SetWindowLongW`.** An extended style is
+pointer-sized and the 32-bit call truncates it - the same class of bug as an
+unset GDI restype, and it surfaces just as far from the cause. And zero is a
+legitimate previous value, so `set_last_error(0)` first or a window with no
+extended style reads as a failure.
+
+⚠ **Read `GetAsyncKeyState`'s 0x8000 bit, not 0x0001.** The low bit is
+"pressed at some point since anyone last asked" and accumulates while nobody
+is asking - that is what opened a chat window nobody asked for. A drag wants
+"is the button down RIGHT NOW", which is the high bit and has no history to
+go stale.
+
+⚠ **A REGION IS CONSUMED, never read.** One that outlives the question it was
+drawn for silently narrows the next one: everything works, the answers are
+about the wrong part of the screen, and nothing in the reply says so. Taken
+once by the turn, cleared in the `finally`, and stale after two minutes even
+if never used.
+
+⚠ **A tap is a point, not a region.** A deliberate tap moves two or three
+pixels on a real trackpad, and claiming a fourteen-pixel region would narrow
+the search to less than one icon - worse than not narrowing at all. Under
+`TAP_PIXELS` it becomes a 60px radius around the point, and `Region.tapped`
+says so, so nothing reports the box as the size of the thing.
+
+⚠ **A region that does not overlap the screenshot is REPORTED, not
+searched.** Marking something on a second monitor must not quietly search the
+wrong screen for it.
+
+**The marking hotkey is the one allowed to be unavailable.** Talking to the
+cat and stopping it are the application; drawing on the screen is a feature,
+and refusing to start over a key another program already holds would be the
+tail wagging the dog.
+
 **Phase B: it can draw on the screen.** `meow/desktop/annotate.py` - arrows
 straight or curved, lines, Bezier curves, freehand paths, boxes, circles,
 ellipses, translucent highlights and labels, on a full-screen overlay of their
@@ -1334,10 +1397,10 @@ pip install -e .
 meow                 the companion
 meow doctor          what is installed, which keys are set
 meow connectors      which services are connected, and connect one
-meow stress          64 edge cases across every module
+meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               290 fast checks - no Windows, no keys, no network
+pytest               307 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

@@ -40,6 +40,7 @@ WS_EX_TRANSPARENT = 0x00000020      # click-through
 WS_EX_TOPMOST = 0x00000008
 WS_EX_NOACTIVATE = 0x08000000       # never take focus
 WS_EX_TOOLWINDOW = 0x00000080       # keep out of alt-tab and the taskbar
+GWL_EXSTYLE = -20                   # the extended style, for changing it later
 
 # --- capture exclusion ---------------------------------------------------
 
@@ -151,6 +152,15 @@ user32.SetWindowPos.argtypes = [
     wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
     ctypes.c_int, ctypes.c_int, wintypes.UINT,
 ]
+# An extended style is a pointer-sized value, and the W suffix is not
+# optional on 64-bit: SetWindowLongW truncates it to 32 bits, which is the
+# same class of bug as an unset GDI restype and surfaces just as far from the
+# cause.
+user32.GetWindowLongPtrW.restype = ctypes.c_longlong
+user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.SetWindowLongPtrW.restype = ctypes.c_longlong
+user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int,
+                                     ctypes.c_longlong]
 user32.SetWindowDisplayAffinity.argtypes = [wintypes.HWND, wintypes.DWORD]
 user32.SetWindowDisplayAffinity.restype = wintypes.BOOL
 user32.GetWindowDisplayAffinity.argtypes = [
@@ -279,6 +289,37 @@ class Overlay:
         self._closed = False
         if exclude_from_capture:
             self.set_capture_excluded(True)
+
+    # --- click-through, which is not fixed at creation --------------------
+
+    def set_click_through(self, through: bool) -> None:
+        """Swap WS_EX_TRANSPARENT on a window that already exists.
+
+        For the one overlay that has to be both. The marks layer is
+        click-through for its whole life except while the user is drawing on
+        it, and during that it has to SWALLOW the drag - a click-through
+        overlay would let the stroke land in Photoshop, which is somebody
+        drawing on their own artwork to ask a question about it.
+
+        Recreating the window instead would lose the capture-exclusion
+        affinity and the pixels already pushed to it, and would flicker.
+        """
+        if through == self.click_through:
+            return
+        style = user32.GetWindowLongPtrW(self.handle, GWL_EXSTYLE)
+        if through:
+            style |= WS_EX_TRANSPARENT
+        else:
+            style &= ~WS_EX_TRANSPARENT
+        ctypes.set_last_error(0)
+        if not user32.SetWindowLongPtrW(self.handle, GWL_EXSTYLE, style):
+            # Zero is a legitimate previous value, so the error code is the
+            # only way to tell a failure from a window that had no extended
+            # style at all. Cleared above for exactly that reason.
+            error = ctypes.get_last_error()
+            if error:
+                raise ctypes.WinError(error)
+        self.click_through = through
 
     # --- capture exclusion ----------------------------------------------
 

@@ -408,6 +408,105 @@ def stress_dock() -> None:
     check("dock: empty consumes nothing", empty_dock_consumes_nothing)
 
 
+# --------------------------------------------------------------- marking ---
+
+def stress_marking() -> None:
+    """Drawing on the screen, against a real overlay.
+
+    The pure half is in tests/test_marking.py. What needs Windows is the one
+    thing that cannot be faked: swapping WS_EX_TRANSPARENT on a window that
+    already exists, without losing the capture exclusion that invariant 7
+    depends on.
+    """
+    import ctypes
+
+    from meow.app.sketching import Pencil
+    from meow.desktop.annotate import Board
+    from meow.desktop.marking import Region
+    from meow.platform.dpi import enable_per_monitor_dpi_awareness
+    from meow.platform.monitors import get_virtual_desktop
+    from meow.platform.overlay import GWL_EXSTYLE, WS_EX_TRANSPARENT
+
+    enable_per_monitor_dpi_awareness()
+    monitor = get_virtual_desktop().primary
+    user32 = ctypes.windll.user32
+    user32.GetWindowLongPtrW.restype = ctypes.c_longlong
+    user32.GetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int]
+
+    def transparent(board) -> bool:
+        return bool(user32.GetWindowLongPtrW(board.overlay.handle, GWL_EXSTYLE)
+                    & WS_EX_TRANSPARENT)
+
+    def click_through_swaps_both_ways():
+        board = Board(monitor)
+        try:
+            assert transparent(board), "an overlay starts click-through"
+            board.overlay.set_click_through(False)
+            assert not transparent(board), "the drag would land in their app"
+            board.overlay.set_click_through(True)
+            assert transparent(board), "clicks must be given back"
+        finally:
+            board.close()
+
+    def exclusion_survives_the_swap():
+        # Invariant 7. Marks that appear in a screenshot have the cat
+        # pointing at its own arrows, and this is the one place where the
+        # window's style is edited after it was set.
+        board = Board(monitor)
+        try:
+            board.overlay.set_click_through(False)
+            assert board.overlay.is_capture_excluded
+            board.overlay.set_click_through(True)
+            assert board.overlay.is_capture_excluded
+        finally:
+            board.close()
+
+    def a_pencil_always_gives_clicks_back():
+        board = Board(monitor)
+        try:
+            pencil = Pencil(board)
+            pencil.begin()
+            assert not transparent(board)
+            pencil.cancel()
+            assert transparent(board), "cancelling must not leave it swallowing"
+        finally:
+            board.close()
+
+    def a_pencil_with_nowhere_to_draw_refuses():
+        pencil = Pencil(None)
+        assert pencil.begin() is False
+        assert pencil.take() is None
+        pencil.cancel()
+
+    def a_region_is_taken_once():
+        pencil = Pencil(None)
+        pencil.region = Region(0, 0, 10, 10)
+        assert pencil.take() is not None
+        assert pencil.take() is None, "a stale region narrows the next question"
+
+    def a_full_drag_leaves_a_region_and_a_clean_window():
+        board = Board(monitor)
+        try:
+            pencil = Pencil(board)
+            pencil.begin()
+            marking = pencil.marking
+            for point in [(300, 300), (400, 300), (400, 400), (300, 400)]:
+                marking.update(point, True)
+            marking.update((300, 400), False)
+            pencil._finish(marking)
+            assert pencil.region is not None
+            assert transparent(board)
+        finally:
+            board.close()
+
+    check("marking: click-through swaps both ways", click_through_swaps_both_ways)
+    check("marking: capture exclusion survives", exclusion_survives_the_swap)
+    check("marking: clicks always given back", a_pencil_always_gives_clicks_back)
+    check("marking: no board, no marking", a_pencil_with_nowhere_to_draw_refuses)
+    check("marking: a region is taken once", a_region_is_taken_once)
+    check("marking: a full drag", a_full_drag_leaves_a_region_and_a_clean_window)
+
+
 # ------------------------------------------------------------- documents ---
 
 def stress_documents() -> None:
@@ -891,6 +990,7 @@ SUITES = {
     "recipes": stress_recipes,
     "verify": stress_verify,
     "dock": stress_dock,
+    "marking": stress_marking,
     "documents": stress_documents,
     "risk": stress_risk,
     "queries": stress_queries,

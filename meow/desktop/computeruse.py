@@ -61,6 +61,19 @@ MAX_ROUNDS = 3
 # so a near miss reads as a miss rather than quietly overlapping the target.
 POINT_RADIUS = 12
 
+# When the search is narrowed to a region, the crop is enlarged to at least
+# this on its longest side before being sent. Enlarging an image adds no
+# information and it is still the whole point: the model's accuracy depends
+# on how many pixels the target occupies in what it is shown, which is why
+# zooming is the training-free technique that moves this number at all.
+# Measured elsewhere at +13.4% on ScreenSpot-Pro for the same model.
+ZOOM_TO = 1024
+
+# Not beyond this, in either direction. Past about 4x a crop is mostly
+# interpolation, and a very large image costs tokens for pixels that were
+# invented on the way up.
+MAX_ZOOM = 4.0
+
 
 class ComputerUseGrounding:
     """Ask a model where something is, and let it answer by clicking."""
@@ -79,7 +92,17 @@ class ComputerUseGrounding:
     def name(self) -> str:
         return "computer-use"
 
-    def locate(self, description: str) -> Target | None:
+    def locate(self, description: str, within=None) -> Target | None:
+        """Where is this on screen? `within` narrows it to one region.
+
+        A region is the single largest improvement available to this, and it
+        is not a nicety. Measured over 44 hand-labelled targets this scored
+        23, and the failures cluster where the screen is busiest - Illustrator
+        1 of 8, Premiere 1 of 6 - because the search space is a whole
+        professional interface. Cropping to a region the user drew round, and
+        enlarging it, turns "find the razor tool somewhere in Resolve" into
+        "find it in this box", which is a different question.
+        """
         from ..platform.capture import capture_screens
 
         self.last_error = None
@@ -89,34 +112,93 @@ class ComputerUseGrounding:
             self.last_error = "no screenshot"
             return None
 
-        point = self._ask(shot, description)
+        image = shot.image
+        # Where the image sent to the model sits in the full screenshot, and
+        # how much bigger it was made. Both are identity when nothing narrows
+        # the search, which keeps the mapping below one expression.
+        offset = (0, 0)
+        zoom = 1.0
+        if within is not None:
+            cropped = self._crop(shot, within)
+            if cropped is None:
+                self.last_error = "the marked region is off screen"
+                return None
+            image, offset, zoom = cropped
+
+        point = self._ask(image, description, narrowed=within is not None)
         if point is None:
             return None
 
-        # The model answers in IMAGE pixels and the screen is somewhere else
-        # entirely. `scale` is image -> screen as a DIVISION, and the monitor's
-        # own origin goes back on top - a second monitor starts at a negative
-        # x, and forgetting that lands every click on the primary display.
-        x = shot.monitor.left + int(point[0] / shot.scale)
-        y = shot.monitor.top + int(point[1] / shot.scale)
+        # Back out through every transform in the order they were applied:
+        # undo the zoom, put the crop's origin back, undo the capture scale,
+        # then add the monitor's own origin - which is NEGATIVE for a display
+        # to the left of the primary, and forgetting it lands every answer on
+        # the wrong screen.
+        in_shot = (offset[0] + point[0] / zoom, offset[1] + point[1] / zoom)
+        x = shot.monitor.left + int(in_shot[0] / shot.scale)
+        y = shot.monitor.top + int(in_shot[1] / shot.scale)
         return Target(left=x - POINT_RADIUS, top=y - POINT_RADIUS,
                       right=x + POINT_RADIUS, bottom=y + POINT_RADIUS,
                       name=description, role="", source=Source.VISION)
 
+    @staticmethod
+    def _crop(shot, region):
+        """The region as an enlarged image, plus how to map back out of it.
+
+        Returns (image, offset_in_shot, zoom), or None when the region does
+        not overlap this screenshot at all - which happens whenever somebody
+        marks something on a monitor other than the one captured, and is a
+        thing to report rather than to silently search the wrong screen for.
+        """
+        width, height = shot.image.size
+        # Screen coordinates to image coordinates: drop the monitor's origin,
+        # then apply the capture scale.
+        left = int((region.left - shot.monitor.left) * shot.scale)
+        top = int((region.top - shot.monitor.top) * shot.scale)
+        right = int((region.right - shot.monitor.left) * shot.scale)
+        bottom = int((region.bottom - shot.monitor.top) * shot.scale)
+
+        left, top = max(0, left), max(0, top)
+        right, bottom = min(width, right), min(height, bottom)
+        if right - left < 8 or bottom - top < 8:
+            return None
+
+        patch = shot.image.crop((left, top, right, bottom))
+        longest = max(patch.size)
+        zoom = min(MAX_ZOOM, max(1.0, ZOOM_TO / longest))
+        if zoom > 1.0:
+            from PIL import Image
+
+            patch = patch.resize(
+                (int(patch.width * zoom), int(patch.height * zoom)),
+                Image.LANCZOS)
+        return patch, (left, top), zoom
+
     # --- the loop -----------------------------------------------------------
 
-    def _ask(self, shot, description: str) -> tuple[int, int] | None:
+    def _ask(self, image, description: str,
+             narrowed: bool = False) -> tuple[int, int] | None:
         buffer = io.BytesIO()
-        shot.image.convert("RGB").save(buffer, format="PNG")
+        image.convert("RGB").save(buffer, format="PNG")
         encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-        width, height = shot.image.size
+        width, height = image.size
+
+        # Said plainly when the image is a crop, because otherwise the model
+        # is being shown a fragment of an application and told it is a screen,
+        # and "it is not on the screen" becomes the obvious answer to a
+        # question about a toolbar it can see half of.
+        where = ("A close-up of part of a Windows screen, {w}x{h}, is in "
+                 "front of you. The user drew round this area themselves, so "
+                 "what they are asking about is in it."
+                 if narrowed else
+                 "A {w}x{h} Windows screen is in front of you.")
 
         messages = [{"role": "user", "content": [{
             "type": "input_text",
-            "text": (f"A {width}x{height} Windows screen is in front of you. "
-                     f"Take a screenshot, then click: {description}. "
-                     f"If it is not on the screen, say so instead of "
-                     f"clicking anywhere."),
+            "text": (where.format(w=width, h=height)
+                     + f" Take a screenshot, then click: {description}. "
+                       f"If it is not there, say so instead of clicking "
+                       f"anywhere."),
         }]}]
 
         for _ in range(MAX_ROUNDS):

@@ -706,6 +706,17 @@ class Board:
         self._last_render = 0.0
         self._last_signature = None
 
+    @property
+    def overlay(self):
+        """The window itself, for the one caller that has to change it.
+
+        Marking mode turns click-through off while the user draws, which is
+        a property of the window rather than of the marks - so it cannot go
+        through `Sketch`, and reaching into `_overlay` from another module
+        would be worse than saying it is reachable.
+        """
+        return self._overlay
+
     def draw(self) -> None:
         """Push the current marks. Cheap when nothing is live.
 

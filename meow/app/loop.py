@@ -7,6 +7,7 @@ asking. Tap Pause at any moment and it all stops.
     meow
     meow --mute              # no speech, bubble only
     meow --keyword-routing   # no model calls on the routing path
+    meow --mark-key ctrl+shift+m   # tap, draw round a thing, then ask
 
 Ctrl+C to quit. Run `meow doctor` first.
 
@@ -54,6 +55,7 @@ from meow.cat.cursor import CatCursor
 from meow.cat.follow import CursorFollower, FollowSettings, target_beside_cursor
 from meow.work.agentdock import AgentDock
 from meow.app.guiding import Guide
+from meow.app.sketching import Pencil
 from meow.chat.launcher import ChatPanel
 from meow.connectors import Outbox, Sender
 from meow.config import MissingKey, cat_name
@@ -160,6 +162,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--key", default="ctrl+m")
     parser.add_argument("--panic-key", default=DEFAULT_PANIC_KEY)
+    parser.add_argument("--mark-key", default="ctrl+shift+m",
+                        help="tap, then draw round what you mean")
     parser.add_argument("--width", type=int, default=72)
     parser.add_argument("--mute", action="store_true")
     parser.add_argument("--keyword-routing", action="store_true",
@@ -309,6 +313,17 @@ def main() -> None:
     except (HotkeyUnavailable, ValueError) as error:
         raise SystemExit(f"\n{error}\n")
 
+    # Marking is the one hotkey allowed to be unavailable. Talking to the cat
+    # and stopping it are the application; drawing on the screen is a
+    # feature, and refusing to start over a key another program already holds
+    # would be the tail wagging the dog.
+    mark_key = None
+    marking_unavailable = ""
+    try:
+        mark_key = listener.register(args.mark_key)
+    except (HotkeyUnavailable, ValueError) as error:
+        marking_unavailable = str(error).splitlines()[0]
+
     microphone: Microphone | None = None
     transcriber: AssemblyAIStreaming | None = None
     active = False
@@ -340,6 +355,15 @@ def main() -> None:
     guide = Guide(say=lambda sentence: replies.put(("say", sentence)),
                   point=_point_during_walkthrough,
                   should_stop=lambda: panic.tripped)
+
+    # The other direction of spatial context: the user drawing on their own
+    # screen. Handed the Board rather than a way to make one - this runs on
+    # the thread that owns the overlay, and building a Win32 window anywhere
+    # else is the WinError 1400 that took the drawing tools down after they
+    # had visibly worked.
+    pencil = Pencil(getattr(harness, "_board", None),
+                    say=lambda sentence: replies.put(("say", sentence)))
+    panic.on_panic("marking", pencil.cancel)
     panic.on_panic("walkthrough", guide.cancel)
     panic.on_panic("marks", lambda: (
         harness._board and harness._board.clear()))
@@ -355,6 +379,14 @@ def main() -> None:
         #
         # Local, exact phrase matching, no model and no routing call. "next"
         # is not a classification problem.
+        # Whatever they drew round is about THIS sentence. Consumed, so it
+        # cannot silently narrow the next one - a stale region is a bug where
+        # everything works, the answers are about the wrong part of the
+        # screen, and nothing in the reply says so.
+        harness.user_region = pencil.take()
+        if harness.user_region is not None:
+            print(f"          looking at the area you drew round")
+
         if guide.active:
             guide.pause()
             if guide.answer(transcript):
@@ -564,6 +596,8 @@ def main() -> None:
             replies.put(("error", f"{type(error).__name__}: {error}"))
         finally:
             working.clear()
+            harness.user_region = None
+            pencil.forget()
             replies.put(("done", ""))
 
     def shut_down_audio(mic, stt) -> None:
@@ -576,6 +610,10 @@ def main() -> None:
 
     print(f"\n  tap {hotkey.display_name} and talk. Tap again to stop listening.")
     print(f"  tap {panic_key.display_name.upper()} to stop everything, instantly.")
+    if mark_key is not None:
+        print(f"  tap {mark_key.display_name} and draw round a thing to ask about it.")
+    elif marking_unavailable:
+        print(f"  marking is off ({marking_unavailable[:50]})")
     print("  long jobs get an icon top right - click it to watch them,")
     print("  say \"also ...\" to add to one, \"close that\" when done.")
     # The reason is printed only when there IS one. `--keyword-routing` is a
@@ -631,6 +669,17 @@ def main() -> None:
                         # Latched only for work in flight; the next thing the
                         # user says should be heard normally.
                         threading.Timer(0.4, panic.reset).start()
+                        continue
+
+                    if (mark_key is not None
+                            and pressed.identifier == mark_key.identifier):
+                        # Tapped once to start drawing, again to give up. The
+                        # region is picked up by whatever they say next.
+                        if pencil.active:
+                            pencil.cancel()
+                            print(f"  {elapsed:5.1f}s  marking cancelled")
+                        elif pencil.begin():
+                            print(f"  {elapsed:5.1f}s  draw round what you mean")
                         continue
 
                     if pressed.identifier != hotkey.identifier:
@@ -910,6 +959,14 @@ def main() -> None:
                 # supersample is 34ms to render, so it redraws only when the
                 # picture would actually differ. Ticked from here because
                 # marks expire on their own and something has to notice.
+                # Two Win32 calls, and only while somebody is actually
+                # drawing. Off, this returns on its first line.
+                try:
+                    pencil.tick()
+                except Exception as error:  # noqa: BLE001
+                    draw_fault("marking", error)
+                    pencil.cancel()
+
                 marks = getattr(harness, "_board", None)
                 if marks is not None:
                     try:

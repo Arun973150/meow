@@ -352,6 +352,11 @@ class Harness:
         # from "open that" -> open Notepad, which is the cat's inference.
         self.transcript = ""
         self.route_risky = False
+        # A region the user drew round on their own screen, for this turn
+        # only. Set by the app before a turn and cleared after it: a region
+        # that outlives the question it was drawn for silently narrows the
+        # next one, and nothing in the reply would say so.
+        self.user_region = None
         # Built on first use: a Researcher opens no connection until asked,
         # but importing it pulls in an HTTP stack nothing else needs.
         self._researcher = None
@@ -541,12 +546,30 @@ class Harness:
 
         import httpx
 
+        # A region the user drew round, if there is one. Cropping to it is
+        # worth more than any wording: the model is answering about the part
+        # they pointed at rather than about a whole desktop, and the pixels
+        # of that part go up rather than down.
+        image = shot.image
+        region = self.user_region
+        looking_at_a_crop = False
+        if region is not None:
+            from ..desktop.computeruse import ComputerUseGrounding
+
+            cropped = ComputerUseGrounding._crop(shot, region)
+            if cropped is not None:
+                image, _offset, _zoom = cropped
+                looking_at_a_crop = True
+
         buffer = _io.BytesIO()
         # PNG, not JPEG. Compression artefacts on a 30px chess square are the
         # difference between a bishop and a pawn.
-        shot.image.convert("RGB").save(buffer, format="PNG")
+        image.convert("RGB").save(buffer, format="PNG")
         encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
         asked = looking_for or "everything that matters"
+        framing = ("This is a close-up of the part of the screen the user "
+                   "drew round themselves. "
+                   if looking_at_a_crop else "")
         try:
             response = httpx.post(
                 "https://api.openai.com/v1/responses",
@@ -555,7 +578,8 @@ class Harness:
                 json={"model": SEEING_MODEL, "input": [{"role": "user",
                       "content": [
                           {"type": "input_text",
-                           "text": f"Describe what is on this screen, "
+                           "text": f"{framing}Describe what is on this "
+                                   f"screen, "
                                    f"concentrating on {asked}. Be concrete: "
                                    f"name pieces, positions, labels, values. "
                                    f"If it is a game or a diagram, describe "
@@ -632,17 +656,24 @@ class Harness:
         """
         from ..desktop import lookup
 
+        region = self.user_region
         digest = self.digest if self.digest is not None else digest_foreground()
         if digest is not None:
             element = lookup.already_on_screen(description, digest)
             if element is not None:
-                return Target.from_element(element)
+                # A region the user drew is an instruction about WHERE, and a
+                # tree match outside it is the tree doing what it does on a
+                # canvas: answering wrongly and fast. The circle is the more
+                # reliable of the two signals, because a person drew it.
+                if region is None or region.contains(
+                        Target.from_element(element).centre):
+                    return Target.from_element(element)
 
         if getattr(self, "_seeing", None) is None:
             from ..desktop.computeruse import ComputerUseGrounding
 
             self._seeing = ComputerUseGrounding()
-        return self._seeing.locate(description)
+        return self._seeing.locate(description, within=region)
 
     def record_verdict(self, verdict) -> None:
         """Hang a verifier's verdict on the run that was just recorded.
