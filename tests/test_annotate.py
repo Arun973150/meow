@@ -248,3 +248,70 @@ def _ink_near(image, point, radius: int = 7) -> bool:
             if inside and image.getpixel((x + dx, y + dy))[3] > 40:
                 return True
     return False
+
+
+# --- the agent's own pointer ------------------------------------------------
+
+
+def test_the_agent_cursor_is_drawn_as_a_solid_arrow():
+    """Filled rather than sketched. Every other mark here reads as a
+    suggestion; a pointer has to read as precise.
+    """
+    from meow.desktop.annotate import Sketch
+
+    sketch = Sketch()
+    sketch.cursor((40, 40))
+    image = sketch.render(120, 120)
+    # The tip is at the point given, and the body hangs below and right of it.
+    assert image.getpixel((42, 50))[3] > 180
+    # Nothing above the tip - an arrow that straddled its own point would
+    # cover the thing it is indicating.
+    assert image.getpixel((40, 28))[3] == 0
+
+
+def test_a_point_with_a_ghost_never_touches_the_real_pointer():
+    """A handed-over task that yanks the pointer across the screen is taking
+    the machine off somebody who is using it.
+    """
+    from meow.desktop import actions
+    from meow.desktop.grounding import Source, Target
+
+    moved = []
+    drawn = []
+    target = Target(left=10, top=10, right=30, bottom=30, name="Save",
+                    role="Button", source=Source.UIA)
+
+    original = actions.glide_to
+    actions.glide_to = lambda *a, **k: moved.append(a) or True
+    try:
+        outcome = actions.point_at(target, ghost=lambda x, y: drawn.append((x, y)))
+    finally:
+        actions.glide_to = original
+
+    assert outcome.ok
+    assert outcome.method == "ghost"
+    assert drawn == [(20, 20)]
+    assert moved == [], "the real pointer must not move for unattended work"
+
+
+def test_without_a_ghost_it_still_glides():
+    """Teaching moves the real pointer, deliberately: a glide is the cat
+    going somewhere while the user watches, and an arrow appearing instantly
+    says nothing about where it came from.
+    """
+    from meow.desktop import actions
+    from meow.desktop.grounding import Source, Target
+
+    moved = []
+    target = Target(left=10, top=10, right=30, bottom=30, name="Save",
+                    role="Button", source=Source.UIA)
+
+    original = actions.glide_to
+    actions.glide_to = lambda *a, **k: moved.append(a) or True
+    try:
+        outcome = actions.point_at(target)
+    finally:
+        actions.glide_to = original
+
+    assert outcome.method == "glide"
+    assert moved

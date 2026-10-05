@@ -121,6 +121,12 @@ MODEL = "gpt-4o-mini"
 # work; this one carries 10M free tokens a day against luna's 2.5M, and is
 # already the planner, so the app keeps one fewer model in play.
 SEEING_MODEL = "gpt-5-mini"
+
+# The agent's own pointer, and how long it lingers. Long enough that somebody
+# glancing over sees where the task is working, short enough that a finished
+# job does not leave an arrow on the screen.
+AGENT_CURSOR = "agent-cursor"
+AGENT_CURSOR_SECONDS = 4.0
 MAX_OUTPUT_TOKENS = 220
 
 # An agent that keeps deciding to click is the failure this project can least
@@ -615,6 +621,31 @@ class Harness:
                 speak(sentence)
             except Exception:  # noqa: BLE001 - a missed line is not a crash
                 pass
+
+    def ghost_pointer(self):
+        """How an unattended turn points: a drawn arrow, or nothing.
+
+        None when somebody is watching, which means `point_at` glides the
+        real pointer - a glide is the cat going somewhere while they watch,
+        and an arrow appearing instantly says nothing about where it came
+        from. For a handed-over task it is the opposite: moving the real
+        pointer across the screen takes the machine off somebody who is
+        using it, which invariant 10 exists to prevent.
+        """
+        if not self.unattended:
+            return None
+        board = self.board()
+        if board is None:
+            return None
+
+        from ..desktop.annotate import ACCENT
+
+        def draw(x, y) -> None:
+            board.sketch.clear(group=AGENT_CURSOR)
+            board.sketch.cursor((x, y), colour=ACCENT, group=AGENT_CURSOR,
+                                seconds=AGENT_CURSOR_SECONDS)
+
+        return draw
 
     def board(self):
         """The full-screen layer marks are drawn on. Built on first use.

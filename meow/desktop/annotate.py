@@ -131,6 +131,10 @@ SHADOW_ALPHA = 150
 BADGE_RADIUS = 17
 BADGE_POINTS = 19
 
+# Height of the agent's drawn pointer, before supersampling. About the size
+# of a real Windows cursor, so it reads as one rather than as a decoration.
+CURSOR_SIZE = 16
+
 # Point size of a label, before supersampling. PIL's default is a BITMAP font
 # that does not scale, so a label drawn at 2x and shrunk back came out at half
 # size and unreadable - the text has to be asked for at the supersampled size,
@@ -378,6 +382,19 @@ class Sketch:
         coordinate - measured elsewhere at 30% to 87% on the same model.
         """
         return self._add(Mark("number", [tuple(at)], text=str(index), **kw))
+
+    def cursor(self, at, **kw) -> Mark:
+        """The agent's OWN pointer - drawn, not the user's.
+
+        A handed-over task that yanks the real pointer across the screen is
+        taking the machine off somebody who is using it. Invariant 10 says
+        they can always take the mouse back, and the honest reading of that
+        is that unattended work should never have taken it: this is what a
+        background agent points with instead.
+
+        Drawn rather than glided, so it costs one mark and no time at all.
+        """
+        return self._add(Mark("cursor", [tuple(at)], **kw))
 
     def spotlight(self, regions, **kw) -> Mark:
         """Dim the screen except for these rectangles.
@@ -629,6 +646,25 @@ class Sketch:
             font = _font(scale, BADGE_POINTS)
             pen.text(centre, mark.text, fill=(255, 255, 255, colour[3]),
                      font=font, anchor="mm")
+            return
+
+        if kind == "cursor":
+            x, y = place(mark.points[0])
+            size = CURSOR_SIZE * scale
+            # The classic arrow, as a polygon, with a pale outline so it is
+            # visible on a dark panel and on a white page both. Filled
+            # rather than sketched: this one is a pointer and has to read as
+            # precise, where every other mark here reads as a suggestion.
+            arrow = [(x, y),
+                     (x, y + size),
+                     (x + size * 0.26, y + size * 0.74),
+                     (x + size * 0.44, y + size * 1.12),
+                     (x + size * 0.60, y + size * 1.04),
+                     (x + size * 0.42, y + size * 0.68),
+                     (x + size * 0.70, y + size * 0.66)]
+            pen.polygon(arrow, fill=(*mark.colour, colour[3]),
+                        outline=(255, 255, 255, colour[3]),
+                        width=max(1, scale))
             return
 
         if kind == "label":

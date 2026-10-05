@@ -49,7 +49,12 @@ def build(harness) -> list:
         if target is None:
             return harness._no_such_control(name)
         before = verify.look()
-        outcome = actions.invoke(target, harness._gated("click_control", name))
+        # put_it_back only bites on the coordinate-click fallback: the
+        # UIA path never touches the pointer, which is most of why it is
+        # preferred. When it does fall back, an unattended task leaves
+        # the pointer where the user had it.
+        outcome = actions.invoke(target, harness._gated("click_control", name),
+                                 put_it_back=harness.unattended)
         harness.runs.append(ToolRun("click_control", name, outcome, target))
         if not outcome.ok:
             return outcome.detail
@@ -73,7 +78,8 @@ def build(harness) -> list:
         target = harness._resolve(name)
         if target is None:
             return harness._no_such_control(name)
-        outcome = actions.point_at(target)
+        outcome = actions.point_at(target,
+                                   ghost=harness.ghost_pointer())
         harness.runs.append(ToolRun("point_at_control", name, outcome, target))
         if not outcome.ok:
             return outcome.detail

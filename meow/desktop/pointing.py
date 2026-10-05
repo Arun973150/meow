@@ -110,6 +110,17 @@ def get_cursor() -> tuple[int, int]:
     return point.x, point.y
 
 
+def set_cursor(x: int, y: int) -> None:
+    """Put the pointer somewhere, with no glide.
+
+    For putting it BACK. Windows clicks wherever the pointer is, so a
+    coordinate click cannot avoid moving it - but an unattended task can
+    avoid leaving it moved, which is the part somebody using the machine
+    notices.
+    """
+    user32.SetCursorPos(int(x), int(y))
+
+
 def glide_to(target_x: int, target_y: int, seconds: float = 0.55,
              steps_per_second: int = 90,
              should_stop=None) -> bool:

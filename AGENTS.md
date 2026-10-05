@@ -952,6 +952,25 @@ token budget thinking, returning one query instead of three.
 real Windows Settings: dark mode -> `Personalization`, bluetooth ->
 `Bluetooth & devices`, dns -> `Network & internet`.
 
+**AN UNATTENDED TASK HAS ITS OWN POINTER AND NEVER TAKES YOURS.** Invariant
+10 says the user can always take the mouse back; the honest reading is that
+work they walked away from should never have taken it. `Sketch.cursor()` draws
+the agent's arrow on the marks layer, and `harness.ghost_pointer()` hands it
+to `point_at` whenever `unattended` is set.
+
+**Teaching still moves the real pointer, deliberately.** A glide is the cat
+going somewhere while somebody watches; an arrow appearing instantly says
+nothing about where it came from. The two cases want opposite things, which
+is why this is a flag rather than a policy.
+
+⚠ **A coordinate click cannot avoid moving the pointer - it can avoid
+LEAVING it moved.** Windows clicks wherever the pointer is, so `invoke`'s
+fallback has to go there. `put_it_back` reads the position first and restores
+it after, which for an unattended task is the difference between a cursor
+that twitched and one that was taken away. It only bites on the fallback: the
+UIA path never touches the pointer at all, which is most of why it is
+preferred.
+
 **SPATIAL CONTEXT: the user can draw on their own screen.** Tap
 **Ctrl+Shift+M**, circle the thing, then ask about it. Everything else in this
 project runs one way - the cat looks and marks what it found - and this is the
@@ -1400,7 +1419,7 @@ meow connectors      which services are connected, and connect one
 meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               307 fast checks - no Windows, no keys, no network
+pytest               310 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

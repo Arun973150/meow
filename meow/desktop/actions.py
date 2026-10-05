@@ -34,7 +34,7 @@ from enum import Enum
 from typing import Callable
 
 from .grounding import Source, Target
-from .pointing import glide_to
+from .pointing import get_cursor, glide_to, set_cursor
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 
@@ -126,9 +126,23 @@ def _mouse_event(flags: int) -> _INPUT:
 
 
 def point_at(target: Target, glide_seconds: float = 0.55,
-             should_stop=None) -> Outcome:
-    """Move the pointer to the target. Shows, changes nothing."""
+             should_stop=None, ghost=None) -> Outcome:
+    """Move the pointer to the target. Shows, changes nothing.
+
+    With `ghost`, draws the agent's OWN pointer there instead of moving the
+    user's. A handed-over task that yanks the real pointer across the screen
+    is taking the machine off somebody who is using it - invariant 10 says
+    they can always take the mouse back, and the honest reading is that
+    unattended work should never have taken it in the first place.
+
+    Teaching still moves the real one, deliberately. A glide is the cat going
+    somewhere while the user watches, and a drawn arrow appearing instantly
+    says nothing about where it came from.
+    """
     x, y = target.centre
+    if ghost is not None:
+        ghost(x, y)
+        return Outcome(True, f"pointing at {target.name}", method="ghost")
     reached = glide_to(x, y, seconds=glide_seconds, should_stop=should_stop)
     if not reached:
         return Outcome(False, "you moved the mouse, so it stopped",
@@ -161,12 +175,16 @@ def click(target: Target, confirm: Confirmer,
     return Outcome(True, f"clicked {target.name}", method="click")
 
 
-def invoke(target: Target, confirm: Confirmer) -> Outcome:
+def invoke(target: Target, confirm: Confirmer,
+           put_it_back: bool = False) -> Outcome:
     """Operate the control through UIA, without moving the pointer.
 
     Falls back to clicking when the target came from vision, or when the
     control does not support being invoked. Refusing would be technically
     correct and useless to the user.
+
+    `put_it_back` only matters on that fallback: the UIA path never touches
+    the pointer at all, which is most of why it is preferred.
     """
     if not confirm(f"press {target.name}?"):
         # Worded for the model, not for a log. "left it alone" was read as
@@ -178,7 +196,8 @@ def invoke(target: Target, confirm: Confirmer) -> Outcome:
 
     element = target.element
     if target.source is not Source.UIA or element is None or element.node is None:
-        return _click_without_asking(target, "vision target, so it clicks")
+        return _click_without_asking(target, "vision target, so it clicks",
+                                     put_it_back)
 
     node = element.node
     for pattern_id, call in (
@@ -197,20 +216,31 @@ def invoke(target: Target, confirm: Confirmer) -> Outcome:
         except Exception:  # noqa: BLE001 - try the next pattern, then click
             continue
 
-    return _click_without_asking(target, "no invoke pattern, so it clicks")
+    return _click_without_asking(target, "no invoke pattern, so it clicks",
+                                 put_it_back)
 
 
-def _click_without_asking(target: Target, why: str) -> Outcome:
+def _click_without_asking(target: Target, why: str,
+                          put_it_back: bool = False) -> Outcome:
     """The click half of invoke(), after permission was already given.
 
     Asking twice for one action trains people to stop reading the question.
+
+    `put_it_back` restores the pointer afterwards. Windows clicks wherever
+    the pointer is, so a coordinate click cannot avoid moving it - but it can
+    avoid LEAVING it moved, which is the part the user notices. For an
+    unattended task that is the difference between a cursor that twitched and
+    one that was taken away.
     """
+    started_at = get_cursor() if put_it_back else None
     moved = point_at(target)
     if not moved:
         return moved
     _send(_mouse_event(MOUSEEVENTF_LEFTDOWN))
     time.sleep(0.03)
     _send(_mouse_event(MOUSEEVENTF_LEFTUP))
+    if started_at is not None:
+        set_cursor(*started_at)
     return Outcome(True, f"clicked {target.name} ({why})", method="click")
 
 

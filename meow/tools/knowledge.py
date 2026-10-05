@@ -57,7 +57,8 @@ def build(harness) -> list:
         if here is not None:
             target = harness._resolve(here.name)
             if target is not None:
-                outcome = actions.point_at(target)
+                outcome = actions.point_at(
+                    target, ghost=harness.ghost_pointer())
                 harness.runs.append(
                     ToolRun("point_at_control", here.name, outcome, target))
                 return (f"{here.name} is on this screen and I am pointing at "
@@ -131,7 +132,8 @@ def build(harness) -> list:
         target = harness._resolve(result.matched)
         if target is None:
             return f"Found {result.matched}, but it moved before I could point."
-        outcome = actions.point_at(target)
+        outcome = actions.point_at(target,
+                                   ghost=harness.ghost_pointer())
         harness.runs.append(ToolRun("point_at_control", result.matched,
                                  outcome, target))
         if route:
