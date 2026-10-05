@@ -387,6 +387,11 @@ class Harness:
         # inside a background task, where there is nobody listening to pace
         # for - and the tool says the steps instead rather than pretending.
         self.start_teaching = None
+        # True while a lesson is live: the turn carries a picture of their
+        # screen, because teaching is a conversation about what THEY are
+        # doing. Set by the app, cleared when the lesson ends.
+        self.watching = False
+        self._last_screen = None
         # A region the user drew round on their own screen, for this turn
         # only. Set by the app before a turn and cleared after it: a region
         # that outlives the question it was drawn for silently narrows the
@@ -651,6 +656,81 @@ class Harness:
             except Exception:  # noqa: BLE001 - a missed line is not a crash
                 pass
 
+    def _with_the_screen(self, transcript: str):
+        """The user's sentence, with a picture when one is wanted.
+
+        **Only while a lesson is live.** The harness is normally given the
+        control list and no image at all, which is right: most turns need no
+        pixels, and invariant 11 exists because they are the whole cost of
+        this project. Teaching is the exception - somebody doing a thing on
+        their own screen and reporting back is a conversation ABOUT the
+        screen, and without one the cat answered "i can't see what you're
+        talking about, tell me what's on your screen" to a person it had just
+        sent off to add a ball.
+
+        **Paid for only when the picture CHANGED.** A lesson is many turns
+        and a flat 2,833 tokens each would make teaching the most expensive
+        thing here. The screen changes exactly when the user does the step,
+        which is the only moment the image is worth anything - so an
+        unchanged screen is reported in words instead, the same bargain the
+        answer path already makes.
+        """
+        if not self.watching:
+            return HumanMessage(transcript)
+
+        picture, changed = self._screen_now()
+        if picture is None:
+            return HumanMessage(transcript)
+        if not changed:
+            return HumanMessage(
+                f"{transcript}\n\n[their screen has not changed since the "
+                f"last one you saw]")
+        return HumanMessage(content=[
+            {"type": "text",
+             "text": f"{transcript}\n\n[their screen right now - they are "
+                     f"doing this themselves, so look at what they have "
+                     f"actually done before saying the next thing]"},
+            # detail=low, at full size. 2,833 tokens flat regardless of
+            # resolution, so downscaling to save money accomplishes nothing
+            # and costs detail - see meow/desktop/vision.py.
+            {"type": "image_url",
+             "image_url": {"url": f"data:image/jpeg;base64,{picture}",
+                           "detail": "low"}},
+        ])
+
+    def _screen_now(self):
+        """(base64 jpeg, changed since last time), or (None, False)."""
+        import base64
+        import hashlib
+
+        from ..platform.capture import capture_screens
+
+        try:
+            shots = capture_screens()
+        except Exception:  # noqa: BLE001 - a blind turn is not a crash
+            return None, False
+        if not shots:
+            return None, False
+
+        try:
+            data = shots[0].to_jpeg()
+        except Exception:  # noqa: BLE001
+            return None, False
+
+        # The bytes themselves, not a perceptual hash. A cursor blinking in a
+        # text field changes them, which is a false positive and cheap; the
+        # failure that matters is missing a REAL change, and an exact hash
+        # cannot.
+        fingerprint = hashlib.sha1(data).hexdigest()
+        changed = fingerprint != self._last_screen
+        self._last_screen = fingerprint
+        if self.budget is not None:
+            if changed:
+                self.budget.images_sent += 1
+            else:
+                self.budget.images_skipped += 1
+        return base64.b64encode(data).decode("ascii"), changed
+
     def ghost_pointer(self):
         """How an unattended turn points: a drawn arrow, or nothing.
 
@@ -907,7 +987,7 @@ class Harness:
         if self.researching:
             messages.append(SystemMessage(RESEARCH_REMINDER,
                                           additional_kwargs=tag))
-        messages.append(HumanMessage(transcript))
+        messages.append(self._with_the_screen(transcript))
         messages.append(SystemMessage(STYLE_REMINDER, additional_kwargs=tag))
 
         try:

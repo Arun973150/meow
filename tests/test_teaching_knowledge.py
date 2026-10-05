@@ -159,3 +159,95 @@ def test_an_empty_tool_result_is_not_an_empty_answer():
 
     assert "failure of the POINTING" in GUIDE_REMINDER or \
            "could not mark it on screen" in GUIDE_REMINDER
+
+
+# --- the screen goes with the sentence, while a lesson is live --------------
+
+
+class Budget:
+    images_sent = 0
+    images_skipped = 0
+
+
+def harness_watching(monkeypatch, frames):
+    """A harness that sees the given screens in order."""
+    from meow.agent.harness import Harness
+
+    harness = Harness.__new__(Harness)
+    harness.watching = True
+    harness._last_screen = None
+    harness.budget = Budget()
+
+    class Shot:
+        def __init__(self, data):
+            self._data = data
+
+        def to_jpeg(self, quality=None):
+            return self._data
+
+    queued = [Shot(f) for f in frames]
+    monkeypatch.setattr("meow.platform.capture.capture_screens",
+                        lambda: [queued.pop(0)] if queued else [])
+    return harness
+
+
+def test_a_lesson_turn_carries_a_picture(monkeypatch):
+    """"Yeah, I've added the ball now" is a sentence about the screen and
+    nothing else. Without one the cat said "i can't see what you're talking
+    about, tell me what's on your screen" - to somebody it had just sent off
+    to add a ball.
+    """
+    harness = harness_watching(monkeypatch, [b"first-frame"])
+    message = harness._with_the_screen("i've added the ball")
+
+    assert isinstance(message.content, list)
+    kinds = [part["type"] for part in message.content]
+    assert "image_url" in kinds
+    assert message.content[1]["image_url"]["detail"] == "low"
+
+
+def test_an_unchanged_screen_is_words_rather_than_pixels(monkeypatch):
+    """A lesson is many turns and a flat 2,833 tokens each would make
+    teaching the most expensive thing here.
+    """
+    harness = harness_watching(monkeypatch, [b"same", b"same"])
+    harness._with_the_screen("first")
+    second = harness._with_the_screen("second")
+
+    assert isinstance(second.content, str)
+    assert "has not changed" in second.content
+    assert harness.budget.images_skipped == 1
+    assert harness.budget.images_sent == 1
+
+
+def test_a_changed_screen_is_paid_for(monkeypatch):
+    harness = harness_watching(monkeypatch, [b"before", b"after"])
+    harness._with_the_screen("first")
+    second = harness._with_the_screen("second")
+
+    assert isinstance(second.content, list)
+    assert harness.budget.images_sent == 2
+
+
+def test_no_lesson_means_no_picture(monkeypatch):
+    """The harness is normally given the control list and no image at all.
+    Most turns need no pixels, and they are the whole cost of this project.
+    """
+    harness = harness_watching(monkeypatch, [b"anything"])
+    harness.watching = False
+    message = harness._with_the_screen("open notepad")
+
+    assert isinstance(message.content, str)
+    assert harness.budget.images_sent == 0
+
+
+def test_a_screen_that_cannot_be_read_is_not_a_crash(monkeypatch):
+    from meow.agent.harness import Harness
+
+    harness = Harness.__new__(Harness)
+    harness.watching = True
+    harness._last_screen = None
+    harness.budget = None
+    monkeypatch.setattr("meow.platform.capture.capture_screens",
+                        lambda: (_ for _ in ()).throw(OSError("no desktop")))
+    assert isinstance(harness._with_the_screen("hello").content, str)

@@ -393,6 +393,9 @@ def main() -> None:
         """
         if not guide.teach(steps, harness.transcript):
             return False
+        # From here the turns carry a picture: the whole point of a lesson is
+        # watching what they do with it.
+        harness.watching = True
         first = guide.walkthrough.say(Progress.ARRIVED)
         guide.walkthrough.started = True
         if first:
@@ -400,6 +403,12 @@ def main() -> None:
         return True
 
     harness.start_teaching = start_teaching
+
+    def stop_teaching() -> None:
+        guide.cancel()
+        harness.watching = False
+
+    panic.on_panic("teaching", stop_teaching)
     panic.on_panic("walkthrough", guide.cancel)
     panic.on_panic("marks", lambda: (
         harness._board and harness._board.clear()))
@@ -525,7 +534,8 @@ def main() -> None:
         if harness.user_region is not None:
             print(f"          looking at the area you drew round")
 
-        if guide.active:
+        teaching = guide.active
+        if teaching:
             guide.pause()
             if guide.answer(transcript):
                 # "done" rather than falling out silently: it is what puts
@@ -533,7 +543,12 @@ def main() -> None:
                 # without it leaves whatever animation was running.
                 replies.put(("done", ""))
                 return
-            guide.cancel()
+            # NOT cancelled here. "Where is the keyframe section?" is a
+            # question somebody asks IN THE MIDDLE of being taught, and
+            # ending the lesson over it meant the next "what's next" had
+            # nothing to advance - which is exactly what happened, twice,
+            # in one session. Whether this ends the lesson is decided
+            # below, once there is a route to decide it from.
         working.set()
         try:
             route = router.resolve(transcript)
@@ -548,6 +563,16 @@ def main() -> None:
             route, why = correct_route(route, transcript)
             if why:
                 print(f"          {why}")
+
+            if teaching:
+                # A lesson survives a question and ends on a new job. Asking
+                # where something is, or what this does, is part of being
+                # taught; opening another application is moving on.
+                if route.intent in (Intent.ACT, Intent.PLAN):
+                    stop_teaching()
+                    print("          lesson ended - that is a new job")
+                else:
+                    harness.watching = True
 
             # A plan the user is watching does not need a window. Only work
             # they have walked away from does - which is what a window is FOR,
@@ -644,6 +669,10 @@ def main() -> None:
             replies.put(("error", f"{type(error).__name__}: {error}"))
         finally:
             working.clear()
+            # A lesson that ended must not leave a screenshot attached to
+            # every later turn.
+            if not guide.active:
+                harness.watching = False
             harness.user_region = None
             pencil.forget()
             replies.put(("done", ""))

@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import base64
 import io
+import math
 
 import httpx
 
@@ -87,12 +88,52 @@ REFINE_RADIUS = 220
 # refinement that can only ever narrow has no way back from a bad one.
 RECOVER_RADIUS = 480
 
-# Whether a plain `locate` refines by default. On, because a refinement that
-# can only ever improve or tie is not a trade-off - the second pass may
-# decline, and when it does the first answer stands. The cost is the reason
-# to think twice: each pass is two round trips, so refining doubles a call
-# that already took eight seconds.
-REFINE = True
+# Whether a plain `locate` refines by default. OFF, and that is a MEASURED
+# result rather than caution.
+#
+# Looking twice was built on the published finding that zooming is the
+# training-free way to improve GUI grounding - reported elsewhere at +13.4%
+# on ScreenSpot-Pro. On this project's own 44 hand-labelled targets, with
+# this model, it buys nothing:
+#
+#     tuned-on (24)   one pass 11/24    two passes 11/24
+#     held out (20)   one pass 12/20    two passes 12/20
+#     combined (44)   one pass 23/44    two passes 23/44     7s -> 16s
+#
+# The first run without the agreement gate was worse than net zero in both
+# directions - Premiere 1/5 to 3/5 and Photoshop 1/5 to 2/5, against Chrome
+# 6/6 to 4/6 and Resolve 2/2 to 1/2 - because a crop of a CORRECT answer
+# gives the second pass a chance to pick the wrong neighbour. The gate fixed
+# the losses; it did not produce a gain.
+#
+# The useful negative: **Illustrator, the worst application in the set, did
+# not move at all** - 1/8 one pass, 1/8 two passes. Whatever is wrong there
+# is not resolution, so a sharper picture cannot fix it, and neither will a
+# bigger crop. That rules out a whole family of ideas cheaply.
+#
+# The code stays because the SAME path serves a region the user drew round,
+# and that is a different signal: a person's circle is reliable where a
+# model's first guess is not. `refine=True` turns it back on for anyone who
+# wants to re-measure after a model change.
+REFINE = False
+
+# How far a second look may move the answer and still be believed, in SCREEN
+# pixels. Measured, refinement helps where the first pass was bad and hurts
+# where it was good: over 24 hand-labelled targets it took Premiere 1/5 to
+# 3/5 and Photoshop 1/5 to 2/5, and took Chrome 6/6 down to 4/6 and Resolve
+# 2/2 to 1/2. Net zero, at twice the latency.
+#
+# The pattern is one thing: a crop of a CORRECT answer gives the second pass
+# a chance to pick the wrong neighbour. The recovery above only catches a
+# pass that DECLINES, not one that confidently answers differently.
+#
+# So a refinement is believed when it SHARPENS and distrusted when it
+# DISAGREES. A move of a few tens of pixels is the same target located
+# better; a move of hundreds is a different object, and the coarse pass had
+# the whole screen to judge by. Sixty-four is about one icon plus its
+# spacing - a judgement, not a tuned constant, and checked against targets
+# the threshold was not chosen on.
+AGREEMENT_PIXELS = 64
 
 
 class _Box:
@@ -186,12 +227,18 @@ class ComputerUseGrounding:
             box = _Box(centre[0] - radius, centre[1] - radius,
                        centre[0] + radius, centre[1] + radius)
             closer = self._one_pass(description, within=box)
-            if closer is not None:
+            if closer is None:
+                continue
+            moved = math.dist(closer.centre, centre)
+            if moved <= AGREEMENT_PIXELS:
+                # It found the same thing, more precisely. That is the whole
+                # point of looking twice.
                 return closer
-        # Both crops declined. The thing is probably not where the first pass
-        # said, but "roughly there" beats nothing and the caller is pointing
-        # rather than clicking.
-        self.last_error = "could not confirm it any closer"
+            # It found something ELSE. Inside a crop everything looks like a
+            # candidate, and the coarse pass had the whole screen to judge
+            # by - so the coarse pass wins. This is the difference between
+            # net zero and a real gain.
+            self.last_error = f"the second look disagreed by {moved:.0f}px"
         return first
 
     def _one_pass(self, description: str, within=None) -> Target | None:

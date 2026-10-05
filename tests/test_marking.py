@@ -231,18 +231,23 @@ def test_without_a_region_nothing_about_the_old_path_changes():
 
 # --- looking twice: coarse, then a crop of the guess -------------------------
 #
-# Across 44 hand-labelled targets this was exact 23 times, within 50px 27 and
-# within 100px 30. The gap between "roughly there" and "on it" is most of what
-# is missing, and a second look at an enlarged crop is the training-free way
-# to close it.
+# Measured over 24 hand-labelled targets, refining helped where the first pass
+# was bad and hurt where it was good:
+#
+#     Premiere   1/5 -> 3/5     Chrome   6/6 -> 4/6
+#     Photoshop  1/5 -> 2/5     Resolve  2/2 -> 1/2
+#
+# Net zero, at twice the latency. One cause: a crop of a CORRECT answer gives
+# the second pass a chance to pick the wrong neighbour, and the recovery path
+# only catches a pass that DECLINES. Hence the agreement gate.
 
 
 def refining(answers):
     """Grounding whose passes return the given points, in order.
 
-    Each call records whether it was told the image was a crop, so a test can
-    check that the second look really was narrowed rather than another look
-    at the whole screen.
+    Points are in the coordinate space of whatever image that pass was shown,
+    which for a refinement is the enlarged crop - so "the centre of the crop"
+    is the way to express an answer that agrees with the first guess.
     """
     from meow.desktop.computeruse import ComputerUseGrounding
 
@@ -254,11 +259,13 @@ def refining(answers):
 
     def ask(image, description, narrowed=False):
         found.seen.append((image.size, narrowed))
-        return queued.pop(0) if queued else None
+        wanted = queued.pop(0) if queued else None
+        if wanted == "centre":
+            return (image.size[0] // 2, image.size[1] // 2)
+        if wanted == "corner":
+            return (6, 6)
+        return wanted
 
-    # Every crop is enlarged to the same longest side, so the image SENT is
-    # the same size whether the region was narrow or wide. The region itself
-    # is the thing worth watching.
     real_crop = ComputerUseGrounding._crop
 
     def crop(shot, region):
@@ -271,36 +278,40 @@ def refining(answers):
     return found
 
 
-def test_the_second_look_is_a_crop_of_the_first_guess():
-    found = refining([(640, 400), (100, 100)])
-    found.locate("the thing")
+def test_the_second_look_is_an_enlarged_crop_of_the_first_guess():
+    from meow.desktop.computeruse import REFINE_RADIUS
+
+    found = refining([(640, 400), "centre"])
+    found.locate("the thing", refine=True)
 
     (first_size, first_narrowed), (second_size, second_narrowed) = found.seen
     assert first_narrowed is False, "the first look is the whole screen"
     assert second_narrowed is True, "the second must say it is a close-up"
-    assert second_size != first_size
     assert found.passes == 2
+    assert max(second_size) > REFINE_RADIUS * 2, "a crop is enlarged, not cut"
 
 
-def test_the_crop_is_enlarged_not_just_cut():
-    """Enlarging adds no information and is still the technique: accuracy
-    depends on how many pixels the target occupies in what the model is
-    SHOWN.
+def test_a_refinement_that_SHARPENS_is_believed():
+    """A move of a few tens of pixels is the same target, located better.
+    That is what looking twice is for.
     """
-    from meow.desktop.computeruse import REFINE_RADIUS
+    found = refining([(640, 400), "centre"])
+    target = found.locate("the thing", refine=True)
+    assert target is not None
+    # Within the agreement window of where the coarse pass pointed.
+    assert abs(target.centre[0] - 640) < 64
+    assert abs(target.centre[1] - 400) < 64
 
-    found = refining([(640, 400), (100, 100)])
-    found.locate("the thing")
-    _first, (second_size, _narrowed) = found.seen
-    assert max(second_size) > REFINE_RADIUS * 2
 
-
-def test_the_refined_answer_is_the_one_returned():
-    found = refining([(640, 400), (10, 10)])
-    target = found.locate("the thing")
-    # The second pass clicked near the top left of the crop, which is up and
-    # left of where the first pass pointed.
-    assert target.centre[0] < 640 and target.centre[1] < 400
+def test_a_refinement_that_DISAGREES_is_thrown_away():
+    """Inside a crop everything looks like a candidate, and the coarse pass
+    had the whole screen to judge by. This is the difference between net zero
+    and a real gain: live, it took a HIT on a chess piece and moved it 544px.
+    """
+    found = refining([(640, 400), "corner", "corner"])
+    target = found.locate("the thing", refine=True)
+    assert target.centre == (640, 400), "the coarse answer must win"
+    assert "disagreed" in (found.last_error or "")
 
 
 def test_a_declined_crop_widens_the_search_before_giving_up():
@@ -309,8 +320,8 @@ def test_a_declined_crop_widens_the_search_before_giving_up():
     """
     from meow.desktop.computeruse import RECOVER_RADIUS, REFINE_RADIUS
 
-    found = refining([(640, 400), None, (50, 50)])
-    found.locate("the thing")
+    found = refining([(640, 400), None, "centre"])
+    found.locate("the thing", refine=True)
     assert found.passes == 3
     narrow, wide = found.boxes
     assert wide[0] > narrow[0], "the recovery pass must cover more screen"
@@ -323,10 +334,9 @@ def test_when_both_crops_decline_the_first_answer_stands():
     pointing rather than clicking.
     """
     found = refining([(640, 400), None, None])
-    target = found.locate("the thing")
+    target = found.locate("the thing", refine=True)
     assert target is not None
     assert target.centre == (640, 400)
-    assert "closer" in (found.last_error or "")
 
 
 def test_a_first_pass_that_finds_nothing_is_not_refined():
@@ -339,7 +349,21 @@ def test_a_region_the_user_drew_is_used_instead_of_guessing_one():
     """Somebody who circled the thing has given a better answer than the
     model's own first pass, so there is nothing to refine.
     """
-    found = refining([(60, 60)])
+    found = refining(["centre"])
     found.locate("the thing", within=Region(200, 150, 400, 300))
     assert found.passes == 1
     assert found.seen[0][1] is True
+
+
+def test_refinement_is_off_by_default_and_that_is_a_measurement():
+    """Not caution. On 44 hand-labelled targets, with this model, looking
+    twice scored 23/44 against one pass's 23/44 and took 7s to 16s - and
+    Illustrator, the worst application in the set, did not move at all,
+    which rules out resolution as its problem.
+    """
+    from meow.desktop.computeruse import REFINE
+
+    found = refining([(640, 400), "centre"])
+    found.locate("the thing")
+    assert found.passes == 1
+    assert REFINE is False

@@ -301,9 +301,19 @@ def build(harness) -> list:
         if not started:
             return ("I cannot pace this here, so say the steps in order, "
                     "briefly: " + "; ".join(wanted))
-        return ("Started. The first step has ALREADY BEEN SAID to them - do "
-                "not repeat it, do not list the others, and do not add a "
-                "closing sentence. Say nothing at all.")
+        # Live, the model said the first step anyway, straight after the
+        # app had said it: "...tell me when you have." / "press shift a and
+        # choose mesh, then uv sphere." Telling it to say nothing is a
+        # request, and the reply after a tool call is where a model most
+        # wants to be helpful. So it is given something harmless to say
+        # instead of being asked for silence it will not produce.
+        return (f"Started, and the user has ALREADY HEARD: "
+                f"\"{wanted[0]}\" - word for word, out loud, just now. "
+                f"Reply with AT MOST a short acknowledgement that adds "
+                f"something they do not already know - why this step, or "
+                f"what they will see. Never restate the step. Never list "
+                f"the remaining {len(wanted) - 1}. If you have nothing to "
+                f"add, reply with exactly: ok")
 
     @tool
     def clear_the_screen() -> str:
