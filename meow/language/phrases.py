@@ -211,3 +211,126 @@ def wants_the_web(transcript: str) -> bool:
     if not any(phrase in lowered for phrase in WEB_PHRASES):
         return False
     return not any(word in lowered for word in DESKTOP_WORDS)
+
+
+# --- following a walkthrough -------------------------------------------------
+#
+# A walkthrough used to end on ANY sentence, because the loop cancelled it
+# before routing: "ok what next" destroyed the thing that knew what next was,
+# and so did "i can't find it", and so did a cough the transcriber heard as a
+# word. The goal and every step already walked went with it.
+#
+# Matched BEFORE routing, locally, never reaching a model. Not a cost
+# decision - "next" is not a classification problem, and a sentence that needs
+# a round trip to be understood is not a reflex.
+
+# `spoken_words` turns an apostrophe into a SPACE, so "can't" arrives as
+# "can t" and "I'm" as "i m". That is deliberate and tested elsewhere, and
+# it makes a phrase list unreadable. These comparisons glue the fragment back
+# on first, which changes nothing for any other caller.
+_CONTRACTION_TAILS = ("s", "t", "m", "re", "ve", "ll", "d")
+
+
+def without_split_contractions(text: str) -> str:
+    """`spoken_words`, with "can t" read back as "cant".
+
+    Only for comparing against the phrase lists below. Rejoining is safe
+    because none of these tails is an English word on its own - the one risk
+    would be "d" as a letter, and nobody says a bare letter mid-sentence to a
+    walkthrough.
+    """
+    words = spoken_words(text).split()
+    joined: list[str] = []
+    for word in words:
+        if joined and word in _CONTRACTION_TAILS:
+            joined[-1] += word
+        else:
+            joined.append(word)
+    return " ".join(joined)
+
+
+# "Carry on" - they did the step, or they want the next one regardless.
+NEXT_STEP_PHRASES = frozenset({
+    "next", "next step", "next one", "whats next", "what next", "then what",
+    "and then", "continue", "carry on", "go on", "keep going", "done",
+    "i did it", "did it", "thats done", "ok done", "okay done", "okay next",
+    "ok next", "finished", "im there", "i am there", "i got it", "got it",
+    "yep done", "yeah done", "now what",
+})
+
+# "Say that again" - the step is right and they lost the words. Different from
+# being lost: they know where they are.
+REPEAT_PHRASES = frozenset({
+    "say that again", "again", "repeat", "repeat that", "what was that",
+    "sorry what", "come again", "one more time", "say it again",
+})
+
+# "I cannot find it" - the step is right and the screen is not helping. This
+# is the one that wants POINTING rather than talking.
+STUCK_PHRASES = frozenset({
+    "i cant find it", "cant find it", "i cannot find it", "cannot find it",
+    "i dont see it", "dont see it", "i do not see it", "where is it",
+    "wheres it", "where", "im lost", "i am lost", "not there",
+    "its not there", "it is not there", "i dont know where", "i cant see it",
+    "cant see it",
+})
+
+# Leaving. A walkthrough is help, not a mode - but ending it should be
+# something they can SAY, not only something that happens by accident.
+LEAVE_PHRASES = frozenset({
+    "stop", "stop it", "never mind", "nevermind", "forget it", "leave it",
+    "cancel", "quit", "im done", "i am done", "thats enough",
+    "that is enough", "no thanks", "stop the walkthrough", "stop teaching",
+})
+
+
+# People acknowledge before they ask. "ok what next", "alright so what next"
+# and "yeah done" are all the same instruction wearing a different number of
+# throat-clearings, and an exact match against "what next" catches none of
+# them. Stripped from the FRONT only, and only for the four comparisons below
+# - this is not a general noise filter, which `is_noise` already is.
+#
+# "no" is deliberately absent. It is an instruction on its own everywhere else
+# in this file, and a leading-filter that ate it would turn "no, stop" into
+# something else entirely.
+# "and", "then" and "now" are deliberately absent too, for the same reason
+# in the other direction: "then what", "and then" and "now what" ARE the
+# instruction, and a filter that ate the first word left "what" behind.
+_LEADING_FILLER = frozenset({
+    "ok", "okay", "kay", "alright", "right", "so", "well", "um", "uh", "oh",
+    "ah", "hmm", "hey", "yeah", "yep", "yes", "sure", "cool", "great",
+    "good", "please", "just", "momo",
+})
+
+
+def _for_matching(text: str) -> str:
+    """Spoken words, contractions rejoined, acknowledgements stripped."""
+    words = without_split_contractions(text).split()
+    while words and words[0] in _LEADING_FILLER:
+        words.pop(0)
+    return " ".join(words)
+
+
+def wants_the_next_step(text: str) -> bool:
+    """Are they telling us to carry on with the route they are following?"""
+    return _for_matching(text) in NEXT_STEP_PHRASES
+
+
+def asks_to_repeat(text: str) -> bool:
+    """Do they want the current step said again?"""
+    return _for_matching(text) in REPEAT_PHRASES
+
+
+def cannot_find_it(text: str) -> bool:
+    """Are they looking for the current step and not seeing it?"""
+    return _for_matching(text) in STUCK_PHRASES
+
+
+def wants_to_stop_following(text: str) -> bool:
+    """Are they leaving the walkthrough, rather than asking for something else?
+
+    Matched EXACTLY, like the rest of this group. "stop" on its own ends a
+    walkthrough; "stop the music" is a request, and the difference between
+    them is the whole sentence rather than the first word.
+    """
+    return _for_matching(text) in LEAVE_PHRASES

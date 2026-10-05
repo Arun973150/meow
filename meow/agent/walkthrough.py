@@ -28,6 +28,18 @@ for web-derived names is exact or nothing - `find` degrades to word overlap,
 under which everything exists. A walkthrough that claims they have arrived
 because something vaguely similar is on screen is worse than one that waits.
 
+**It is PAUSED by a sentence, never destroyed by one.** The loop used to
+cancel the walkthrough before routing anything, on the reasoning that whatever
+they just said, they are no longer following the old route. That is true of
+"open notepad" and false of everything somebody actually says mid-route: "ok
+what next" destroyed the thing that knew what next was, "i can't find it"
+destroyed the thing that could point at it, and a cough the transcriber heard
+as a word destroyed both. The goal and every step already walked went with it.
+
+So a walkthrough holds its goal and its completed steps across a pause, and
+answers four things locally without a model: carry on, say that again, i
+cannot find it, and stop.
+
 Nothing here touches the screen, the clock or the network. It takes digests
 and returns what to say, so the whole thing can be tested with a list of
 control names.
@@ -45,6 +57,13 @@ from ..desktop.uia import WindowDigest
 # the loop's polling rate this is a few seconds - long enough that glancing
 # away does not trigger it, short enough to be useful when they are lost.
 PATIENCE = 4
+
+# A budget, not a length. A mined route is normally two to four steps, and
+# anything claiming thirty is a page that was read wrongly rather than a
+# genuinely long procedure. Cut rather than refused: fourteen steps of real
+# help beats none, and `truncated` makes the last one say so instead of
+# pretending it was the end.
+MAX_STEPS = 15
 
 
 class Progress(Enum):
@@ -64,6 +83,13 @@ class Walkthrough:
     index: int = 0
     started: bool = False
     finished: bool = False
+    truncated: bool = False
+    # Every step they have actually walked, in order. Kept because this is
+    # what has to survive a pause: resuming with the index alone can say
+    # "now colors" without being able to say what came before it, and a
+    # walkthrough that cannot recount the route cannot be resumed out loud.
+    walked: list[str] = field(default_factory=list)
+    paused: bool = False
     _unrecognised: int = field(default=0, repr=False)
     _last_seen: tuple = field(default=(), repr=False)
 
@@ -77,12 +103,55 @@ class Walkthrough:
     def remaining(self) -> int:
         return max(0, len(self.steps) - self.index)
 
+    # --- interrupted, and picked back up ---------------------------------
+
+    def pause(self) -> None:
+        """They said something. Stop watching; remember everything."""
+        self.paused = True
+
+    def resume(self) -> str:
+        """Pick the route back up. Returns what to say, which is never "".
+
+        Deliberately NOT the same sentence as `say(ARRIVED)`. Somebody who
+        just asked what is next has not forgotten they are being taught, so
+        being told to "start with" a step they are halfway through reads as
+        the walkthrough having lost its place - which is the exact failure
+        this method exists to prevent.
+        """
+        self.paused = False
+        self.started = True
+        if self.finished or not self.current:
+            return ""
+        if self.index == len(self.steps) - 1:
+            return f"last one - {self.current.lower()}."
+        return f"{self.current.lower()} is next."
+
+    def recount(self) -> str:
+        """The route so far, for when they ask where they had got to."""
+        if not self.walked:
+            return ""
+        if len(self.walked) == 1:
+            return self.walked[0].lower()
+        return (", ".join(step.lower() for step in self.walked[:-1])
+                + " then " + self.walked[-1].lower())
+
+    def _record(self) -> None:
+        """Remember the step being left behind, without repeating it."""
+        step = self.current
+        if step and (not self.walked or self.walked[-1] != step):
+            self.walked.append(step)
+
     def _visible(self, name: str, digest: WindowDigest) -> bool:
         return strict_match(name, digest) is not None
 
     def observe(self, digest: WindowDigest | None) -> Progress:
         """Look at the screen and decide what, if anything, to say now."""
         if self.finished or not self.steps:
+            return Progress.WAITING
+        if self.paused:
+            # The watcher thread is stopped across a pause, so this is
+            # belt and braces - but a walkthrough that narrated while the
+            # user was mid-sentence would talk over them.
             return Progress.WAITING
         if digest is None:
             return Progress.WAITING
@@ -118,9 +187,11 @@ class Walkthrough:
         # The screen changed. ONE step per change, which is what distinguishes
         # a page being open from a page being listed on the one above it.
         if following:
+            self._record()
             self.index += 1
             if self.index == len(self.steps) - 1:
                 self.finished = True
+                self._record()
                 return Progress.FINISHED
             return Progress.ADVANCED
 
@@ -135,10 +206,18 @@ class Walkthrough:
         # sending them back to a step they have already passed.
         for position in range(len(self.steps) - 1, self.index, -1):
             if self._visible(self.steps[position], digest):
+                # Everything between here and there was walked, whether or
+                # not it was ever announced - they knew the route and used
+                # it, and `recount` has to be able to say so.
+                for passed in range(self.index, position):
+                    step = self.steps[passed]
+                    if not self.walked or self.walked[-1] != step:
+                        self.walked.append(step)
                 self.index = position
                 self.started = True
                 if position == len(self.steps) - 1:
                     self.finished = True
+                    self._record()
                     return Progress.FINISHED
                 return Progress.ADVANCED
 
@@ -172,11 +251,46 @@ class Walkthrough:
         if progress is Progress.ADVANCED:
             return f"good. now {self.current.lower()}."
         if progress is Progress.FINISHED:
+            if self.truncated:
+                # Never claim the end of a route that was cut. "You are
+                # there" about step fifteen of twenty is a lie the user only
+                # discovers by not being there.
+                return (f"{self.current.lower()} - that is as far as the "
+                        f"instructions i found go.")
             return f"that is it - {self.current.lower()}. you are there."
         if progress is Progress.LOST:
             first = self.current.lower()
             return f"i cannot see {first} from here. open it and i will carry on."
         return ""
+
+    # --- answering them directly, with no model ---------------------------
+
+    def said_again(self) -> str:
+        """They asked to hear the step again.
+
+        The class docstring says it never repeats itself at them, and that
+        still holds: repeating UNPROMPTED is nagging, repeating when asked is
+        the whole job. Worded differently on purpose, because hearing the
+        identical sentence back is how a person concludes they are talking to
+        a recording.
+        """
+        if not self.current:
+            return ""
+        return f"you are looking for {self.current.lower()}."
+
+    def help_me_find_it(self) -> str:
+        """They cannot see the step. Said alongside a point at it."""
+        if not self.current:
+            return ""
+        return f"{self.current.lower()} - i am pointing at it now."
+
+    def stopped(self) -> str:
+        """They ended it. Says what was covered, so it was not for nothing."""
+        self.finished = True
+        route = self.recount()
+        if route:
+            return f"alright, stopping there. you got as far as {route}."
+        return "alright, stopping there."
 
 
 def from_directions(directions, goal: str = "") -> Walkthrough | None:
@@ -191,4 +305,5 @@ def from_directions(directions, goal: str = "") -> Walkthrough | None:
     steps = [step for step in getattr(directions, "steps", []) if step.strip()]
     if len(steps) < 2:
         return None
-    return Walkthrough(steps=steps, goal=goal)
+    truncated = len(steps) > MAX_STEPS
+    return Walkthrough(steps=steps[:MAX_STEPS], goal=goal, truncated=truncated)

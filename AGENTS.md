@@ -773,6 +773,64 @@ step has GONE and a later one is showing, they knew part of the route and
 walked it. Sending them back to a step they have already passed is worse than
 saying nothing.
 
+⚠ **A SENTENCE PAUSES A WALKTHROUGH. ONLY A NEW REQUEST ENDS ONE.** The loop
+cancelled it before routing anything, on the reasoning that whatever they just
+said they are no longer following the old route. That is true of "open
+notepad" and false of everything somebody actually says mid-route: **"ok what
+next" destroyed the thing that knew what next was**, "i can't find it"
+destroyed the thing that could point at it, and a cough the transcriber heard
+as a word destroyed both. The goal and every step already walked went with it.
+
+`Guide.answer()` gets first refusal on the sentence and handles the four
+things people say mid-step - carry on, say that again, i cannot find it, stop
+- **locally, with no model and no routing call.** "Next" is not a
+classification problem, and a sentence that needs a round trip to be
+understood is not a reflex. Returning False is the only path that ends a
+route, which is why every branch is an exact whole-sentence match.
+
+⚠ **Resuming must not say "start with".** Somebody who just asked what is next
+has not forgotten they are being taught, and being sent back to the top of a
+step they are halfway through reads as the walkthrough having lost its place -
+which is the exact failure the pause exists to prevent. `resume()` says "colors
+is next"; `say(ARRIVED)` says "start with colors". Different sentences for
+different moments.
+
+⚠ **"Done" is BELIEVED, not verified.** The watcher exists because looking
+beats asking, and somebody who has volunteered "i did it" is not asking to be
+checked up on. If they are wrong, the next poll says it cannot see the step.
+
+**`walked` is kept, not just `index`.** Resuming from an index can say "now
+colors" and cannot say what came before it, and a walkthrough that cannot
+recount the route cannot be resumed out loud or report what it covered when
+somebody stops it. Skipped steps are recorded too - they walked them, whether
+or not the cat ever announced them.
+
+⚠ **Each watcher thread owns the event it was started with.** `self._stop` is
+replaced every time a paused route is picked up, so a thread reading it per
+iteration can wake waiting on the event belonging to its own replacement - two
+watchers narrating the same route a few hundred milliseconds apart. Passed in
+as an argument, and the thread stops when it is no longer the current one.
+
+⚠ **People acknowledge before they ask.** "ok what next", "alright so what
+next" and "yeah done" are one instruction wearing different numbers of
+throat-clearings, and an exact match against "what next" catches none of them.
+Leading acknowledgements are stripped - but **not "and", "then" or "now"**,
+because "then what", "and then" and "now what" ARE the instruction and
+stripping the first word left "what" behind. "no" is not stripped either: it
+is an instruction everywhere else in that file.
+
+⚠ **`spoken_words` turns an apostrophe into a SPACE**, so "can't" arrives as
+"can t" and "I'm" as "i m". That is deliberate and tested, and it makes a
+phrase list unreadable - `without_split_contractions` glues the fragment back
+on for these comparisons and changes nothing for any other caller.
+
+**A step budget of 15, and a cut route never claims to be the end.** A mined
+route is normally two to four steps; anything claiming thirty is a page read
+wrongly. Cut rather than refused - fourteen steps of real help beats none -
+and `truncated` makes the last step say "that is as far as the instructions i
+found go" instead of "you are there", which about step fifteen of twenty is a
+lie the user only discovers by not being there.
+
 ⚠ **Names in a walkthrough are matched with `strict_match`.** The steps came
 off a web page. Under fuzzy matching everything exists, and a walkthrough that
 says "you are there" because something vaguely similar is on screen is worse
@@ -1176,7 +1234,7 @@ meow connectors      which services are connected, and connect one
 meow stress          64 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               214 fast checks - no Windows, no keys, no network
+pytest               272 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

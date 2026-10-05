@@ -9,10 +9,15 @@ pushes a sentence into the reply queue when there is something to say.
 1.18s for VS Code at full depth. Polling that between frames would stutter the
 cat at exactly the moment somebody is watching it point at things.
 
-**It stops the moment they say something else.** A walkthrough is help, not a
-mode you have to escape. The next sentence out of their mouth cancels it,
-whatever that sentence is - asking how to do a different thing, changing their
-mind, or telling the cat to be quiet.
+**A sentence PAUSES it. Only a new request ends it.** It used to be cancelled
+by whatever they said next, on the reasoning that a walkthrough is help rather
+than a mode you have to escape. That reasoning is right and the implementation
+threw away the wrong thing: "ok what next" destroyed the thing that knew what
+next was, and "i can't find it" destroyed the thing that could point at it.
+
+So `answer()` handles the four sentences somebody actually says mid-route -
+carry on, say that again, i cannot find it, stop - locally, with no model and
+no routing call, and the loop only cancels when it is a genuinely new request.
 """
 
 from __future__ import annotations
@@ -49,26 +54,125 @@ class Guide:
             return False
         self.cancel()
         self.walkthrough = walkthrough
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._watch, daemon=True,
-                                        name="walkthrough")
-        self._thread.start()
+        self._start_watching(walkthrough)
         return True
 
+    def _start_watching(self, walkthrough) -> None:
+        stop = threading.Event()
+        self._stop = stop
+        self._thread = threading.Thread(
+            target=self._watch, args=(walkthrough, stop), daemon=True,
+            name="walkthrough")
+        self._thread.start()
+
     def cancel(self) -> None:
-        """Stop watching. Safe to call when nothing is running."""
+        """Stop watching and forget the route. For a genuinely new request."""
         self._stop.set()
         self.walkthrough = None
 
-    def _watch(self) -> None:
+    def pause(self) -> None:
+        """Stop watching, keep the route. For anything they say mid-step.
+
+        The thread is stopped rather than left spinning: a digest every 1.6
+        seconds while somebody is talking spends UIA time to learn nothing,
+        and a walkthrough that narrates over a question is worse than one
+        that waits.
+        """
+        if self.walkthrough is None:
+            return
+        self._stop.set()
+        self.walkthrough.pause()
+
+    def _watch_again(self) -> None:
+        """Put the eyes back on a paused route."""
+        if self.walkthrough is None or self.walkthrough.finished:
+            return
+        self._start_watching(self.walkthrough)
+
+    def answer(self, transcript: str) -> bool:
+        """Deal with a sentence aimed at the walkthrough. True if it was.
+
+        False means this was not about the route, and the caller should cancel
+        and handle it normally. Returning False is the ONLY path that ends a
+        walkthrough by accident, which is why every branch here is an exact
+        phrase match rather than anything a model weighs.
+        """
+        walkthrough = self.walkthrough
+        if walkthrough is None or walkthrough.finished:
+            return False
+
+        from ..language.phrases import (
+            asks_to_repeat,
+            cannot_find_it,
+            wants_the_next_step,
+            wants_to_stop_following,
+        )
+
+        if wants_to_stop_following(transcript):
+            sentence = walkthrough.stopped()
+            self.cancel()
+            if sentence:
+                self.say(sentence)
+            return True
+
+        if wants_the_next_step(transcript):
+            # They say they did it. BELIEVED, not verified - the watcher
+            # exists because looking beats asking, and somebody who has
+            # volunteered "done" is not asking to be checked up on. If they
+            # are wrong the next poll notices and says it cannot see the
+            # step.
+            sentence = walkthrough.resume()
+            self._watch_again()
+            if sentence:
+                self.say(sentence)
+            return True
+
+        if asks_to_repeat(transcript):
+            walkthrough.resume()
+            self._watch_again()
+            self.say(walkthrough.said_again())
+            self._point_now()
+            return True
+
+        if cannot_find_it(transcript):
+            walkthrough.resume()
+            self._watch_again()
+            self.say(walkthrough.help_me_find_it())
+            self._point_now()
+            return True
+
+        return False
+
+    def _point_now(self) -> None:
+        """Point at the current step, reading the screen once to do it."""
+        if self.point is None or self.walkthrough is None:
+            return
         from ..desktop.uia import digest_foreground
 
-        walkthrough = self.walkthrough
-        while walkthrough is not None and not self._stop.wait(POLL_SECONDS):
+        try:
+            digest = digest_foreground()
+        except Exception:  # noqa: BLE001 - a bad read is not worth a crash
+            return
+        self.point(self.walkthrough.current, digest)
+
+    def _watch(self, walkthrough: Walkthrough, stop: threading.Event) -> None:
+        """Poll the screen for one walkthrough until told to stop.
+
+        Both arguments are passed IN rather than read off self, and that is
+        not tidiness. `self._stop` is replaced every time a paused route is
+        picked back up, so a thread reading it per iteration can wake up
+        waiting on the event belonging to its own replacement - two watchers
+        narrating the same route, a few hundred milliseconds apart. Each
+        thread owns the event it was started with, and stops when it is no
+        longer the current one.
+        """
+        from ..desktop.uia import digest_foreground
+
+        while not stop.wait(POLL_SECONDS):
             if self.should_stop is not None and self.should_stop():
                 return
-            if self.walkthrough is not walkthrough:
-                return                      # replaced by a newer one
+            if self.walkthrough is not walkthrough or self._stop is not stop:
+                return                      # paused, or replaced by a newer one
             try:
                 digest = digest_foreground()
             except Exception:  # noqa: BLE001 - a bad read is not a reason to

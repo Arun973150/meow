@@ -346,9 +346,24 @@ def main() -> None:
 
     def ask(transcript: str) -> None:
         """Route the sentence and run whichever path it asked for."""
-        # Whatever they just said, they are no longer following the
-        # old route. A walkthrough is help, not a mode to escape.
-        guide.cancel()
+        # A live walkthrough gets first refusal on the sentence, and it is
+        # PAUSED rather than cancelled while that is decided. This used to
+        # cancel outright - "whatever they just said, they are no longer
+        # following the old route" - which is true of "open notepad" and
+        # false of everything somebody says mid-route. "ok what next"
+        # destroyed the thing that knew what next was.
+        #
+        # Local, exact phrase matching, no model and no routing call. "next"
+        # is not a classification problem.
+        if guide.active:
+            guide.pause()
+            if guide.answer(transcript):
+                # "done" rather than falling out silently: it is what puts
+                # the cat back in its listening pose, and a turn that ends
+                # without it leaves whatever animation was running.
+                replies.put(("done", ""))
+                return
+            guide.cancel()
         working.set()
         try:
             route = router.resolve(transcript)

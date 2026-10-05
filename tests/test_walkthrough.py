@@ -189,3 +189,184 @@ def test_saying_anything_else_cancels_it():
     assert guide.active
     guide.cancel()
     assert not guide.active
+
+
+# --- interrupted, and picked back up ----------------------------------------
+#
+# Every one of these was impossible before: the loop cancelled the walkthrough
+# on ANY sentence, so "ok what next" destroyed the thing that knew what next
+# was and the goal and the walked steps went with it.
+
+
+def test_a_sentence_pauses_it_rather_than_ending_it():
+    walk = route()
+    home = screen("Settings", "Settings", "System", "Personalization")
+    walk.observe(home)
+
+    walk.pause()
+    assert walk.paused
+    assert not walk.finished
+    # Paused means it says nothing even when handed a screen it would
+    # otherwise narrate. Talking over somebody mid-sentence is worse than
+    # waiting.
+    personal = screen("Settings", "Personalization", "Background", "Colors")
+    assert walk.observe(personal) is Progress.WAITING
+    assert walk.index == 0
+
+
+def test_resuming_does_not_send_them_back_to_the_start():
+    """"Start with settings" to somebody who just asked what is next reads as
+    the walkthrough having lost its place.
+    """
+    walk = route()
+    walk.observe(screen("Settings", "Settings", "Personalization"))
+    walk.pause()
+
+    sentence = walk.resume()
+    assert not walk.paused
+    assert "settings" in sentence
+    assert "start with" not in sentence
+
+
+def test_it_remembers_every_step_already_walked():
+    walk = route()
+    walk.observe(screen("Settings", "Settings", "Personalization"))
+    walk.observe(screen("Settings", "Personalization", "Colors"))
+    assert walk.index == 1
+    assert walk.walked == ["Settings"]
+
+    walk.pause()
+    walk.resume()
+    # The pause changed nothing about where they had got to.
+    assert walk.walked == ["Settings"]
+    assert walk.current == "Personalization"
+
+
+def test_skipping_ahead_still_records_what_was_passed():
+    """Somebody who knew the route and walked it has walked those steps,
+    whether or not the cat ever announced them.
+    """
+    walk = route()
+    walk.observe(screen("Settings", "Settings", "Personalization"))
+    # Straight to the end, skipping Personalization as a spoken step.
+    assert walk.observe(screen("Settings", "Colors", "Mode")) is Progress.FINISHED
+    assert "Personalization" in walk.walked
+
+
+def test_stopping_says_what_was_covered():
+    walk = route()
+    walk.observe(screen("Settings", "Settings", "Personalization"))
+    walk.observe(screen("Settings", "Personalization", "Colors"))
+
+    said = walk.stopped()
+    assert walk.finished
+    assert "settings" in said
+
+
+def test_asking_again_is_worded_differently_from_the_first_time():
+    """It never repeats itself UNPROMPTED - that is nagging. Repeating when
+    asked is the job, and hearing the identical sentence back is how a person
+    concludes they are talking to a recording.
+    """
+    walk = route()
+    walk.observe(screen("Settings", "Settings", "Personalization"))
+    first = walk.say(Progress.ARRIVED)
+    assert walk.said_again() != first
+    assert "settings" in walk.said_again()
+
+
+def test_a_route_longer_than_the_budget_never_claims_to_be_the_end():
+    from meow.agent.walkthrough import MAX_STEPS
+
+    class Directions:
+        steps = [f"Step {n}" for n in range(MAX_STEPS + 6)]
+
+    walk = from_directions(Directions())
+    assert len(walk.steps) == MAX_STEPS
+    assert walk.truncated
+    walk.index = MAX_STEPS - 1
+    ending = walk.say(Progress.FINISHED)
+    assert "you are there" not in ending
+
+
+def test_an_ordinary_route_is_not_marked_truncated():
+    class Directions:
+        steps = ["Settings", "Personalization", "Colors"]
+
+    walk = from_directions(Directions())
+    assert not walk.truncated
+    assert walk.steps == ["Settings", "Personalization", "Colors"]
+
+
+# --- the four sentences somebody says mid-route ------------------------------
+
+
+@pytest.fixture
+def guide(monkeypatch):
+    """A Guide with its eyes and its threads removed.
+
+    Watching needs UIA and a worker thread, and neither is what these cases
+    are about: the question is which sentence does what to the route.
+    """
+    from meow.app import guiding
+
+    said: list[str] = []
+    pointed: list[str] = []
+    watcher = guiding.Guide(say=said.append, point=lambda name, _d=None: None)
+    monkeypatch.setattr(watcher, "_start_watching", lambda _w: None)
+    monkeypatch.setattr(watcher, "_point_now",
+                        lambda: pointed.append(watcher.walkthrough.current))
+    watcher.walkthrough = route()
+    watcher.said = said
+    watcher.pointed = pointed
+    return watcher
+
+
+@pytest.mark.parametrize("said", [
+    "ok what next", "continue", "done", "i did it", "next step",
+    "then what", "carry on",
+])
+def test_carrying_on_keeps_the_route(guide, said):
+    assert guide.answer(said) is True
+    assert guide.walkthrough is not None
+    assert not guide.walkthrough.finished
+
+
+@pytest.mark.parametrize("said", ["i can't find it", "where is it", "i'm lost"])
+def test_being_stuck_points_rather_than_talking(guide, said):
+    """The step is right and the screen is not helping. Reading it out again
+    is the one response that does not help.
+    """
+    assert guide.answer(said) is True
+    assert guide.pointed == ["Settings"]
+
+
+def test_asking_to_repeat_keeps_the_place(guide):
+    assert guide.answer("say that again") is True
+    assert guide.walkthrough.index == 0
+    assert guide.said
+
+
+def test_saying_stop_ends_it(guide):
+    assert guide.answer("never mind") is True
+    assert guide.walkthrough is None
+
+
+@pytest.mark.parametrize("said", [
+    "open notepad",
+    "how do i change my dns",
+    "what's the weather in delhi",
+    "stop the music",
+])
+def test_a_real_request_is_not_the_walkthrough_s_business(guide, said):
+    """False is the only path that ends a route by accident, which is why
+    every branch above is an exact phrase rather than anything weighed.
+    """
+    assert guide.answer(said) is False
+
+
+def test_nothing_is_claimed_when_there_is_no_route():
+    from meow.app import guiding
+
+    watcher = guiding.Guide(say=lambda _s: None)
+    assert watcher.answer("continue") is False

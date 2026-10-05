@@ -234,3 +234,81 @@ def test_putting_a_window_in_front_is_not_a_lesson(said, expected):
     """
     route, _ = correct(Route(Intent.SHOW, False, False, "model"), said)
     assert route.intent is expected, f"{said!r} -> {route.intent}"
+
+
+# --- the four sentences somebody says while being taught --------------------
+#
+# Matched EXACTLY and locally, before routing. A walkthrough used to end on
+# ANY sentence, so "ok what next" destroyed the thing that knew what next was.
+
+
+@pytest.mark.parametrize("said", [
+    "next", "next step", "what next", "ok what next", "alright so what next",
+    "then what", "and then", "now what", "continue", "carry on", "keep going",
+    "done", "ok done", "yeah done", "i did it", "I'm there", "got it",
+])
+def test_carrying_on_is_heard_however_it_is_prefaced(said):
+    from meow.language import wants_the_next_step
+
+    assert wants_the_next_step(said), said
+
+
+@pytest.mark.parametrize("said", [
+    "i can't find it", "where is it", "I'm lost", "i don't see it",
+    "it's not there",
+])
+def test_being_stuck_is_distinguishable_from_moving_on(said):
+    from meow.language import cannot_find_it, wants_the_next_step
+
+    assert cannot_find_it(said), said
+    assert not wants_the_next_step(said)
+
+
+@pytest.mark.parametrize("said", [
+    "open notepad",
+    "how do i change my dns",
+    "what's in my inbox",
+    "stop the music",
+    "next tuesday put a meeting in my calendar",
+    "what is the capital of france",
+])
+def test_a_real_request_is_never_mistaken_for_following_along(said):
+    """Returning True here would swallow the request and keep the cat staring
+    at a Settings page. Every one of these contains a word from one of the
+    lists, which is why the match is the WHOLE sentence.
+    """
+    from meow.language import (
+        asks_to_repeat,
+        cannot_find_it,
+        wants_the_next_step,
+        wants_to_stop_following,
+    )
+
+    assert not wants_the_next_step(said), said
+    assert not asks_to_repeat(said), said
+    assert not cannot_find_it(said), said
+    assert not wants_to_stop_following(said), said
+
+
+def test_a_bare_stop_leaves_a_walkthrough_and_a_sentence_does_not():
+    from meow.language import wants_to_stop_following
+
+    assert wants_to_stop_following("stop")
+    assert wants_to_stop_following("ok never mind")
+    assert not wants_to_stop_following("stop the download")
+
+
+@pytest.mark.parametrize("said, expected", [
+    ("I can't find it", "i cant find it"),
+    ("what's next", "whats next"),
+    ("I'm done", "im done"),
+    ("they're here", "theyre here"),
+])
+def test_split_contractions_are_glued_back_for_matching(said, expected):
+    """`spoken_words` turns an apostrophe into a space, which is deliberate
+    and tested above - it makes "can't" arrive as "can t" and a phrase list
+    unreadable.
+    """
+    from meow.language import without_split_contractions
+
+    assert without_split_contractions(said) == expected
