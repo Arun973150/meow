@@ -88,6 +88,26 @@ def build(harness) -> list:
                     f"they get there - and do NOT call another tool: the "
                     f"walkthrough points at each step itself.")
 
+        # A note written about THIS application, before the web. The web is
+        # searched for a route through an interface; a skill already
+        # describes that interface, and searching past one to ask a search
+        # engine is how "how do i animate a bouncing ball" in Blender came
+        # back as "i can't find specific instructions for that in blender
+        # right now" - with the answer sitting in the prompt, unread.
+        for recipe in harness.shelf.find(question, app=harness.digest.app,
+                                         title=harness.digest.title):
+            if not recipe.scoped:
+                continue
+            harness.runs.append(ToolRun(
+                "find_how_to", question,
+                Outcome(True, f"a note about {harness.digest.app}")))
+            return (f"There is a note above about this application. Answer "
+                    f"from it and from what you know about "
+                    f"{harness.digest.app} - say the steps, in order, "
+                    f"starting with the first one. Then use show_on_screen "
+                    f"to mark whatever the first step refers to, if it is "
+                    f"visible. Do not search the web for this.")
+
         result = lookup.ground(question, harness.digest)
         harness.runs.append(ToolRun("find_how_to", question,
                                  Outcome(result.grounded, result.describe())))
@@ -122,8 +142,11 @@ def build(harness) -> list:
                         f"{harness.digest.app} right now, so say it back to "
                         f"me once you are in the right window.")
             return (f"The guides call it: {names}. None of those are in "
-                    f"{harness.digest.app} right now, so it is probably in a "
-                    f"different window or a different version.")
+                    f"{harness.digest.app} right now - so say what you know "
+                    f"about how to do it, and say that you could not mark "
+                    f"the first step on screen. Not finding it is a failure "
+                    f"of the POINTING, never a reason to claim you do not "
+                    f"know how.")
 
         # Grounded. Point at it - and ONLY point. A name that arrived from
         # a web page must never become a press: see meow/lookup.py. The

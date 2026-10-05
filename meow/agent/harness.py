@@ -133,9 +133,14 @@ MAX_OUTPUT_TOKENS = 220
 # afford. A hard cap is cheaper than cleverness and cannot be talked out of.
 MAX_MODEL_CALLS_PER_RUN = 8
 
-GUIDE_REMINDER ="""This is a SHOW turn: the user wants to be shown where something is, not told what you remember about it.
+GUIDE_REMINDER ="""This is a SHOW turn: the user wants to be shown or taught, not have it done for them.
 
-You MUST use a tool. Never describe a location from your own knowledge - applications change, and a remembered layout is how you point at a button that is not there.
+WHAT YOU KNOW AND WHAT YOU MUST LOOK UP ARE DIFFERENT THINGS, and the line between them is the whole of this.
+
+- HOW to do something - the steps, the shortcut, the order, what a panel is called - you know. Say it. You have read every tutorial ever written about this application and the user has not. "Press I and choose Location" is a real answer and withholding it helps nobody.
+- WHERE something is on THIS screen you do NOT know, ever. Screens differ, versions differ, layouts move, and a remembered position is how you point confidently at a button that is not there. That always comes from a tool.
+
+So: answer the HOW from what you know, and get the WHERE from the screen. Never the other way round. If the notes above cover this application, they beat your own memory - they were written about this machine.
 
 - If the thing is in the control list above, call point_at_control with its EXACT name. It tells you where the control actually is; repeat THAT, and do not describe a position from memory.
 - If there is NO control list, or the thing is not in it, call show_on_screen. It finds things by sight and draws a mark round them, so it works on pictures, canvases, chess boards, diagrams, video timelines and anything else with no controls at all. An empty control list means the window draws its own interface and the tree cannot see inside it - it does NOT mean the thing is absent.
@@ -144,6 +149,7 @@ You MUST use a tool. Never describe a location from your own knowledge - applica
 - show_on_screen takes a SHAPE, and it is worth choosing. rings for a point with no clear edges - a piece on a board, an icon in a crowded toolbar. box for a panel, a field, a table cell. highlight for a region to READ. spotlight to dim everything else on a dense interface, used sparingly because it covers their work. It also takes a label, which writes what the thing IS beside it.
 - For a setting that is somewhere else entirely, call find_how_to and read out the route.
 - Only once show_on_screen has ALSO failed is it fair to say it is not on this screen.
+- A tool that comes back empty means the tool could not find it, NOT that you have nothing to say. Give them the steps you know and tell them you could not mark it on screen. "I can't find instructions for that" is almost never true and is the worst possible answer: you were asked to teach, the knowledge is yours, and only the pointing failed.
 - If the question is about what is ON the screen - a chess position, a diagram, a game, a photo, a video timeline - call look_at_screen FIRST. The control list describes the WINDOW, not the page inside it: on a chess site it lists the browser's tabs and buttons and nothing about the board. Never say you cannot see their screen; look.
 
 Change nothing. Every tool that would is refused on this turn anyway."""
