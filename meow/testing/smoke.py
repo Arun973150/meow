@@ -29,8 +29,8 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import threading
 import time
-from pathlib import Path
 
 
 from meow.console import use_utf8_console
@@ -45,6 +45,21 @@ SECONDS = 8.0
 
 TROUBLE = ("Traceback", "TypeError", "AttributeError", "NameError",
            "ValueError", "KeyError", "IndexError", "error:")
+
+# The last line the app prints before the render loop takes over. Seeing it is
+# the only proof the loop is actually turning - "the process is still alive"
+# is not, and counting it as proof is how this test passed an app that was
+# sitting in a six-second wait for a hotkey another meow was holding.
+READY = "Ctrl+C to quit"
+
+# How long to wait for that line. Startup is about two seconds warm; the
+# hotkey wait alone is six, so this has to be longer than that or a stray
+# process reads as a slow one.
+READY_SECONDS = 20.0
+
+
+def _ready(output: str) -> bool:
+    return READY in output
 
 
 def exercise_the_dock() -> None:
@@ -98,14 +113,38 @@ def main() -> int:
         [sys.executable, "-u", "-m", "meow.cli", "--mute", "--keyword-routing"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
-    time.sleep(args.seconds)
+    # Read as it arrives, on a thread. `communicate` after `terminate` loses
+    # whatever the child had not flushed, and on Windows terminate is an
+    # immediate kill with no flush at all - so a crash late in the run could
+    # be reported as a clean one.
+    collected: list[str] = []
+    reader = threading.Thread(
+        target=lambda: collected.extend(process.stdout), daemon=True)
+    reader.start()
+
+    # Wait for the app to say it is ready, then let the loop turn. Sleeping a
+    # flat eight seconds counted an app that never STARTED as one that
+    # survived: a second meow holding ctrl+m makes this one wait for the key,
+    # and at the eight second mark it is alive, silent, and has not drawn a
+    # single frame. That passed.
+    deadline = time.time() + READY_SECONDS
+    while time.time() < deadline:
+        if process.poll() is not None or _ready("".join(collected)):
+            break
+        time.sleep(0.1)
+
+    started = _ready("".join(collected))
+    if started:
+        time.sleep(args.seconds)
+
     alive = process.poll() is None
     process.terminate()
     try:
-        output, _ = process.communicate(timeout=15)
+        process.wait(timeout=15)
     except subprocess.TimeoutExpired:
         process.kill()
-        output, _ = process.communicate()
+    reader.join(timeout=5)
+    output = "".join(collected)
 
     print("  --- output " + "-" * 50)
     for line in output.splitlines():
@@ -114,18 +153,24 @@ def main() -> int:
 
     problems = [line for line in output.splitlines()
                 if any(word in line for word in TROUBLE)]
-    if not alive and "could not register" in output:
-        print("\n  FAILED: something else holds ctrl+m, so the app "
-              "could not start.")
-        print("  That is the environment, not the code - close any "
-              "other running meow.")
+
+    if not started:
+        if "could not register" in output or not output.strip():
+            print("\n  FAILED: the app never started. Something else holds "
+                  "ctrl+m -")
+            print("  close any other running meow. That is the environment, "
+                  "not the code.")
+        else:
+            print(f"\n  FAILED: no sign of life within {READY_SECONDS:.0f}s - "
+                  f"it never finished starting up")
     elif not alive:
         print("\n  FAILED: the app died before it was asked to stop")
     if problems:
         print("\n  FAILED: it printed trouble")
         for line in problems[:10]:
             print("    " + line.strip())
-    if alive and not problems:
+
+    if started and alive and not problems:
         print(f"\n  ok - survived {args.seconds:.0f}s of real frames"
               + (" with agents docked" if args.with_agents else ""))
         return 0

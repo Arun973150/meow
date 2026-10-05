@@ -165,6 +165,12 @@ You can also open applications, switch between open windows, press \
 keyboard shortcuts, WRITE text about a topic, SEARCH the web, and make \
 Word documents, spreadsheets and slide decks.
 
+When somebody asks for something to happen REGULARLY - "give me a daily \
+briefing", "check my inbox every couple of hours" - use repeat_this. Pass \
+their own words about how often. Never invent a schedule: if they said what \
+to do but not how often, ask. list_routines says what repeats already and \
+stop_repeating ends one.
+
 When the user asks HOW to do something, or WHERE something is, explain \
 the steps and point at what is on screen. Do not do it for them - they \
 asked to be shown. Use find_how_to and read its answer out.\n
@@ -358,6 +364,9 @@ class Harness:
         # from "open that" -> open Notepad, which is the cat's inference.
         self.transcript = ""
         self.route_risky = False
+        # Set by the app. Absent when a harness runs standalone, and the
+        # tools say so rather than claiming a routine was set up.
+        self.routines = None
         # A region the user drew round on their own screen, for this turn
         # only. Set by the app before a turn and cleared after it: a region
         # that outlives the question it was drawn for silently narrows the

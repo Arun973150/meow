@@ -64,6 +64,12 @@ from meow.agent.harness import Confirmation, Harness, enable_tracing
 from meow.agent.memory import Memory
 from meow.agent.mind import Mind
 from meow.panic import DEFAULT_PANIC_KEY, Panic
+
+# How often the loop asks whether a routine is due. A routine happens about
+# now rather than at a moment - reading a database sixty times a second to
+# learn that would be sixty times too often, and twenty seconds of lateness
+# on a daily briefing is not lateness.
+ROUTINE_CHECK_SECONDS = 20.0
 from meow.agent.planner import Planner
 from meow.platform.capture import capture_region, capture_screens, mean_luminance
 from meow.desktop.uia import digest_foreground
@@ -253,6 +259,18 @@ def main() -> None:
 
     router = Router(use_model=not args.keyword_routing, memory=memory)
     tasks = TaskRunner()
+
+    # Work that repeats. Durable, so a daily briefing survives a reboot -
+    # one that silently stops is a feature somebody relies on once.
+    try:
+        from meow.work.routines import SETTLE_SECONDS, RoutineBook
+
+        routines = RoutineBook()
+        harness.routines = routines
+    except Exception as error:  # noqa: BLE001 - never fatal, and said plainly
+        print(f"  routines unavailable ({type(error).__name__})")
+        routines = None
+        SETTLE_SECONDS = 0.0
     # So "paste the results here" can reach what a task found. Without this the
     # harness had no idea a task had ever run, and answered that it could not
     # paste research results - which was true and unhelpful.
@@ -368,6 +386,108 @@ def main() -> None:
     panic.on_panic("marks", lambda: (
         harness._board and harness._board.clear()))
 
+    def work(task):
+        """Run a plan inside a task, reporting as it goes.
+
+        Lifted out of `ask` so a ROUTINE can hand work over
+        the same way a sentence does. It depends on nothing
+        from the turn - only on the task - which is what made
+        lifting it possible and is worth keeping true.
+        """
+        actor = f"task {task.number}"
+        memory.join(actor, task.title)
+        # Its own conversation, with its own icon, so the sidebar
+        # separates handed-over work from the voice session.
+        thread = panel.begin(
+            task.title, kind="task",
+            icon="magnifier" if wants_its_own_window(task.goal)
+            else "gear")
+        # Hung on the task so the render loop can put an icon on
+        # screen for it and know which conversation to open.
+        task.conversation = thread
+
+        def report(kind, text):
+            task.log(text, kind="error" if kind == "error"
+                     else "step" if kind in ("step", "quiet")
+                     else "say")
+            # So the cat can answer "what is it doing" from shared
+            # memory, without asking the task - which may be
+            # mid-request and cannot be interrupted to reply.
+            memory.update(actor, text)
+            panel.say(thread, task.title, text)
+
+        # Its OWN harness, with a confirmer that declines rather
+        # than asking. Sharing the foreground one meant a task's
+        # permission question went to the voice loop - the task sat
+        # blocked for twenty seconds and the user, who had moved on,
+        # got "open excel?" out of nowhere.
+        # Shares the memory, so a step can resolve "the one we
+        # were just looking at" against what was actually said.
+        # It ASKS now rather than declining outright. The
+        # question goes into its own conversation, its icon turns
+        # amber, and the thread blocks until somebody answers or
+        # four minutes pass. Nobody is interrupted - which is what
+        # consent needs in order to mean anything.
+        confirmer = asking_confirmer(
+            task,
+            ask=lambda question: panel.ask(thread, question),
+            wait_for_answer=lambda marker, seconds:
+                panel.wait_for_answer(thread, marker, seconds))
+        # unattended: it asks ONLY about things that are hard
+        # to undo. Handing work over is consent to the ordinary
+        # steps of doing it, and a task that stops for each of
+        # those never finishes.
+        own = Harness(confirm=confirmer,
+                      ask_before_acting=False,
+                      memory=memory, actor=actor,
+                      budget=mind.screen.budget)
+        own.unattended = True
+        # unattended: its confirmer declines without asking,
+        # so a refusal must not be reported as the user saying no.
+        worker = Planner(own, on_event=report, unattended=True,
+                         should_stop=lambda: (panic.should_stop()
+                                              or task.should_stop))
+        plan = worker.run(task.goal)
+
+        # Anything said while it was working happens now, in order.
+        while True:
+            extra = task.take_instruction()
+            if extra is None or task.should_stop:
+                break
+            task.log(extra, kind="step")
+            worker.run(extra)
+
+        if plan.abandoned:
+            panel.end(thread)
+            return "could not break that into steps"
+
+        # Everything the steps produced, kept so "paste the results
+        # here" has something to paste. Without it the work exists
+        # only as sentences that have already been spoken.
+        task.result = "\n".join(
+            step.said for step in plan.steps if step.said.strip())
+
+        last = next((s.said for s in reversed(plan.steps)
+                     if s.said.strip()), "")
+        # Whatever it wrote, recorded as a file the window can
+        # offer to open. The sentence already says "saved as
+        # gpu_prices_india", which is not something anyone can
+        # click.
+        made = getattr(own, "_last_document", None)
+        if made is not None:
+            panel.produced(thread, str(made.path))
+
+        # What it could not do without you. Said rather than left
+        # in a log nobody reopens: a task that skips half its work
+        # and reports "done" is worse than one that fails.
+        if task.skipped:
+            needed = "; ".join(task.skipped[:3])
+            panel.say(thread, task.title,
+                      f"i could not do this without you: {needed}")
+
+        panel.end(thread)
+        return last or ("done" if plan.succeeded else "stopped early")
+
     def ask(transcript: str) -> None:
         """Route the sentence and run whichever path it asked for."""
         # A live walkthrough gets first refusal on the sentence, and it is
@@ -436,102 +556,6 @@ def main() -> None:
                     replies.put(("say", "i am already working on as much as i "
                                         "can. say close that when one is done."))
                     return
-
-                def work(task):
-                    """Run the plan inside the task, reporting as it goes."""
-                    actor = f"task {task.number}"
-                    memory.join(actor, task.title)
-                    # Its own conversation, with its own icon, so the sidebar
-                    # separates handed-over work from the voice session.
-                    thread = panel.begin(
-                        task.title, kind="task",
-                        icon="magnifier" if wants_its_own_window(task.goal)
-                        else "gear")
-                    # Hung on the task so the render loop can put an icon on
-                    # screen for it and know which conversation to open.
-                    task.conversation = thread
-
-                    def report(kind, text):
-                        task.log(text, kind="error" if kind == "error"
-                                 else "step" if kind in ("step", "quiet")
-                                 else "say")
-                        # So the cat can answer "what is it doing" from shared
-                        # memory, without asking the task - which may be
-                        # mid-request and cannot be interrupted to reply.
-                        memory.update(actor, text)
-                        panel.say(thread, task.title, text)
-
-                    # Its OWN harness, with a confirmer that declines rather
-                    # than asking. Sharing the foreground one meant a task's
-                    # permission question went to the voice loop - the task sat
-                    # blocked for twenty seconds and the user, who had moved on,
-                    # got "open excel?" out of nowhere.
-                    # Shares the memory, so a step can resolve "the one we
-                    # were just looking at" against what was actually said.
-                    # It ASKS now rather than declining outright. The
-                    # question goes into its own conversation, its icon turns
-                    # amber, and the thread blocks until somebody answers or
-                    # four minutes pass. Nobody is interrupted - which is what
-                    # consent needs in order to mean anything.
-                    confirmer = asking_confirmer(
-                        task,
-                        ask=lambda question: panel.ask(thread, question),
-                        wait_for_answer=lambda marker, seconds:
-                            panel.wait_for_answer(thread, marker, seconds))
-                    # unattended: it asks ONLY about things that are hard
-                    # to undo. Handing work over is consent to the ordinary
-                    # steps of doing it, and a task that stops for each of
-                    # those never finishes.
-                    own = Harness(confirm=confirmer,
-                                  ask_before_acting=False,
-                                  memory=memory, actor=actor,
-                                  budget=mind.screen.budget)
-                    own.unattended = True
-                    # unattended: its confirmer declines without asking,
-                    # so a refusal must not be reported as the user saying no.
-                    worker = Planner(own, on_event=report, unattended=True,
-                                     should_stop=lambda: (panic.should_stop()
-                                                          or task.should_stop))
-                    plan = worker.run(task.goal)
-
-                    # Anything said while it was working happens now, in order.
-                    while True:
-                        extra = task.take_instruction()
-                        if extra is None or task.should_stop:
-                            break
-                        task.log(extra, kind="step")
-                        worker.run(extra)
-
-                    if plan.abandoned:
-                        panel.end(thread)
-                        return "could not break that into steps"
-
-                    # Everything the steps produced, kept so "paste the results
-                    # here" has something to paste. Without it the work exists
-                    # only as sentences that have already been spoken.
-                    task.result = "\n".join(
-                        step.said for step in plan.steps if step.said.strip())
-
-                    last = next((s.said for s in reversed(plan.steps)
-                                 if s.said.strip()), "")
-                    # Whatever it wrote, recorded as a file the window can
-                    # offer to open. The sentence already says "saved as
-                    # gpu_prices_india", which is not something anyone can
-                    # click.
-                    made = getattr(own, "_last_document", None)
-                    if made is not None:
-                        panel.produced(thread, str(made.path))
-
-                    # What it could not do without you. Said rather than left
-                    # in a log nobody reopens: a task that skips half its work
-                    # and reports "done" is worse than one that fails.
-                    if task.skipped:
-                        needed = "; ".join(task.skipped[:3])
-                        panel.say(thread, task.title,
-                                  f"i could not do this without you: {needed}")
-
-                    panel.end(thread)
-                    return last or ("done" if plan.succeeded else "stopped early")
 
                 task = tasks.spawn(transcript, work)
                 print(f"          handed to task {task.number}")
@@ -628,6 +652,10 @@ def main() -> None:
     # Drawing faults are reported once each and never twice, so a bug that
     # happens every frame does not fill the terminal.
     seen_draw_faults: set[str] = set()
+    # Elapsed seconds at the last routine check. Starts below zero so the
+    # first check happens as soon as the settle time has passed rather than
+    # one interval after it.
+    last_routine_check = -ROUTINE_CHECK_SECONDS
 
     def draw_fault(where: str, error: Exception) -> None:
         """A bad frame must not take a running task down with it.
@@ -959,6 +987,34 @@ def main() -> None:
                 # supersample is 34ms to render, so it redraws only when the
                 # picture would actually differ. Ticked from here because
                 # marks expire on their own and something has to notice.
+                # Anything due. Checked on a slow timer rather than
+                # every frame - a routine is a thing that happens about
+                # now, and reading a database sixty times a second to
+                # learn that is sixty times too often.
+                if (routines is not None
+                        and elapsed > SETTLE_SECONDS
+                        and elapsed - last_routine_check > ROUTINE_CHECK_SECONDS):
+                    last_routine_check = elapsed
+                    try:
+                        for routine in routines.due():
+                            if not tasks.can_start():
+                                # Left due. It fires on the next check, when
+                                # there is room - better than dropping it and
+                                # better than queueing an unbounded pile.
+                                break
+                            # Marked BEFORE it runs, and whether or not it
+                            # succeeds. A routine that failed must not retry
+                            # as fast as the loop checks, which is the one
+                            # failure mode that spends money while nobody is
+                            # watching.
+                            routines.mark_ran(routine)
+                            started = tasks.spawn(routine.goal, work)
+                            print(f"  {elapsed:5.1f}s  routine: "
+                                  f"{routine.goal[:50]} -> task "
+                                  f"{started.number}")
+                    except Exception as error:  # noqa: BLE001
+                        print(f"  routine check failed ({type(error).__name__})")
+
                 # Two Win32 calls, and only while somebody is actually
                 # drawing. Off, this returns on its first line.
                 try:

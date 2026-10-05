@@ -59,7 +59,8 @@ meow/desktop/               uia · actions · grounding · pointing · verify ·
                             the thesis lives here
 meow/agent/                 harness · planner · router · risk · memory ·
                             mind · evaluation - the parts that decide
-meow/work/                  tasks · taskwindow · agentdock · conversations
+meow/work/                  tasks · taskwindow · agentdock · conversations ·
+                            routines
 meow/knowledge/             research · queries · recipes · documents
 meow/storage/paths.py       WHERE THINGS GO - user files vs app data
 meow/config.py              .env keys; never logs a value
@@ -603,7 +604,7 @@ resolved day and time back.
 
 ⚠ **There is NO send tool in the harness, and there must never be one.** The
 harness holds the screen, which is private data and untrusted content both;
-one send tool closes the trifecta in a single move. 35 tools, none of them
+one send tool closes the trifecta in a single move. 38 tools, none of them
 send-shaped, and `meow/testing/stress.py` checks that.
 
 **Approval is explicit.** Saying "send it" sends the newest waiting draft, and
@@ -951,6 +952,62 @@ token budget thinking, returning one query instead of three.
 *called*, then finds that exact name in the window in front. Measured against
 real Windows Settings: dark mode -> `Personalization`, bluetooth ->
 `Bluetooth & devices`, dns -> `Network & internet`.
+
+**ROUTINES: work that repeats without being asked again.** "Give me a daily
+briefing", "check my inbox every couple of hours". `meow/work/routines.py` is
+the store and the schedule language; `meow/tools/routines.py` is the three
+things somebody says about one; the loop fires them.
+
+**A routine is a GOAL and a schedule, not a recorded plan.** The plan is made
+fresh each time, for the same reason a recipe is knowledge rather than a
+script: a plan recorded on Tuesday describes a screen that has moved by
+Thursday. What is stored is the sentence the user said, with the timing taken
+out of it - leaving it in means every plan it makes has a step about mornings.
+
+**Durable, in `%LOCALAPPDATA%/Meow/routines.db`.** A daily briefing that
+silently stops at a reboot is a feature somebody relies on once. Never in
+Documents: a synced folder copies a database and its write-ahead log
+independently and on its own schedule.
+
+⚠ **`how_often` returns None rather than a guess, and the tool then ASKS.** A
+routine firing on a cadence nobody asked for is the kind of thing somebody
+discovers from a bill, and "every" turns up in sentences that are not
+schedules at all - "do every one of these". The schedule comes from the
+user's own words; the model never picks one.
+
+⚠ **A run is recorded BEFORE it happens, and whether or not it works.** A
+routine that failed must not retry as fast as the loop checks - that is the
+one failure mode that spends money while nobody is watching.
+
+**Nothing repeats faster than fifteen minutes**, and a missed slot does not
+catch up: eight hours asleep must not produce four briefings at breakfast.
+Ninety seconds of settling before anything fires, because a routine going off
+during startup competes with the window the user just opened.
+
+⚠ **`(minutes?|hours?)`, not `(minute|minutes)`.** Alternation is first-match,
+so the singular won and left the trailing "s" in the goal - "check my inbox
+every two hours" became the routine "check my inbox s".
+
+**`work(task)` was lifted out of `ask`** so a routine hands work over exactly
+the way a sentence does. It depended on nothing from the turn, only on the
+task, which is what made lifting it possible and is worth keeping true.
+
+⚠ **`meow smoke` PASSED AN APP THAT NEVER STARTED.** It slept eight seconds
+and asked whether the process was alive. A second meow holding ctrl+m makes
+this one **wait** for the key - so at the eight second mark it was alive,
+silent, and had not drawn a single frame, and that counted as "survived 8s of
+real frames". Every intermittent smoke failure traced to a stray process; this
+was the same cause producing a false PASS instead, which is worse.
+
+It now waits for the app to SAY it is ready - "Ctrl+C to quit", the last line
+before the render loop takes over - and fails if that never arrives. Being
+alive is not evidence that the loop is turning. **Verified to fail on both**:
+a stray process holding the hotkey, and a `NameError` in the frame path.
+
+⚠ **Read the child's output on a THREAD, not with `communicate` after
+`terminate`.** On Windows `terminate` is an immediate kill with no flush, so
+whatever the child had buffered is lost - a crash late in the run could be
+reported as a clean one.
 
 **AN UNATTENDED TASK HAS ITS OWN POINTER AND NEVER TAKES YOURS.** Invariant
 10 says the user can always take the mouse back; the honest reading is that
@@ -1403,7 +1460,7 @@ happened. The model rounds are most of it and the rest was waiting.
 ROUTER (reflex: route · needs_screen · risky — gpt-4.1-nano, strict schema)
  │
  ├──▶ RESEARCH   search + fetch only. No files. No desktop. No send.
- ├──▶ HARNESS    35 tools · 2 prompts · reactive | deliberate(planner)
+ ├──▶ HARNESS    38 tools · 2 prompts · reactive | deliberate(planner)
  └──▶ EXPLAINER  manim pipeline, fixed shape
 ```
 
@@ -1419,7 +1476,7 @@ meow connectors      which services are connected, and connect one
 meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               310 fast checks - no Windows, no keys, no network
+pytest               344 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all
@@ -1455,7 +1512,7 @@ different owners. `meow/storage/paths.py` decides all of them.
 Documents/Meow          what the USER opens - .docx .xlsx, their recipes,
                         contacts.txt. Explorer has to be able to reach it.
 %LOCALAPPDATA%/Meow     what the APP owns - conversations.db, plans.db,
-                        install-id, window.log. Never synced, never roamed.
+                        routines.db, install-id, window.log. Never synced.
 ```
 
 > Measured on this machine: the whole store is **15,688 characters across 294

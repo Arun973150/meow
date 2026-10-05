@@ -11,9 +11,10 @@ desktop first because it is what the cat is for, then the accounts, then
 looking things up, then the things it makes.
 """
 
-from . import connectors, desktop, knowledge, teaching, workspace
+from . import (connectors, desktop, knowledge, routines, teaching,
+               workspace)
 
-ORDER = (desktop, teaching, connectors, knowledge, workspace)
+ORDER = (desktop, teaching, connectors, knowledge, workspace, routines)
 
 
 def build(harness) -> list:

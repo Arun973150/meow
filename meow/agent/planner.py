@@ -81,6 +81,7 @@ It can:
 - MAKE a Word document, a spreadsheet or a slide deck, saved to Documents/Meow
 - OPEN the document it just made
 - FIND HOW a setting works when it is not on screen, then point at it
+- SET UP WORK THAT REPEATS - a daily briefing, a check every few hours
 
 Rules:
 - Each step says WHAT to achieve, not which keys to hit. "minimise vs code" is a step; "press alt+space" then "click minimize" is you guessing at how, and guessing wrong. It works out how.
