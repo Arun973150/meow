@@ -34,7 +34,7 @@ One harness, two specialists, two modes. Capability grows through tools and
 recipes — never through new agents.
 
 ```
-                    Jev   reflex: route · risk · complexity   (non-generative)
+                 ROUTER   reflex: route · needs_screen · risky  (nano)
                      │
        ┌─────────────┼──────────────┐
        │  fast path  │              │  fast path
@@ -56,64 +56,107 @@ recipes — never through new agents.
 
 ---
 
-## Jev — the reflex layer
+## The router — the reflex layer
 
-[Jev](https://www.langchain.com/blog/building-a-harness-with-jev) (TypeSafe) is a
-"System One" model: it classifies, scores and routes but **cannot generate text**.
-Reportedly 40–400× cheaper than a small frontier LLM on classification.
+One small model answering three questions about the sentence that just arrived:
+what the user wants, whether it needs the screen, whether getting it wrong
+would change something hard to undo. `meow/agent/router.py`.
 
-One call answers every routing question at once — parallel questions barely
-change response time:
+**This used to be Jev** — TypeSafe's "System One" evaluation model, which
+scored typed questions and could not generate text at all. It was the right
+shape for the job and it is gone: no key, no service. The replacement is
+`gpt-4.1-nano` with a strict JSON schema, which is the same small model the
+query rewriter uses and the cheapest thing in the project.
+
+**The criteria survived the swap unchanged.** Every clause describing what
+`answer`, `show`, `act` and `plan` mean was written because a real spoken
+sentence went somewhere useless, and none of that is about the classifier
+reading them. They were lifted from Jev's `criteria` mapping word for word.
 
 ```python
-from langchain_typesafe import TypeSafeClassifier, Choice, Noul, Score
-
-route = classifier.invoke({
-    "state": transcript + screen_digest,
-    "questions": {
-        "intent":       Choice(options=["answer", "point", "act", "research",
-                                        "build", "explain", "dictate", "abort"]),
-        "destructive":  Noul(instructions="Would this delete, send, pay, or overwrite?"),
-        "needs_screen": Noul(instructions="Does answering require seeing the screen?"),
-        "complexity":   Score(instructions="How hard is this task?"),
-    }
-})
+ROUTE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "intent": {"type": "string",
+                   "enum": ["answer", "show", "act", "plan"]},
+        "needs_screen": {"type": "boolean"},
+        "risky": {"type": "boolean"},
+    },
+    "required": ["intent", "needs_screen", "risky"],
+    "additionalProperties": False,
+}
 ```
 
 | Output | Drives |
 |---|---|
 | `intent` | which path runs |
-| `destructive` | the confirmation gate ([03-safety.md](03-safety.md)) |
-| `needs_screen` | skip vision tokens on general questions |
-| `complexity` | reactive vs deliberate mode |
+| `needs_screen` | whether the answer path pays for a screenshot |
+| `risky` | one more reason for the confirmation gate to ask ([03-safety.md](03-safety.md)) |
 
-**Jev is an API call, not local.** Budget 30–80ms RTT. The panic-abort path must
-never depend on it — that stays local keyword matching.
+A strict schema rather than parsed prose: the model cannot return an intent
+that is not one of the four, so there is no spelling to normalise and no
+sentence to strip. The one failure left is the request itself failing, which
+falls back to keywords.
 
-Because it returns *calibrated probabilities*, low confidence is actionable: the
-cat asks one short clarifying question rather than misrouting. This matters —
-"can you fix this login bug" (spawn a build) and "how would I fix this login
-bug" (just answer) are semantically adjacent and functionally opposite.
+**The router is an API call, not local.** The panic-abort path must never
+depend on it — that stays local keyword matching.
+
+### What got worse, and what was done about it
+
+**Three things, and none of them is accuracy.** `meow routing` scores the
+swap at **36/37 on intent, 6/6 on `needs_screen`, 36/36 on `risky`**, against
+18/19 measured for Jev on a smaller set.
+
+**It is slower.** 1,214ms median against Jev's ~560ms warm. That is survivable
+only because routing runs off the critical path, which makes overlapping it
+with the UIA digest more important than it was, not less.
+
+**It costs per call.** Jev charged for thinking rather than tokens, so routing
+every interim transcript was free. A chat model is not, and a sentence emits
+five or six interims — so a partial is only routed once it has grown by three
+words since the last one. Without that, routing alone would cost about as much
+as the rest of the turn.
+
+**`temperature=0` is not determinism.** Two sentences in the measured set
+change route between runs: "open notepad then type hi my name is srija" about
+one run in five, "summarise what i am reading" about two in five. Jev returned
+calibrated probabilities and held still. `meow routing --repeat 3` is there to
+tell a rule worth writing from a model that will not sit down.
+
+**And one thing is strictly better:** every path in a turn is `ChatOpenAI` now,
+so LangSmith traces the routing decision alongside everything else. Jev was the
+one step in a turn that tracing could not see.
 
 ### The latency trick
 
-Jev is cheap enough to run on **every interim transcript** while the user is
-still speaking. By the time they stop talking, routing is already decided.
+Routing runs on interim transcripts while the user is still speaking, so by the
+time they stop talking the decision is usually already made.
 
 ```
-serial   STT 250ms → route 80ms → capture 200ms → LLM 450ms → TTS 120ms  = ~1100ms
-parallel STT 250ms → [route and capture already done] → LLM 450 → TTS 120 = ~820ms
+serial   STT 250ms → route 1200ms → capture 200ms → LLM 450ms → TTS 120ms
+parallel STT 250ms → [route and capture already done] → LLM 450 → TTS 120
 ```
 
-This is only affordable because Jev is not a generative model. You could not do
-this with a small LLM.
+With Jev this was free. With a chat model it is paid for, and the debounce
+above is what keeps the bill honest.
+
+### Corrections, which are not the model's job
+
+Some routing facts are not classification problems — they are facts about what
+the cat can do, which no prompt teaches a model that cannot see the tool list.
+Those live in `meow/language/routing.py` as pure functions over a route, and
+each one exists because a real sentence went somewhere useless. The cost of
+being wrong is asymmetric, so they are decided in code rather than weighed.
+
+Measured: four corrections fire across the 37-sentence set, and the model
+alone scores 28/37 without them.
 
 ---
 
 ## The harness
 
 `create_agent` from `langchain` (note: `create_react_agent` is deprecated). Its
-**middleware system** is where Jev's risk gate plugs in, which is why the agent
+**middleware system** is where the risk gate plugs in, which is why the agent
 loop, the safety gate, and LangSmith tracing all share one mechanism.
 
 ### Two prompts, not two agents
@@ -129,8 +172,9 @@ These genuinely cannot be one prompt. Everything else is shared.
 
 **Reactive** — 1–3 steps. Answers, points, single clicks, lookups. Most traffic.
 
-**Deliberate** — the planner engages for long-horizon work. Entered when Jev's
-`complexity` crosses threshold.
+**Deliberate** — the planner engages for long-horizon work. Entered when the
+router returns `plan`. Jev also scored a `complexity` number; a chat model
+asked for one returns a number that means nothing, so the intent decides.
 
 ### The planner: plan is state, not context
 

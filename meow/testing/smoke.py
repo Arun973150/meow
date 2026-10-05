@@ -95,7 +95,7 @@ def main() -> int:
 
     print(f"  running the app for {args.seconds:.0f}s...")
     process = subprocess.Popen(
-        [sys.executable, "-u", "-m", "meow.cli", "--mute", "--no-jev"],
+        [sys.executable, "-u", "-m", "meow.cli", "--mute", "--keyword-routing"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
     time.sleep(args.seconds)

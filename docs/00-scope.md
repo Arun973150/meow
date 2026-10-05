@@ -81,7 +81,7 @@ See [02-grounding.md](02-grounding.md) and [04-evaluation.md](04-evaluation.md).
 | Target machine | Windows 11, **CPU only** — no local GPU inference |
 | Latency | ~800ms to first spoken syllable. Sub-500ms is not reachable with cloud LLM + cloud TTS |
 | Agent framework | LangGraph + LangSmith (tracing is a requirement, not a nice-to-have) |
-| Router | Jev (TypeSafe) — non-generative classifier |
+| Router | OpenAI `gpt-4.1-nano`, strict JSON schema — was Jev (TypeSafe), which is gone |
 | Language | Python — every dependency below is Python-native |
 | Build capacity | One person, part-time, alongside studies |
 
@@ -95,7 +95,7 @@ cut. Everything past Phase 1 is optional.
 | Does UIA expose enough of real apps? | the core thesis | **Resolved — yes.** VS Code 819 actionable elements, Chrome 153, Explorer 74. All RICH at full depth |
 | Can a Chromium tree be woken reliably? | Chrome/VS Code/Slack support | **Resolved — no wake needed.** The skeletal reading was a depth-cap bug. `SPI_SETSCREENREADER` and `editor.accessibilitySupport` both A/B tested, neither did anything |
 | Which ~150 of 819 elements does the model see? | every action in Phase 1 | **Open, and now the hard problem.** Replaces the two above |
-| Cloud or local voice? | latency, cost, privacy | **Resolved — cloud both ways.** STT must stream because Jev routes on interim transcripts, which rules out batch local Whisper. And local TTS was benchmarked and lost: ElevenLabs reaches first sound in **394ms** against Kokoro-82M's **1714ms** on this CPU, because ElevenLabs streams while Kokoro must finish the whole clip first |
+| Cloud or local voice? | latency, cost, privacy | **Resolved — cloud both ways.** STT must stream because routing runs on interim transcripts, which rules out batch local Whisper. And local TTS was benchmarked and lost: ElevenLabs reaches first sound in **394ms** against Kokoro-82M's **1714ms** on this CPU, because ElevenLabs streams while Kokoro must finish the whole clip first |
 | Bundle Manim deps or guided install? | Phase 3 onboarding | deferred to Phase 3 |
 
 ## Document map

@@ -1,8 +1,8 @@
 """Corrections applied to a route after the classifier has produced one.
 
-Jev is a classifier and these are not classification problems - they are facts
-about what the cat can do, which no amount of prompt tuning teaches a model
-that cannot see the tool list. Each rule here exists because a real sentence
+The router is a classifier and these are not classification problems - they
+are facts about what the cat can do, which no amount of prompt tuning teaches
+a model that cannot see the tool list. Each rule here exists because a real sentence
 went somewhere useless, and each is structural for the same reason: the cost
 of being wrong is asymmetric, so it is decided in code rather than weighed.
 
@@ -24,7 +24,7 @@ from .phrases import (
 
 # Mail, calendar, weather and the rest live in the HARNESS as tools; the answer
 # path has no tools at all. So "what is in my inbox" - which is shaped exactly
-# like a question, and which Jev therefore calls ANSWER - reached a model that
+# like a question, and which the router therefore calls ANSWER - reached a model
 # could only talk, and it talked about the screenshot it was handed: "i'm not
 # looking at your screen right now, tell me what emails you see". Connected
 # accounts were reachable by script and unreachable by voice, which is the only
@@ -91,11 +91,30 @@ def asks_how_rather_than_what(transcript: str) -> bool:
     """Is this a request for instructions, or for the thing itself?
 
     "How do I check my mail" wants to be shown. "What's in my inbox" wants the
-    mail. Jev calls both SHOW often enough to matter, and the difference is
+    mail. The router calls both SHOW often enough to matter, and the difference is
     not a shade of meaning - one hands back a route to read out and the other
     has to reach an account.
     """
     return any(phrase in spoken_words(transcript) for phrase in ASKS_HOW)
+
+
+# Bringing a window forward. Deliberately short: these are the phrasings that
+# can only mean "put it in front of me", and nothing looser belongs here.
+# "Bring up the settings page" is a request to be shown one.
+SWITCHING = ("switch to", "switch back to", "switch over to",
+             "bring forward", "bring it forward")
+
+
+def asks_to_switch_windows(transcript: str) -> bool:
+    """Is this asking for another window in front, rather than directions?
+
+    `gpt-4.1-nano` calls "switch to my chrome window" SHOW on every run, with
+    that exact sentence written into its criteria as an example of ACT - so
+    this is not a prompt that needs another sentence. SHOW refuses `open_app`
+    and `switch_app`, which means the cat points at the taskbar and the window
+    the user asked for stays where it was.
+    """
+    return any(phrase in spoken_words(transcript) for phrase in SWITCHING)
 
 
 def makes_a_file_about_something(transcript: str) -> bool:
@@ -111,7 +130,7 @@ def too_short_to_hand_over(transcript: str) -> bool:
 
 
 def correct(route: Route, transcript: str) -> tuple[Route, str]:
-    """The route Jev gave, put right. Returns it with a reason, or "".
+    """The route the classifier gave, put right. With a reason, or "".
 
     Order matters and is not arbitrary. The artefact rule runs first so that a
     request to build a file about a topic becomes a PLAN before anything else
@@ -128,13 +147,24 @@ def correct(route: Route, transcript: str) -> tuple[Route, str]:
             and needs_a_connected_account(transcript)
             and not asks_how_rather_than_what(transcript)):
         # SHOW is included here and nowhere else in this module, narrowly.
-        # Jev called "what's in my inbox" SHOW on one run and ANSWER on
+        # The router called "what's in my inbox" SHOW on one run and ANSWER on
         # another - it is genuinely ambiguous read as a sentence - and SHOW
         # refuses every tool that could reach an account, so that run answered
         # with a route nobody asked for. Asking HOW still stays SHOW, which is
         # the case the refusal exists to protect.
         return (replace(route, intent=Intent.ACT),
                 "that needs a connected account, so acting")
+
+    if (route.intent is Intent.SHOW
+            and asks_to_switch_windows(transcript)
+            and not asks_how_rather_than_what(transcript)):
+        # The second SHOW promotion in this module, and as narrow as the
+        # first. "Switch to my chrome window" is not a question about method -
+        # there is nothing to teach - and SHOW holds no tool that can bring a
+        # window forward. The asks_how guard keeps "how do i switch to chrome"
+        # where it belongs.
+        return (replace(route, intent=Intent.ACT),
+                "that is putting a window in front, so acting")
 
     if route.intent is Intent.ANSWER and needs_to_look(transcript):
         # The answer path holds no tools, so it answers about a chess board

@@ -52,11 +52,11 @@ meow/cat/cursor.py          cat_cursor.png as the system cursor, restored
 meow/voice/microphone.py    16kHz mono PCM16, bounded queue, RMS level
 meow/voice/stt.py           Transcriber protocol + AssemblyAI v3 streaming
 meow/voice/tts.py           Speaker protocol + ElevenLabs eleven_flash_v2_5
-meow/cli.py                 one command: meow · doctor · stress · smoke
+meow/cli.py                 one command: meow · doctor · stress · smoke · routing
 meow/app/loop.py            THE WHOLE LOOP - routes, answers, points, presses
 meow/desktop/               uia · actions · grounding · pointing · verify ·
                             lookup · apps · vision - the thesis lives here
-meow/agent/                 harness · planner · router · jev · risk · memory ·
+meow/agent/                 harness · planner · router · risk · memory ·
                             mind · evaluation - the parts that decide
 meow/work/                  tasks · taskwindow · agentdock · conversations
 meow/knowledge/             research · queries · recipes · documents
@@ -123,7 +123,7 @@ Phase 2's planner needs. `ModelCallLimitMiddleware` caps the rounds.
 LangSmith turns on by itself if `LANGSMITH_API_KEY` is in `.env`; currently off.
 
 **Phase 1 is complete and reachable by voice.** `meow` — tap
-Ctrl+M and talk, tap **Pause** to stop everything. Jev routes each sentence to
+Ctrl+M and talk, tap **Pause** to stop everything. The router sends each sentence to
 answer / show / act / plan; act goes through the UIA harness and asks out loud
 before pressing anything.
 
@@ -153,7 +153,7 @@ an unverifiable action is reported as unverified and the cat says so.
 
 It found two real bugs within minutes of being wired up. See the traps.
 
-**Routing reads the conversation too.** Jev was classifying each sentence
+**Routing reads the conversation too.** The router was classifying each sentence
 alone, so "can you type about Elon Musk" ten seconds after opening Notepad
 scored as a question ABOUT Elon Musk - which is exactly what it looks like,
 read by itself. The router takes the same Memory as everything else and sends
@@ -328,7 +328,7 @@ instead of making a second window, so "no new window appeared" is true and
 useless. `verify.opened` falls back to asking whether it is in front now.
 
 ⚠ **Producing a file ABOUT a topic is always a plan.** Find out, then write it —
-two jobs. Jev called "gpu prices in india, put it in a spreadsheet" one action
+two jobs. The router called "gpu prices in india, put it in a spreadsheet" one action
 purely because the word "research" was never said, so it ran in the foreground
 and blocked the voice loop for half a minute with no icon to watch. Upgraded
 structurally in `meow/app/loop.py`, not left to the criteria alone.
@@ -443,7 +443,7 @@ the router promotes ANSWER to ACT, and the harness withholds the digest. It
 was in the harness alone, which could not help: a turn routed to ANSWER never
 reaches the harness at all.
 
-⚠ **SHOW is promoted when the question asks WHAT rather than HOW.** Jev
+⚠ **SHOW is promoted when the question asks WHAT rather than HOW.** The router
 called "what's in my inbox" SHOW on one run and ANSWER on another - genuinely
 ambiguous read as a sentence - and SHOW refuses every tool that could reach an
 account, so that run answered with a route nobody asked for.
@@ -455,9 +455,76 @@ is the ONLY rule that touches SHOW, and it is narrow on purpose.
 before these two rules. The failures it fixed were both research requests
 being answered from memory.
 
+**THE ROUTER IS OPENAI NOW. Jev is gone** - no key, no service. It was
+TypeSafe's System One evaluation model, which scored typed questions and could
+not generate text, and that was genuinely the right shape for this job. The
+replacement is `gpt-4.1-nano` with a strict JSON schema: the same small model
+the query rewriter uses, and the cheapest thing in the project.
+
+**The criteria survived the swap word for word.** Every clause describing what
+`answer`, `show`, `act` and `plan` mean was written because a real spoken
+sentence went somewhere useless, and not one of them is about the classifier
+reading them. What changed is the thing underneath the distinctions, not the
+distinctions.
+
+**Measured, because this is exactly the moment the old number stops being
+evidence.** `meow routing` replays 37 sentences that were said out loud, most
+of which went somewhere useless once:
+
+| | |
+|---|---|
+| intent | **36/37** (the model alone 28, four corrections carrying the rest) |
+| needs_screen | **6/6** on answer turns, the only place it is read |
+| risky | **36/36** |
+| latency | **1,214ms median**, 958-2,539ms |
+
+⚠ **`temperature=0` is not determinism.** Two sentences change route between
+runs - "open notepad then type hi my name is srija" about one in five, and
+"summarise what i am reading" about two in five. Jev returned calibrated
+probabilities and held still. `meow routing --repeat 3` exists to tell a rule
+worth writing from a model that will not sit down, and a single pass of 36/37
+is a sample rather than a property.
+
+⚠ **A chat model charges per CALL, and `consider()` fires on every interim
+transcript.** Jev charged for thinking rather than tokens, so routing a
+sentence five times as it grew was free. A partial is now only routed once it
+has grown by three words since the last one; without that, routing alone would
+cost about as much as the whole rest of the turn. The counter is per SENTENCE -
+left per session, one long first utterance raises the bar so high that every
+later turn routes from scratch on the critical path, which is the one thing
+this component exists to avoid.
+
+⚠ **`needs_screen` is ORed with the free keyword gate that predates it.** The
+model answered False for "is there a typo in this paragraph", and
+`vision.classify` catches any demonstrative. The costs are not symmetric: a
+missed screenshot is a confident answer about something the model cannot see,
+and an extra one is 2,833 tokens. Nothing outside the answer path reads the
+field, so a false positive on "open notepad" costs nothing at all.
+
+⚠ **Score a field where it is READ, or the suite goes green about nothing.**
+`needs_screen` is only ever consulted on the answer path, so scoring it on a
+sentence that gets promoted to ACT measures a number no code looks at. It is
+scored on answer turns alone and the report says so on the line.
+
+⚠ **Putting a window in front is not a lesson.** `gpt-4.1-nano` calls "switch
+to my chrome window" SHOW on every single run, with that exact sentence written
+into its criteria as an example of ACT - so this is not a prompt wanting
+another sentence. SHOW refuses `open_app` and `switch_app`, so the cat points
+at the taskbar and the window stays where it was.
+`routing.asks_to_switch_windows` promotes it, guarded by `asks_how` so "how do
+i switch to chrome" is still taught. That is the SECOND SHOW promotion in the
+module and it is as narrow as the first.
+
+⚠ **Naming "go to notepad" as an act example broke "take me to my calendar
+settings".** The model generalised from one example to the other and started
+calling a request for directions an action. The clause says SWITCHING, names
+only windows and applications, and repeats that "take me to X" is still show.
+Worth remembering when widening any criterion: these four descriptions
+interfere with each other.
+
 ⚠ **A connected account is reachable only through a TOOL, so the sentence has
 to reach the harness.** "What's in my inbox" is shaped exactly like a
-question, Jev routed it to ANSWER, and the answer path holds no tools at all —
+question, the router sent it to ANSWER, and the answer path holds no tools —
 so the cat replied out of its own knowledge and talked about the screenshot it
 had been handed: *"i'm not looking at your screen right now, tell me what
 emails you see in your inbox."* Every connector worked by script and none of
@@ -816,7 +883,7 @@ artefacts on a 30px chess square are the difference between a bishop and a
 pawn.
 
 ⚠ **A question about the SCREEN must reach the harness, not the answer
-path.** "What should be my next move" is shaped like a question, so Jev called
+path.** "What should be my next move" is shaped like a question, so the router called
 it ANSWER - and the answer path has a low-detail screenshot and gpt-4o-mini,
 the combination measured as unable to read a board. It produced "move your
 knight to f3" onto a square already holding that knight, and "knight a5 to c6,
@@ -1042,7 +1109,7 @@ harness that can actually click. See [docs/05-phases.md](docs/05-phases.md).
 | STT | **AssemblyAI v3 streaming** — `wss://streaming.assemblyai.com/v3/ws` |
 | TTS | **ElevenLabs Flash v2.5** — `eleven_flash_v2_5` |
 | Tracing | LangSmith — **every path is `ChatOpenAI` now, so a whole turn traces**, not only the part that used tools. On with `LANGSMITH_API_KEY`. |
-| Router | Jev via `langchain-typesafe` — non-generative classifier |
+| Router | **OpenAI `gpt-4.1-nano`** with a strict JSON schema, `meow/agent/router.py`. Was Jev (TypeSafe, non-generative) until the key went away |
 | UIA | `uiautomation` (installed) |
 | Win32 | `pywin32` (installed) |
 | Connectors | `composio-langgraph` (Phase 4) |
@@ -1051,12 +1118,13 @@ Target machine is **CPU-only** — no local GPU inference. Not yet installed:
 `ffmpeg` (needed for Phase 3), `uv`, `codex`, `aider`.
 
 **Latency, measured rather than guessed.** A turn is: UIA digest 460ms,
-Jev route 560ms warm, then two model rounds - decide which tool, then say what
+routing 1,214ms median, then two model rounds - decide which tool, then say what
 happened. The model rounds are most of it and the rest was waiting.
 
-- **The digest runs WHILE Jev routes.** Neither needs the other and each takes
-  about half a second; run one after the other they were a second of silence.
-  Measured: 1,079ms sequential against 729ms overlapped.
+- **The digest runs WHILE the router routes.** Neither needs the other; run
+  one after the other they were a second of silence. Measured: 1,079ms
+  sequential against 729ms overlapped, when routing was Jev at ~560ms. The
+  overlap matters MORE now that routing is 1.2s, not less.
 - **The harness STREAMS its reply.** It used `invoke`, so nothing at all came
   out until both rounds had finished - five seconds of silence, which reads as
   stuck rather than as thinking. Same model, same wording; only the moment it
@@ -1075,8 +1143,8 @@ happened. The model rounds are most of it and the rest was waiting.
 
 **Latency rules that follow from this stack:**
 
-- STT must **stream**. Jev routes on interim transcripts, so text has to arrive
-  while the user is still talking.
+- STT must **stream**. Routing runs on interim transcripts, so text has to
+  arrive while the user is still talking.
 - Fire the model on AssemblyAI's `end_of_turn`, **not** on `turn_is_formatted`.
   Formatting arrives later and buys nothing the model needs.
 - Keys never ship in the client. Clicky proxies through a Cloudflare Worker and
@@ -1089,7 +1157,7 @@ happened. The model rounds are most of it and the rest was waiting.
 ## Architecture in one picture
 
 ```
-Jev (reflex: route · risk · complexity — non-generative)
+ROUTER (reflex: route · needs_screen · risky — gpt-4.1-nano, strict schema)
  │
  ├──▶ RESEARCH   search + fetch only. No files. No desktop. No send.
  ├──▶ HARNESS    32 tools · 2 prompts · reactive | deliberate(planner)
@@ -1107,7 +1175,8 @@ meow doctor          what is installed, which keys are set
 meow connectors      which services are connected, and connect one
 meow stress          64 edge cases across every module
 meow smoke           start the real app, fail on a traceback
-pytest               71 fast checks - no Windows, no keys, no network
+meow routing         replay the sentences routing got wrong once
+pytest               214 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all
@@ -1198,7 +1267,7 @@ Do not violate these without updating the relevant doc first.
    `HybridGrounding` behind one protocol — the evaluation depends on it.
 4. **Plan is state, not context.** Long tasks must not accumulate into one
    growing conversation.
-5. **Panic path is local.** No network, no Jev, no model on the abort route.
+5. **Panic path is local.** No network, no router, no model on the abort route.
 6. **Confirmation is targeted, not blanket.** Dangerous actions always ask,
    however plainly they were requested. Actions the user named themselves do
    not, because repeating their sentence back is how a prompt becomes

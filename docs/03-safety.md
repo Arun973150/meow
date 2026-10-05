@@ -18,9 +18,9 @@ tenth prompt of a session.
 
 Anything else asks, because it is inference rather than instruction.
 
-**Danger is judged on the action, not the sentence.** Jev classifies what was
+**Danger is judged on the action, not the sentence.** The router classifies what was
 said, which is necessary and not sufficient - "click that one" is harmless
-until it resolves to "Delete All Messages". Jev's opinion can add a reason to
+until it resolves to "Delete All Messages". The router's opinion can add a reason to
 ask and never remove one.
 
 Measured: "point at the terminal", "switch to my chrome window" and "press
@@ -93,7 +93,7 @@ Note the common case — "summarize my messages" — only ever needs READER.
 
 ## Rule 2 — confirm what matters
 
-Jev returns a calibrated `destructive` probability on every turn. Wire it to
+The router returns a `risky` boolean on every turn. Wire it to
 `AutoModeMiddleware`, which already exists for exactly this purpose.
 
 Always confirm, regardless of score:
@@ -109,7 +109,7 @@ question. Preferably the cat points at the thing it is about to click first.
 ## Rule 3 — panic key
 
 A local keyword and a global hotkey that kill everything instantly. **Local
-keyword matching, no network, no Jev, no model.** If the abort path depends on
+keyword matching, no network, no router, no model.** If the abort path depends on
 an API call, it is not an abort path.
 
 ## Rule 4 — path denylist

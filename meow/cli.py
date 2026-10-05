@@ -6,6 +6,7 @@
     meow stress          64 edge cases across every module
     meow smoke           start the real app and fail on a traceback
     meow label           hand-mark targets for the held-out evaluation
+    meow routing         replay the sentences routing got wrong once
     meow evaluate        the UIA / vision ablation
     meow evaluate --labelled   score against the hand-marked set
 
@@ -23,7 +24,7 @@ import sys
 # `meow ...` with no recognised subcommand runs the companion and passes
 # everything through, so `meow --mute` keeps working without being listed.
 COMMANDS = ("doctor", "connectors", "stress", "smoke", "evaluate", "label",
-            "help")
+            "routing", "help")
 
 
 def _usage() -> None:
@@ -64,6 +65,11 @@ def main(argv: list[str] | None = None) -> None:
         from .testing import smoke
 
         raise SystemExit(smoke.main())
+
+    if command == "routing":
+        from .diagnostics import routing
+
+        raise SystemExit(routing.main())
 
     if command == "label":
         from .diagnostics import label

@@ -6,13 +6,13 @@ asking. Tap Pause at any moment and it all stops.
 
     meow
     meow --mute              # no speech, bubble only
-    meow --no-jev            # keyword routing, no Jev calls
+    meow --keyword-routing   # no model calls on the routing path
 
 Ctrl+C to quit. Run `meow doctor` first.
 
 The path a sentence takes:
 
-    Ctrl+M -> microphone -> AssemblyAI ---> interim text -> Jev (in parallel)
+    Ctrl+M -> microphone -> AssemblyAI ---> interim text -> route (parallel)
                                      \\
                                       end_of_turn -> route
                                                       |
@@ -21,8 +21,8 @@ The path a sentence takes:
               act    --> UIA digest -> ask -> press it
               plan   --> broken into steps, run one at a time
 
-Jev runs on interim transcripts, so its ~420ms lands while the user is still
-speaking rather than after. Everything slow is on a worker thread; the render
+Routing runs on interim transcripts, so its ~1.2s lands while the user is
+still speaking rather than after. Everything slow is on a worker thread; the render
 loop draws the cat at 60fps and never waits for anything.
 """
 
@@ -162,8 +162,8 @@ def main() -> None:
     parser.add_argument("--panic-key", default=DEFAULT_PANIC_KEY)
     parser.add_argument("--width", type=int, default=72)
     parser.add_argument("--mute", action="store_true")
-    parser.add_argument("--no-jev", action="store_true",
-                        help="keyword routing only, no Jev calls")
+    parser.add_argument("--keyword-routing", action="store_true",
+                        help="route on keywords only, no model calls")
     parser.add_argument("--no-pointer", action="store_true")
     args = parser.parse_args()
 
@@ -247,7 +247,7 @@ def main() -> None:
     except MissingKey as error:
         raise SystemExit(f"\n{error}\n")
 
-    router = Router(use_jev=not args.no_jev, memory=memory)
+    router = Router(use_model=not args.keyword_routing, memory=memory)
     tasks = TaskRunner()
     # So "paste the results here" can reach what a task found. Without this the
     # harness had no idea a task had ever run, and answered that it could not
@@ -563,8 +563,10 @@ def main() -> None:
     print(f"  tap {panic_key.display_name.upper()} to stop everything, instantly.")
     print("  long jobs get an icon top right - click it to watch them,")
     print("  say \"also ...\" to add to one, \"close that\" when done.")
-    print(f"  routing: {'jev' if router.using_jev else 'keywords'}"
-          f"{'  (' + (router.unavailable_reason or '')[:60] + ')' if not router.using_jev else ''}")
+    # The reason is printed only when there IS one. `--keyword-routing` is a
+    # choice, not a failure, and "keywords ()" reads like something broke.
+    print(f"  routing: {router.source_name}"
+          f"{'  (' + router.unavailable_reason[:60] + ')' if router.unavailable_reason else ''}")
     print(f"  speech: {'muted' if args.mute else 'on'}")
     print(f"  tracing: {'langsmith' if tracing else 'off (no LANGSMITH_API_KEY)'}")
     print(f"  chat window: {panel.state}")

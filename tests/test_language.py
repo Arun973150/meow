@@ -110,17 +110,17 @@ def test_ordinary_questions_are_left_alone(said):
 
 
 def test_an_inbox_question_reaches_the_harness():
-    # It is shaped exactly like a question, so Jev calls it ANSWER - and the
+    # It is shaped exactly like a question, so the router calls it ANSWER - and
     # answer path holds no tools, so the cat talked about the screenshot it
     # had been handed instead.
-    route, why = correct(Route(Intent.ANSWER, True, False, "jev"),
+    route, why = correct(Route(Intent.ANSWER, True, False, "model"),
                          "what's in my inbox")
     assert route.intent is Intent.ACT
     assert why
 
 
 def test_making_a_file_about_a_topic_is_a_plan():
-    route, why = correct(Route(Intent.ACT, False, False, "jev"),
+    route, why = correct(Route(Intent.ACT, False, False, "model"),
                          "gpu prices in india, put it in a spreadsheet")
     assert route.intent is Intent.PLAN
 
@@ -128,7 +128,7 @@ def test_making_a_file_about_a_topic_is_a_plan():
 def test_asking_how_is_never_upgraded_to_doing():
     # SHOW is somebody asking how to do a thing themselves. Turning that into
     # an action is the one correction that would be actively rude.
-    route, why = correct(Route(Intent.SHOW, False, False, "jev"),
+    route, why = correct(Route(Intent.SHOW, False, False, "model"),
                          "how do i check my mail")
     assert route.intent is Intent.SHOW
     assert why == ""
@@ -151,7 +151,7 @@ def test_being_asked_to_look_something_up_reaches_a_tool(said):
     is answered from training data: confident, fluent, a year out of date, and
     with nothing in the reply to suggest it never looked.
     """
-    route, why = correct(Route(Intent.ANSWER, False, False, "jev"), said)
+    route, why = correct(Route(Intent.ANSWER, False, False, "model"), said)
     assert route.intent is Intent.ACT, f"{said!r} stayed {route.intent}"
     assert why
 
@@ -164,7 +164,7 @@ def test_naming_the_desktop_keeps_it_on_the_desktop(said):
     """Driving somebody's browser is a different act that happens to use the
     same words as asking what something is.
     """
-    route, _ = correct(Route(Intent.ANSWER, False, False, "jev"), said)
+    route, _ = correct(Route(Intent.ANSWER, False, False, "model"), said)
     assert route.intent is Intent.ANSWER
 
 
@@ -178,12 +178,12 @@ def test_naming_the_desktop_keeps_it_on_the_desktop(said):
     ("take me to my calendar settings", Intent.SHOW),
 ])
 def test_asking_how_stays_show_and_asking_what_does_not(said, expected):
-    """Jev called "what's in my inbox" SHOW on one run and ANSWER on another -
+    """The router called "what's in my inbox" SHOW on one run and ANSWER on
     genuinely ambiguous read as a sentence. SHOW refuses every tool that could
     reach an account, so that run answered with a route nobody asked for. The
     distinction is method versus content, and it is a real one.
     """
-    route, _ = correct(Route(Intent.SHOW, False, False, "jev"), said)
+    route, _ = correct(Route(Intent.SHOW, False, False, "model"), said)
     assert route.intent is expected, f"{said!r} -> {route.intent}"
 
 
@@ -201,7 +201,7 @@ def test_a_question_about_the_screen_reaches_a_tool(said):
     onto a square already holding that knight, and later "a5 to c6, which
     checks the king" with no knight on a5 and no check.
     """
-    route, why = correct(Route(Intent.ANSWER, True, False, "jev"), said)
+    route, why = correct(Route(Intent.ANSWER, True, False, "model"), said)
     assert route.intent is Intent.ACT, f"{said!r} stayed {route.intent}"
     assert why
 
@@ -214,5 +214,23 @@ def test_ordinary_questions_do_not_go_looking(said):
     """Looking costs a vision call and several seconds. It must fire on
     questions about the screen, not on questions.
     """
-    route, _ = correct(Route(Intent.ANSWER, False, False, "jev"), said)
+    route, _ = correct(Route(Intent.ANSWER, False, False, "model"), said)
     assert route.intent is Intent.ANSWER
+
+
+@pytest.mark.parametrize("said, expected", [
+    ("switch to my chrome window", Intent.ACT),
+    ("switch back to notepad", Intent.ACT),
+    ("how do i switch to chrome", Intent.SHOW),
+    ("show me how to switch to another window", Intent.SHOW),
+    ("where is the switch for dark mode", Intent.SHOW),
+])
+def test_putting_a_window_in_front_is_not_a_lesson(said, expected):
+    """gpt-4.1-nano calls "switch to my chrome window" SHOW on every run, with
+    that exact sentence written into its criteria as an example of ACT. SHOW
+    refuses every tool that could bring a window forward, so the cat points at
+    the taskbar and the window stays where it was. Asking HOW to switch is
+    still a lesson, which is what the guard protects.
+    """
+    route, _ = correct(Route(Intent.SHOW, False, False, "model"), said)
+    assert route.intent is expected, f"{said!r} -> {route.intent}"
