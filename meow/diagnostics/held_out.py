@@ -269,8 +269,15 @@ class _SavedShot:
         self.monitor = self._Monitor(*(origin or (0, 0)))
 
 
-def _computer_use(label, place) -> Target | None:
-    """Ground through the computer tool, from the saved picture."""
+def _computer_use(label, place, refine: bool = False) -> Target | None:
+    """Ground through the computer tool, from the saved picture.
+
+    `refine` is the second condition: look once at the whole screen, then
+    again at an enlarged crop of wherever the first look pointed. It is a
+    separate strategy rather than a replacement so the two can be scored
+    against the same targets in one run - a refinement measured against a
+    remembered number is not measured.
+    """
     from PIL import Image
 
     from ..desktop.computeruse import ComputerUseGrounding
@@ -281,7 +288,8 @@ def _computer_use(label, place) -> Target | None:
         return None
     shot = _SavedShot(image, getattr(label, "scale", 1.0),
                       tuple(getattr(label, "origin", (0, 0))))
-    return ComputerUseGrounding(frozen=shot).locate(label.description)
+    return ComputerUseGrounding(frozen=shot).locate(label.description,
+                                                   refine=refine)
 
 
 def run(labels, strategies=("uia", "computer-use")) -> HeldOutReport:
@@ -319,6 +327,8 @@ def run(labels, strategies=("uia", "computer-use")) -> HeldOutReport:
                                  label.description, model)
             elif name == "computer-use" and label.screenshot_file:
                 target = _computer_use(label, place)
+            elif name == "computer-use+zoom" and label.screenshot_file:
+                target = _computer_use(label, place, refine=True)
             milliseconds = (time.perf_counter() - started) * 1000
 
             point = tuple(label.point)

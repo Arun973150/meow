@@ -74,39 +74,131 @@ ZOOM_TO = 1024
 # invented on the way up.
 MAX_ZOOM = 4.0
 
+# Half-width of the crop taken round a first guess, in SCREEN pixels. The
+# whole first pass is only trusted to be approximately right - measured, the
+# misses cluster at a few hundred pixels rather than a few thousand - so the
+# window has to be wide enough to contain the real target when the guess was
+# off, and narrow enough that enlarging it is worth anything. 220 is about a
+# sixth of a 2560-wide screen.
+REFINE_RADIUS = 220
+
+# And again, wider, when the first crop came back with nothing. MEGA-GUI calls
+# this a recoverable search: the point is not to trust the first guess, and a
+# refinement that can only ever narrow has no way back from a bad one.
+RECOVER_RADIUS = 480
+
+# Whether a plain `locate` refines by default. On, because a refinement that
+# can only ever improve or tie is not a trade-off - the second pass may
+# decline, and when it does the first answer stands. The cost is the reason
+# to think twice: each pass is two round trips, so refining doubles a call
+# that already took eight seconds.
+REFINE = True
+
+
+class _Box:
+    """A rectangle in screen coordinates, shaped like a drawn region.
+
+    `_crop` takes anything with left/top/right/bottom, so the model's own
+    first guess and a region the user circled go down exactly the same path.
+    Spelled out rather than reusing `marking.Region`, which carries a
+    timestamp and a tap flag that mean nothing here.
+    """
+
+    def __init__(self, left, top, right, bottom):
+        self.left, self.top = int(left), int(top)
+        self.right, self.bottom = int(right), int(bottom)
+
 
 class ComputerUseGrounding:
     """Ask a model where something is, and let it answer by clicking."""
 
     def __init__(self, model: str = MODEL, api_key: str | None = None,
-                 frozen=None) -> None:
+                 frozen=None, on_step=None) -> None:
         self._model = model
+        # Said aloud between passes. A single pass is about eight seconds and
+        # a refined one is twenty-five, and silence is the thing this project
+        # has fought hardest - it reads as stuck rather than as looking.
+        self._on_step = on_step
         self._api_key = api_key or openai_api_key()
         # A fixed screenshot, for the evaluation. A live window moves between
         # strategies and the comparison stops being one.
         self._frozen = frozen
         self.last_error: str | None = None
         self.rounds_used = 0
+        # How many whole looks it took. One without refinement, two or three
+        # with - worth separating from round trips, because the tool insists
+        # on fetching its own screenshot, so each pass is two trips.
+        self.passes = 0
 
     @property
     def name(self) -> str:
         return "computer-use"
 
-    def locate(self, description: str, within=None) -> Target | None:
+    def locate(self, description: str, within=None,
+               refine: bool | None = None) -> Target | None:
         """Where is this on screen? `within` narrows it to one region.
 
         A region is the single largest improvement available to this, and it
         is not a nicety. Measured over 44 hand-labelled targets this scored
         23, and the failures cluster where the screen is busiest - Illustrator
         1 of 8, Premiere 1 of 6 - because the search space is a whole
-        professional interface. Cropping to a region the user drew round, and
-        enlarging it, turns "find the razor tool somewhere in Resolve" into
-        "find it in this box", which is a different question.
+        professional interface. Cropping to a region and enlarging it turns
+        "find the razor tool somewhere in Resolve" into "find it in this box",
+        which is a different question.
+
+        The region can come from the user drawing one, or - when `refine` is
+        on and nobody drew anything - from the model's own first guess. See
+        `_refined`.
         """
+        # Reset here rather than per pass, so a refined call reports the
+        # round trips it ACTUALLY cost - which is the number worth watching.
+        self.rounds_used = 0
+        self.passes = 0
+        if within is None and (REFINE if refine is None else refine):
+            return self._refined(description)
+        return self._one_pass(description, within)
+
+    def _refined(self, description: str) -> Target | None:
+        """Look once at the whole screen, then again at a crop of the guess.
+
+        The first answer is treated as approximately right rather than right,
+        which is what the measurements say it is: across 44 hand-labelled
+        targets this was exact 23 times, within 50px 27 and within 100px 30 -
+        so the gap between "roughly there" and "on it" is most of what is
+        missing. A second look at a crop, enlarged, is the training-free way
+        to close it.
+
+        **A refinement that can only narrow has no way back from a bad first
+        guess.** So the second pass may decline, and when it does the search
+        widens and tries once more; if that declines too, the first answer
+        stands. Never worse than one pass, which is the property that makes
+        this safe to turn on by default.
+        """
+        first = self._one_pass(description)
+        if first is None:
+            return None
+
+        if self._on_step is not None:
+            self._on_step("i think i see it - looking closer.")
+
+        centre = first.centre
+        for radius in (REFINE_RADIUS, RECOVER_RADIUS):
+            box = _Box(centre[0] - radius, centre[1] - radius,
+                       centre[0] + radius, centre[1] + radius)
+            closer = self._one_pass(description, within=box)
+            if closer is not None:
+                return closer
+        # Both crops declined. The thing is probably not where the first pass
+        # said, but "roughly there" beats nothing and the caller is pointing
+        # rather than clicking.
+        self.last_error = "could not confirm it any closer"
+        return first
+
+    def _one_pass(self, description: str, within=None) -> Target | None:
         from ..platform.capture import capture_screens
 
         self.last_error = None
-        self.rounds_used = 0
+        self.passes += 1
         shot = self._frozen or (capture_screens() or [None])[0]
         if shot is None:
             self.last_error = "no screenshot"

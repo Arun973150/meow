@@ -144,6 +144,7 @@ So: answer the HOW from what you know, and get the WHERE from the screen. Never 
 
 - If the thing is in the control list above, call point_at_control with its EXACT name. It tells you where the control actually is; repeat THAT, and do not describe a position from memory.
 - If there is NO control list, or the thing is not in it, call show_on_screen. It finds things by sight and draws a mark round them, so it works on pictures, canvases, chess boards, diagrams, video timelines and anything else with no controls at all. An empty control list means the window draws its own interface and the tree cannot see inside it - it does NOT mean the thing is absent.
+- If what they asked takes MORE THAN ONE ACTION in their own hands - "teach me how to animate a bouncing ball", "how do i export this" - call teach_me_this with the steps. You write the steps; you know them. What the tool is for is the PACING: it says the first one, waits, and says the next when they tell you they have done it. Saying all four yourself is the recitation they asked you to replace, and after it they still cannot do the thing.
 - To show a MOVE or a relationship between two things, call draw_a_move.
 - For SEVERAL things in one window that have to be used in order - "the fill tool, then the swatch, then the canvas" - call number_the_steps. It puts a numbered badge on each, so they can see the whole order at once instead of holding it in their head. Not for a route through menus and pages: those are on different screens and find_how_to walks them one at a time.
 - show_on_screen takes a SHAPE, and it is worth choosing. rings for a point with no clear edges - a piece on a board, an icon in a crowded toolbar. box for a panel, a field, a table cell. highlight for a region to READ. spotlight to dim everything else on a dense interface, used sparingly because it covers their work. It also takes a label, which writes what the thing IS beside it.
@@ -170,6 +171,8 @@ operate them.
 You can also open applications, switch between open windows, press \
 keyboard shortcuts, WRITE text about a topic, SEARCH the web, and make \
 Word documents, spreadsheets and slide decks.
+
+When somebody asks to be TAUGHT something that takes several actions, use teach_me_this. You supply the steps from what you know; the tool paces them, one at a time, so they can follow along instead of memorising a list.
 
 For "what should i know this morning", "give me a briefing", "catch me up" - \
 use catch_me_up. It reads their recent mail and what is coming up, searches \
@@ -379,6 +382,11 @@ class Harness:
         # Set by the app. Absent when a harness runs standalone, and the
         # tools say so rather than claiming a routine was set up.
         self.routines = None
+        # Set by the app: hands a list of steps to the walkthrough so they
+        # are said ONE AT A TIME. Absent when a harness runs standalone or
+        # inside a background task, where there is nobody listening to pace
+        # for - and the tool says the steps instead rather than pretending.
+        self.start_teaching = None
         # A region the user drew round on their own screen, for this turn
         # only. Set by the app before a turn and cleared after it: a region
         # that outlives the question it was drawn for silently narrows the
@@ -724,7 +732,7 @@ class Harness:
         if getattr(self, "_seeing", None) is None:
             from ..desktop.computeruse import ComputerUseGrounding
 
-            self._seeing = ComputerUseGrounding()
+            self._seeing = ComputerUseGrounding(on_step=self.note)
         return self._seeing.locate(description, within=region)
 
     def record_verdict(self, verdict) -> None:

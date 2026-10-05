@@ -96,7 +96,7 @@ def test_image_coordinates_become_screen_coordinates():
     """
     found = grounding_returning((640, 400))
     found._frozen = FakeShot(FakeMonitor(0, 0), FakeImage((1280, 800)), 2 / 3)
-    target = found.locate("middle")
+    target = found.locate("middle", refine=False)
     assert target is not None
     assert target.centre == (960, 600)
 
@@ -108,7 +108,7 @@ def test_a_second_monitor_origin_is_added_back():
     shot = FakeShot(FakeMonitor(-1920, 0), FakeImage((1280, 800)), 2 / 3)
     found = grounding_returning((640, 400))
     found._frozen = shot
-    target = found.locate("middle")
+    target = found.locate("middle", refine=False)
     assert target.centre == (-1920 + 960, 600)
 
 
@@ -129,7 +129,7 @@ def test_the_box_is_small_on_purpose():
     """
     found = grounding_returning((100, 100))
     found._frozen = FakeShot(FakeMonitor(0, 0), FakeImage((1280, 800)), 1.0)
-    target = found.locate("thing")
+    target = found.locate("thing", refine=False)
     assert target.right - target.left == POINT_RADIUS * 2
     assert target.source is Source.VISION
     assert not target.is_exact

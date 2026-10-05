@@ -370,3 +370,100 @@ def test_nothing_is_claimed_when_there_is_no_route():
 
     watcher = guiding.Guide(say=lambda _s: None)
     assert watcher.answer("continue") is False
+
+
+# --- teaching a PROCEDURE, not a route --------------------------------------
+#
+# Live, asked to teach animating a bouncing ball in Blender, it said:
+#
+#   "first, add a UV sphere for the ball with shift a and select mesh, then
+#    set a keyframe for its starting position by pressing i and choosing
+#    location. to create the bouncing effect, move to a later frame, change
+#    the sphere's position, and insert another keyframe."
+#
+# Four steps in two breaths. That is the recitation a walkthrough exists to
+# replace, and after it the user still could not do the thing.
+
+
+BOUNCE = ["press shift a and choose mesh, then uv sphere",
+          "press i and choose location to set a keyframe",
+          "move to frame twenty",
+          "move the ball down and press i again"]
+
+
+def test_a_procedure_is_said_one_step_at_a_time():
+    from meow.agent.walkthrough import from_steps
+
+    walk = from_steps(BOUNCE, doing=True)
+    assert walk.doing
+    assert "shift a" in walk.say(Progress.ARRIVED)
+    # The other three are not in the first thing said.
+    assert "frame twenty" not in walk.say(Progress.ARRIVED)
+
+
+def test_a_doing_step_never_claims_to_point_at_itself():
+    """"Press shift A" is an instruction, not a place. Saying "i am pointing
+    at it" is a promise about the screen that nothing checked.
+    """
+    from meow.agent.walkthrough import from_steps
+
+    walk = from_steps(BOUNCE, doing=True)
+    assert "pointing at it" not in walk.say(Progress.ARRIVED)
+
+
+def test_saying_you_did_it_moves_on():
+    from meow.agent.walkthrough import from_steps
+
+    walk = from_steps(BOUNCE, doing=True)
+    walk.say(Progress.ARRIVED)
+    assert walk.advance() is Progress.ADVANCED
+    assert "keyframe" in walk.current
+    walk.advance()
+    walk.advance()
+    # Four steps means four advances: being TOLD the last one is not having
+    # done it, which is where this differs from a named route - there,
+    # arriving at the last page is the end.
+    assert walk.advance() is Progress.FINISHED
+    assert walk.finished
+
+
+def test_a_doing_walkthrough_watches_for_nothing():
+    """There is no name on screen for "press shift a". Announcing progress
+    because a window title changed would be guessing out loud.
+    """
+    from meow.agent.walkthrough import from_steps
+
+    walk = from_steps(BOUNCE, doing=True)
+    busy = screen("Blender", "Minimize", "Maximize", "Close")
+    assert walk.observe(busy) is Progress.WAITING
+    assert walk.index == 0
+
+
+def test_one_step_is_not_a_walkthrough():
+    from meow.agent.walkthrough import from_steps
+
+    assert from_steps(["press ctrl n"], doing=True) is None
+
+
+def test_reporting_what_you_did_is_heard_as_moving_on(guide):
+    """"Yeah, I've added the ball now" routed to ANSWER and got "i can't see
+    what you're talking about, tell me what's on your screen" - said to
+    somebody it had just told to go and add a ball.
+    """
+    guide.walkthrough = None
+    guide.teach(BOUNCE, "animate a bouncing ball")
+    assert guide.walkthrough.doing
+
+    assert guide.answer("yeah i've added the ball now") is True
+    assert guide.walkthrough.index == 1
+    assert any("keyframe" in said for said in guide.said)
+
+
+def test_a_report_only_counts_while_a_lesson_is_live():
+    """Outside one the same sentence is an ordinary request and must route
+    normally. Being loose is only safe because there is a step on the table.
+    """
+    from meow.app import guiding
+
+    watcher = guiding.Guide(say=lambda _s: None)
+    assert watcher.answer("i've added the ball now") is False

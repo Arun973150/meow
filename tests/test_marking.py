@@ -225,5 +225,121 @@ def test_without_a_region_nothing_about_the_old_path_changes():
     found._frozen = FakeShot(blank(1280, 800), 1.0, FakeMonitor(0, 0))
     found._ask = lambda image, description, narrowed=False: (
         (640, 400) if not narrowed else (0, 0))
-    target = found.locate("the thing")
+    target = found.locate("the thing", refine=False)
     assert target.centre == (640, 400)
+
+
+# --- looking twice: coarse, then a crop of the guess -------------------------
+#
+# Across 44 hand-labelled targets this was exact 23 times, within 50px 27 and
+# within 100px 30. The gap between "roughly there" and "on it" is most of what
+# is missing, and a second look at an enlarged crop is the training-free way
+# to close it.
+
+
+def refining(answers):
+    """Grounding whose passes return the given points, in order.
+
+    Each call records whether it was told the image was a crop, so a test can
+    check that the second look really was narrowed rather than another look
+    at the whole screen.
+    """
+    from meow.desktop.computeruse import ComputerUseGrounding
+
+    found = ComputerUseGrounding(api_key="test")
+    found._frozen = FakeShot(blank(1280, 800), 1.0, FakeMonitor(0, 0))
+    found.seen = []
+    found.boxes = []
+    queued = list(answers)
+
+    def ask(image, description, narrowed=False):
+        found.seen.append((image.size, narrowed))
+        return queued.pop(0) if queued else None
+
+    # Every crop is enlarged to the same longest side, so the image SENT is
+    # the same size whether the region was narrow or wide. The region itself
+    # is the thing worth watching.
+    real_crop = ComputerUseGrounding._crop
+
+    def crop(shot, region):
+        found.boxes.append((region.right - region.left,
+                            region.bottom - region.top))
+        return real_crop(shot, region)
+
+    found._crop = crop
+    found._ask = ask
+    return found
+
+
+def test_the_second_look_is_a_crop_of_the_first_guess():
+    found = refining([(640, 400), (100, 100)])
+    found.locate("the thing")
+
+    (first_size, first_narrowed), (second_size, second_narrowed) = found.seen
+    assert first_narrowed is False, "the first look is the whole screen"
+    assert second_narrowed is True, "the second must say it is a close-up"
+    assert second_size != first_size
+    assert found.passes == 2
+
+
+def test_the_crop_is_enlarged_not_just_cut():
+    """Enlarging adds no information and is still the technique: accuracy
+    depends on how many pixels the target occupies in what the model is
+    SHOWN.
+    """
+    from meow.desktop.computeruse import REFINE_RADIUS
+
+    found = refining([(640, 400), (100, 100)])
+    found.locate("the thing")
+    _first, (second_size, _narrowed) = found.seen
+    assert max(second_size) > REFINE_RADIUS * 2
+
+
+def test_the_refined_answer_is_the_one_returned():
+    found = refining([(640, 400), (10, 10)])
+    target = found.locate("the thing")
+    # The second pass clicked near the top left of the crop, which is up and
+    # left of where the first pass pointed.
+    assert target.centre[0] < 640 and target.centre[1] < 400
+
+
+def test_a_declined_crop_widens_the_search_before_giving_up():
+    """A refinement that can only narrow has no way back from a bad first
+    guess, which is the whole reason the first guess is being checked.
+    """
+    from meow.desktop.computeruse import RECOVER_RADIUS, REFINE_RADIUS
+
+    found = refining([(640, 400), None, (50, 50)])
+    found.locate("the thing")
+    assert found.passes == 3
+    narrow, wide = found.boxes
+    assert wide[0] > narrow[0], "the recovery pass must cover more screen"
+    assert RECOVER_RADIUS > REFINE_RADIUS
+
+
+def test_when_both_crops_decline_the_first_answer_stands():
+    """Never worse than one pass. That is the property that makes this safe
+    to turn on by default - "roughly there" beats nothing, and the caller is
+    pointing rather than clicking.
+    """
+    found = refining([(640, 400), None, None])
+    target = found.locate("the thing")
+    assert target is not None
+    assert target.centre == (640, 400)
+    assert "closer" in (found.last_error or "")
+
+
+def test_a_first_pass_that_finds_nothing_is_not_refined():
+    found = refining([None])
+    assert found.locate("the thing") is None
+    assert found.passes == 1
+
+
+def test_a_region_the_user_drew_is_used_instead_of_guessing_one():
+    """Somebody who circled the thing has given a better answer than the
+    model's own first pass, so there is nothing to refine.
+    """
+    found = refining([(60, 60)])
+    found.locate("the thing", within=Region(200, 150, 400, 300))
+    assert found.passes == 1
+    assert found.seen[0][1] is True

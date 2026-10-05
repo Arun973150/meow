@@ -54,6 +54,7 @@ from meow.cat.bubble import (
 from meow.cat.cursor import CatCursor
 from meow.cat.follow import CursorFollower, FollowSettings, target_beside_cursor
 from meow.work.agentdock import AgentDock
+from meow.agent.walkthrough import Progress
 from meow.app.guiding import Guide
 from meow.app.sketching import Pencil
 from meow.chat.launcher import ChatPanel
@@ -382,6 +383,23 @@ def main() -> None:
     pencil = Pencil(getattr(harness, "_board", None),
                     say=lambda sentence: replies.put(("say", sentence)))
     panic.on_panic("marking", pencil.cancel)
+
+    def start_teaching(steps) -> bool:
+        """Hand a procedure to the walkthrough and say the first step.
+
+        Said from HERE rather than returned to the model, so the model
+        cannot paraphrase it back into a recitation - the point of the tool
+        is that the other steps are not said yet.
+        """
+        if not guide.teach(steps, harness.transcript):
+            return False
+        first = guide.walkthrough.say(Progress.ARRIVED)
+        guide.walkthrough.started = True
+        if first:
+            replies.put(("say", first))
+        return True
+
+    harness.start_teaching = start_teaching
     panic.on_panic("walkthrough", guide.cancel)
     panic.on_panic("marks", lambda: (
         harness._board and harness._board.clear()))
@@ -606,8 +624,14 @@ def main() -> None:
                         panel.propose(session, draft)
                 return
 
-            # Plain answer. Screenshot only if the router thinks it is needed.
-            shot = capture_screens()[0] if route.needs_screen else None
+            # Plain answer. Screenshot if the router thinks it is needed -
+            # or whenever a lesson is live, because "i've added the ball
+            # now" is a sentence about the screen and nothing else. Without
+            # it the cat answered "i can't see what you're talking about,
+            # tell me what's on your screen", to somebody it had just told
+            # to go and do something.
+            shot = (capture_screens()[0]
+                    if (route.needs_screen or guide.active) else None)
             for sentence in mind.answer(transcript, shot,
                                         crop_around=get_cursor_position()):
                 if panic.tripped:

@@ -262,6 +262,50 @@ def build(harness) -> list:
         return answer
 
     @tool
+    def teach_me_this(steps: list[str]) -> str:
+        """Walk the user through a procedure, ONE STEP AT A TIME.
+
+        Use this whenever somebody asks to be TAUGHT how to do something
+        that takes more than one action - "teach me how to animate a
+        bouncing ball", "show me how to add a modifier", "how do i export
+        this". Write the steps yourself, from what you know about the
+        application. You know these; that is not what you need a tool for.
+
+        What you need it for is the PACING. Said in one breath, four steps
+        are a recitation - the user cannot hold them and find them at the
+        same time, which is the whole reason they asked. This says the first
+        one, waits, and says the next when they tell you they have done it.
+
+        Each step is one thing to DO, in their own hands, written for the
+        ear: "press shift a and choose mesh, then uv sphere". Not "first,
+        you will want to" - just the action. Two to eight of them.
+
+        Say nothing after calling this. The first step is said for you.
+        """
+        wanted = [step for step in steps if step and step.strip()]
+        if len(wanted) < 2:
+            return ("That is one step, so just say it. This is for a "
+                    "procedure somebody has to be walked through.")
+
+        if harness.start_teaching is None:
+            # No app to drive the pacing - a harness running standalone, or
+            # a background task. Fall back to saying them, which is worse
+            # than teaching and better than silence.
+            return ("I cannot pace this here, so say the steps in order, "
+                    "briefly: " + "; ".join(wanted))
+
+        started = harness.start_teaching(wanted)
+        harness.runs.append(ToolRun(
+            "teach_me_this", f"{len(wanted)} steps",
+            Outcome(started, "teaching" if started else "could not start")))
+        if not started:
+            return ("I cannot pace this here, so say the steps in order, "
+                    "briefly: " + "; ".join(wanted))
+        return ("Started. The first step has ALREADY BEEN SAID to them - do "
+                "not repeat it, do not list the others, and do not add a "
+                "closing sentence. Say nothing at all.")
+
+    @tool
     def clear_the_screen() -> str:
         """Rub out every mark drawn so far."""
         board = harness.board()
@@ -277,5 +321,6 @@ def build(harness) -> list:
         show_on_screen,
         draw_a_move,
         number_the_steps,
+        teach_me_this,
         clear_the_screen,
     ]

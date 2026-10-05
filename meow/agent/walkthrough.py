@@ -80,6 +80,21 @@ class Walkthrough:
 
     steps: list[str]
     goal: str = ""
+    # How a step is known to be done. Two kinds, and the difference is where
+    # the steps came from.
+    #
+    # NAMED steps are places - "Personalization", "Colors" - mined from a
+    # route or written in a recipe, and a step is done when that name appears
+    # on screen. That is exact and free, and it only works where the
+    # accessibility tree can see.
+    #
+    # DOING steps are instructions - "press shift a and choose a UV sphere",
+    # "move to a later frame" - which the model knows and no tree contains.
+    # There is no name to look for, so a step is done when the screen CHANGED
+    # and they said so. Without this, teaching anything outside Windows
+    # Settings had to be recited in one breath, which is the thing a
+    # walkthrough exists to replace.
+    doing: bool = False
     index: int = 0
     started: bool = False
     finished: bool = False
@@ -144,9 +159,34 @@ class Walkthrough:
     def _visible(self, name: str, digest: WindowDigest) -> bool:
         return strict_match(name, digest) is not None
 
+    def advance(self) -> Progress:
+        """They said they did it. Move on.
+
+        For DOING steps, which have no name to watch for. The watcher cannot
+        tell "pressed shift A and added a sphere" from "sat still", so the
+        person saying so is the signal - and believing them is right for the
+        same reason the watcher believes "done" on a named route: somebody
+        volunteering that they have finished is not asking to be checked up
+        on.
+        """
+        if self.finished or not self.steps:
+            return Progress.WAITING
+        self._record()
+        if self.index >= len(self.steps) - 1:
+            self.finished = True
+            return Progress.FINISHED
+        self.index += 1
+        self.started = True
+        return Progress.ADVANCED
+
     def observe(self, digest: WindowDigest | None) -> Progress:
         """Look at the screen and decide what, if anything, to say now."""
         if self.finished or not self.steps:
+            return Progress.WAITING
+        if self.doing:
+            # Nothing to watch for. A step like "press I and choose Location"
+            # leaves no name on screen, and announcing progress from a window
+            # title changing would be guessing out loud. It waits to be told.
             return Progress.WAITING
         if self.paused:
             # The watcher thread is stopped across a pause, so this is
@@ -247,8 +287,15 @@ class Walkthrough:
         into a recitation.
         """
         if progress is Progress.ARRIVED:
+            if self.doing:
+                # No "i am pointing at it": a doing step is an instruction,
+                # and claiming to point at one is a promise about the screen
+                # that nothing here checked.
+                return f"{self.current.lower()} tell me when you have."
             return f"start with {self.current.lower()}. i am pointing at it."
         if progress is Progress.ADVANCED:
+            if self.doing:
+                return f"good. now {self.current.lower()}"
             return f"good. now {self.current.lower()}."
         if progress is Progress.FINISHED:
             if self.truncated:
@@ -303,7 +350,18 @@ def from_directions(directions, goal: str = "") -> Walkthrough | None:
     if directions is None:
         return None
     steps = [step for step in getattr(directions, "steps", []) if step.strip()]
-    if len(steps) < 2:
+    return from_steps(steps, goal)
+
+
+def from_steps(steps, goal: str = "", doing: bool = False):
+    """A walkthrough from plain steps, or None if it is not worth one.
+
+    One step is not a walkthrough - it is a sentence, and the ordinary reply
+    already handles it better. Two or more is a sequence somebody can lose
+    their place in, which is the thing this exists for.
+    """
+    kept = [str(step).strip() for step in steps if str(step).strip()]
+    if len(kept) < 2:
         return None
-    truncated = len(steps) > MAX_STEPS
-    return Walkthrough(steps=steps[:MAX_STEPS], goal=goal, truncated=truncated)
+    return Walkthrough(steps=kept[:MAX_STEPS], goal=goal, doing=doing,
+                       truncated=len(kept) > MAX_STEPS)
