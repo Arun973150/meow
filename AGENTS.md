@@ -61,7 +61,7 @@ meow/agent/                 harness · planner · router · risk · memory ·
                             mind · evaluation - the parts that decide
 meow/work/                  tasks · taskwindow · agentdock · conversations ·
                             routines
-meow/knowledge/             research · queries · recipes · documents
+meow/knowledge/             research · study · queries · recipes · documents
 meow/storage/paths.py       WHERE THINGS GO - user files vs app data
 meow/config.py              .env keys; never logs a value
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
@@ -604,7 +604,7 @@ resolved day and time back.
 
 ⚠ **There is NO send tool in the harness, and there must never be one.** The
 harness holds the screen, which is private data and untrusted content both;
-one send tool closes the trifecta in a single move. 38 tools, none of them
+one send tool closes the trifecta in a single move. 39 tools, none of them
 send-shaped, and `meow/testing/stress.py` checks that.
 
 **Approval is explicit.** Saying "send it" sends the newest waiting draft, and
@@ -952,6 +952,49 @@ token budget thinking, returning one query instead of three.
 *called*, then finds that exact name in the window in front. Measured against
 real Windows Settings: dark mode -> `Personalization`, bluetooth ->
 `Bluetooth & devices`, dns -> `Network & internet`.
+
+**RESEARCH ACROSS EVERY SOURCE AT ONCE, THEN AN EDITOR.** `catch_me_up`
+fans out - the user's recent mail, what is coming up on their calendar, and
+the public web - and then a small model picks the handful worth saying. A
+briefing that reads out forty subject lines is a worse briefing than one that
+reads out four. `meow/knowledge/study.py`.
+
+**It is not an agent, and that is the point.** Invariant 1. Each "researcher"
+is a function that asks one account one question; the editor is a single model
+call with no tools that returns a selection. Nothing there plans, loops, or
+decides to do anything.
+
+⚠ **The split in `research.py` is preserved, not undone.** That file reads
+untrusted content and holds no private data, and it still does: the account
+researchers live in `study.py` and the web researcher stays in `research.py`,
+and they meet only as findings. Giving `Researcher` a mailbox would have put
+private data into the component whose entire argument is that it has none.
+
+⚠ **Nothing fetched can steer what is read from an account.** Every query
+comes from the user's own sentence, before anything is fetched - the same rule
+the query rewriter already follows, and here "anywhere it liked" would include
+somebody's mail. The editor's prompt says so too, but the structure is what
+holds: the account calls are made with fixed arguments derived from the
+question and a recency window, never from page text.
+
+**Each strand is LABELLED by provenance** - `THE USER'S OWN GMAIL` against
+`THE PUBLIC WEB`. A model that cannot tell them apart cannot be asked to treat
+them differently.
+
+⚠ **An unreachable source is admitted, never implied.** A briefing that
+silently skipped the mailbox reads exactly like one that checked it and found
+nothing.
+
+**72 hours**, which is about right for a daily thing: longer and a briefing
+repeats itself, shorter and a Friday afternoon is invisible on Monday.
+
+**The web is skipped when there is nothing to search for.** A plain "catch me
+up" has no subject, and a search engine asked that returns six pages about
+productivity.
+
+⚠ **The editor's reply is parsed defensively, not strictly.** It runs inside a
+background task, and a study that loses its ranking is worth far more than one
+that raises because a model put a fence round its JSON.
 
 **ROUTINES: work that repeats without being asked again.** "Give me a daily
 briefing", "check my inbox every couple of hours". `meow/work/routines.py` is
@@ -1460,7 +1503,7 @@ happened. The model rounds are most of it and the rest was waiting.
 ROUTER (reflex: route · needs_screen · risky — gpt-4.1-nano, strict schema)
  │
  ├──▶ RESEARCH   search + fetch only. No files. No desktop. No send.
- ├──▶ HARNESS    38 tools · 2 prompts · reactive | deliberate(planner)
+ ├──▶ HARNESS    39 tools · 2 prompts · reactive | deliberate(planner)
  └──▶ EXPLAINER  manim pipeline, fixed shape
 ```
 
@@ -1476,7 +1519,7 @@ meow connectors      which services are connected, and connect one
 meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               344 fast checks - no Windows, no keys, no network
+pytest               358 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

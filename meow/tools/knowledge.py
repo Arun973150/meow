@@ -179,6 +179,47 @@ def build(harness) -> list:
 
 
     @tool
+    def catch_me_up(about: str = "") -> str:
+        """Gather from EVERY source at once and say what matters.
+
+        For "what should i know this morning", "give me a briefing", "catch
+        me up". Reads the user's recent mail and what is coming up on their
+        calendar, searches the web where the question needs it, and then
+        picks the handful worth saying rather than reading out everything.
+
+        This is what a routine usually runs. For one specific thing, look_up
+        or read_mail is cheaper and sharper.
+
+        about: what to concentrate on, or empty for everything.
+        """
+        from ..knowledge.study import edit, gather
+
+        harness.note("let me pull everything together.")
+        question = about.strip() or "what should I know right now"
+
+        # The web is only searched when the question is ABOUT something. A
+        # plain "catch me up" has nothing to search for, and a search engine
+        # asked that returns six pages about productivity.
+        researched = gather(
+            question,
+            reader=harness._reader(),
+            researcher=harness._researcher,
+            web=bool(about.strip()))
+        studied = edit(researched)
+
+        harness.runs.append(ToolRun(
+            "catch_me_up", question,
+            Outcome(bool(studied.sources),
+                    f"{len(studied.sources)} sources, "
+                    f"{len(studied.chosen)} worth saying",
+                    method="study")))
+        if not studied.sources:
+            return ("Nothing could be reached - no connected accounts and "
+                    "nothing found. Say that plainly rather than inventing "
+                    "a briefing.")
+        return studied.to_prompt()
+
+    @tool
     def write_about(topic: str, sentences: int = 4) -> str:
         """Compose text about a topic and type it where the cursor is.
 
@@ -201,5 +242,6 @@ def build(harness) -> list:
     return [
         find_how_to,
         look_up,
+        catch_me_up,
         write_about,
     ]
