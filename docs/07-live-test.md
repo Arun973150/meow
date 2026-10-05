@@ -11,7 +11,7 @@ what cannot.
 **Before you start**
 
 ```
-meow stress          # 52 checks, ~20s
+meow stress          # 70 checks, ~30s
 meow smoke           # the app survives real frames, ~10s
 meow            # then talk
 ```
@@ -237,6 +237,155 @@ Quit with Ctrl+C and start it again.
 **Bug if:** an agent icon appears for work that stopped days ago. Conversations
 left open by a crash are closed at startup — a task cannot be running in a
 process that no longer exists.
+
+---
+
+## 14 — A sentence PAUSES a walkthrough, it does not end one
+
+Say: **"i don't know how to change dark mode to light mode"**
+
+It should say ONE step and point at it. Then, while it is waiting:
+
+Say: **"ok what next"** -> it carries on from where it was
+Say: **"i can't find it"** -> it points at the current step again
+Say: **"say that again"** -> the same step, worded differently
+Say: **"never mind"** -> it stops, and says how far you got
+
+**Bug if:** any of those ends the walkthrough and routes as a new request.
+Until this was fixed, EVERY sentence cancelled it - "ok what next" destroyed
+the thing that knew what next was, and the goal and every walked step went
+with it.
+
+**Bug if:** resuming says "start with personalisation" for a step you are
+halfway through. Somebody who just asked what is next has not forgotten they
+are being taught, and being sent back to the top reads as the walkthrough
+having lost its place.
+
+**Bug if:** "say that again" returns the identical sentence. Repeating
+unprompted is nagging; repeating when asked is the job, and hearing the exact
+words back is how a person concludes they are talking to a recording.
+
+Then check the opposite: start another walkthrough and say **"open notepad"**.
+That one SHOULD end it.
+
+---
+
+## 15 — You can draw on your own screen
+
+Open something busy - Photoshop, Illustrator, a chess board, a dense web page.
+
+Tap **Ctrl+Shift+M**. Circle one thing with the mouse. Then ask about it:
+**"what is this"** or **"what does this do"**.
+
+- A label says "draw round what you mean" while you are drawing
+- The stroke follows the mouse
+- On release, a box stays round what you circled
+- The answer is about the thing you circled
+
+**Bug if:** the drag lands in the application underneath - a stroke in
+Photoshop, a piece dragged on the board. Every other overlay here is
+click-through and this one must not be while you are drawing.
+
+**Bug if:** clicks do not come back afterwards. Click something in the app
+below; it must respond.
+
+**Bug if:** the next, unrelated question is also answered about that region. A
+region is used once and cleared - a stale one silently narrows the next
+question, and nothing in the reply would say so.
+
+Tap Ctrl+Shift+M twice to check it cancels cleanly.
+
+---
+
+## 16 — The shapes are reachable and readable
+
+Say: **"show me the file menu"** - rings, not a circle
+Say: **"highlight the first paragraph"** - a translucent wash
+Say: **"spotlight the toolbar"** - everything else dims
+
+Then, with several things in one window:
+Say: **"number the steps to export this"**
+
+- Badges 1, 2, 3 appear on the things, in order
+- They stay until cleared rather than fading after six seconds
+
+**Bug if:** only circles ever appear. For a long time `show_on_screen` could
+reach four of the nine shapes and the rest were unreachable from a spoken
+sentence.
+
+**Bug if:** marks look machine-perfect. They are drawn with two wobbled
+strokes on purpose - a plotted ring over somebody's work reads as an
+annotation tool.
+
+---
+
+## 17 — It knows the application you are in
+
+Open **Blender**, or Photoshop, or DaVinci Resolve.
+
+Say: **"how do i add a subdivision modifier"** (Blender), or
+**"how do i mask this layer"** (Photoshop).
+
+- The answer names the real panel - the spanner tab, the Layers panel
+- In Blender it gives the keyboard shortcut, because most of Blender is keys
+- It never says it cannot see anything
+
+**Bug if:** it says the window is empty. Blender draws its interface in OpenGL
+and UIA returns five chrome buttons; an empty control list means the tree
+cannot see IN, not that the window is empty.
+
+**Bug if:** you get the same generic answer with Notepad focused. A skill is
+scoped to its application and withheld everywhere else.
+
+---
+
+## 18 — It gathers from everywhere, then picks
+
+Say: **"catch me up"**
+
+- It reads your recent mail and what is coming up
+- It says a handful of things, not forty subject lines
+- It names what it could not reach, if anything
+
+**Bug if:** it reads out your whole inbox. The editor exists to choose.
+
+**Bug if:** it implies it checked something it could not reach. A briefing that
+silently skipped the mailbox reads exactly like one that checked it and found
+nothing.
+
+---
+
+## 19 — Work that repeats
+
+Say: **"check my inbox every fifteen minutes"**
+
+- It says it is set up and how often
+- The terminal shows `routine:` when it fires
+
+Say: **"what repeats"** -> it lists it
+Say: **"stop checking my inbox"** -> it stops that one
+
+**Bug if:** it invents a schedule. Say **"check my inbox regularly"** - it must
+ASK how often rather than picking one. A routine firing on a cadence nobody
+asked for is the kind of thing somebody discovers from a bill.
+
+**Bug if:** it fires during the first ninety seconds, or fires four times to
+catch up after the machine was off.
+
+---
+
+## 20 — A handed-over task leaves your mouse alone
+
+Say: **"find research on solar panel costs and put it in a spreadsheet"**
+
+While it works, move your pointer somewhere and leave it.
+
+- An icon appears top right
+- Your pointer stays where you put it
+
+**Bug if:** the pointer is dragged across the screen. Invariant 10 says you can
+always take the mouse back; the honest reading is that work you walked away
+from should never have taken it. An unattended task draws its own arrow.
 
 ---
 
