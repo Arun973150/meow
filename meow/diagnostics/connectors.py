@@ -1,8 +1,8 @@
 """What the connectors can reach, and connecting anything that is missing.
 
-    python scripts/check_connectors.py                 # just look
-    python scripts/check_connectors.py --connect youtube
-    python scripts/check_connectors.py --read youtube  # actually fetch something
+    meow connectors                 # just look
+    meow connectors --connect youtube
+    meow connectors --read youtube  # actually fetch something
 
 Separate from `check_keys.py` because a connector has two states a key does
 not: the key can be right while no account is attached, and an account can be
@@ -98,10 +98,8 @@ def main() -> None:
         print("  " + answer[:700].replace("\n", "\n  "))
         return
 
-    print("\n  To connect one:   python scripts/check_connectors.py "
-          "--connect youtube")
-    print("  To prove it works: python scripts/check_connectors.py "
-          "--read youtube")
+    print("\n  To connect one:   meow connectors --connect youtube")
+    print("  To prove it works: meow connectors --read youtube")
     print("\n  Or just run the cat and ask - it opens the login itself:")
     print('      "what is this video about" with a youtube link')
     print('      "what is in my inbox"\n')

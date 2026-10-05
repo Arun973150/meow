@@ -35,7 +35,9 @@ PACKAGES = [
     ("elevenlabs", "text to speech", "0.6"),
     ("sounddevice", "microphone and playback", "0.6"),
     ("langchain", "the agent harness", "1.5"),
-    ("langchain_typesafe", "Jev routing", "1.6"),
+    ("langchain_openai", "routing, planning and the harness", "1.6"),
+    ("bs4", "reading fetched pages", "2.3"),
+    ("ddgs", "web search", "2.3"),
 ]
 
 
