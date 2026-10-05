@@ -65,6 +65,9 @@ FILLER = {
     # they match anything. "start recording" and "film something" both scored
     # a tie against the new-document recipe on exactly those two words.
     "start", "something", "thing", "things", "stuff", "someone", "somewhere",
+    # "add" named no topic either, and let "how do i add a subdivision
+    # modifier" match the PowerPoint recipe on that one word.
+    "add", "use", "using", "set", "change", "put",
 }
 
 TRIGGER_LINE = re.compile(r"^\s*when\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
@@ -81,6 +84,25 @@ TRIGGER_LINE = re.compile(r"^\s*when\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
 # trusted and correct, which is four things a fetched page is not.
 ROUTE_LINE = re.compile(r"^\s*route\s*:\s*(.+?)\s*=\s*(.+)$",
                         re.IGNORECASE | re.MULTILINE)
+
+# Which application a recipe is ABOUT, and which site, when the application
+# is a browser:
+#
+#     app: blender, blender.exe
+#     site: chess.com, lichess.org
+#
+# Without these, retrieval could only score against what the user SAID - so
+# the knowledge about Blender's interface was reachable by saying the word
+# "blender" and unreachable while sitting in Blender, which is the one moment
+# it is certainly wanted. The foreground application is in every digest and
+# nothing read it.
+APP_LINE = re.compile(r"^\s*app\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+SITE_LINE = re.compile(r"^\s*site\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+
+# Added to the word score when the recipe is about the window in front. Large
+# enough that the right application's note beats a generic one that happens to
+# share two words, small enough that it does not bury an exact match.
+APP_BONUS = 0.45
 
 
 def shipped_folder() -> Path:
@@ -125,6 +147,43 @@ class Recipe:
     path: str = ""
     # {what someone asks for: [control, control, ...]}
     routes: dict = field(default_factory=dict)
+    # Which application this is about, and which site within a browser.
+    # Empty means it is general knowledge and applies anywhere.
+    apps: tuple = ()
+    sites: tuple = ()
+
+    @property
+    def scoped(self) -> bool:
+        """Is this about one application rather than about anything?"""
+        return bool(self.apps or self.sites)
+
+    def about_the_window(self, app: str = "", title: str = "") -> bool:
+        """Is this recipe about the window currently in front?
+
+        Matched on the executable name and on the window TITLE, because a
+        browser is one application and the thing a skill is about is the site
+        inside it. A Chrome title reads "Play Chess Online - Chess.com -
+        Google Chrome", which already carries the site - so this is
+        browser-site matching with no new machinery and no URL to read out of
+        a tree that may not expose one.
+        """
+        haystack = f"{app} {title}".lower()
+        if not haystack.strip():
+            return False
+        if any(name in haystack for name in self.apps):
+            return True
+        return any(site in haystack for site in self.sites)
+
+    def named_in(self, request: str) -> bool:
+        """Did the user say which application they mean?
+
+        "How do i add a subdivision modifier in blender" is about Blender
+        whatever is in front - somebody asking before they open it should not
+        be told nothing is written down.
+        """
+        said = str(request).lower()
+        return any(name.split(".")[0] in said
+                   for name in (*self.apps, *self.sites) if name)
 
     @property
     def body_terms(self) -> set[str]:
@@ -160,8 +219,8 @@ class Recipe:
                 single |= words
         return single | _meaningful(self.title)
 
-    def score(self, request: str) -> float:
-        """How well this recipe fits, from 0 to 1.
+    def score(self, request: str, app: str = "", title: str = "") -> float:
+        """How well this recipe fits, from 0 to 1 (or a little over).
 
         Scored against the REQUEST's words, not the recipe's: a long recipe
         with many terms should not beat a short exact one just for having
@@ -175,9 +234,20 @@ class Recipe:
         while the recipe body says in so many words that dark mode lives
         under Personalization.
         """
+        here = self.about_the_window(app, title)
+        if self.scoped and not here and not self.named_in(request):
+            # Scoped to an application that is neither in front nor named.
+            # Blender's note about its modifier panel is not merely unhelpful
+            # in Notepad, it is wrong there - it describes an interface that
+            # is not on the screen, which is the exact failure the whole
+            # grounding half of this project exists to avoid.
+            return 0.0
+
         wanted = _meaningful(request)
         if not wanted:
-            return 0.0
+            # A scoped recipe still applies when there is nothing to match on.
+            # "What do I do now" in Blender wants the Blender note.
+            return MINIMUM_SCORE + APP_BONUS if here else 0.0
         listed = wanted & self.terms
         # A phrase counts when the request contains ALL of its words. That is
         # what makes "new window" mean new window rather than window.
@@ -190,10 +260,16 @@ class Recipe:
             # on the strength of "Time & language" appearing in a list of
             # sidebar entries - a single-word request needs only one
             # coincidence in a long paragraph to look like a match.
-            return 0.0
+            #
+            # Being about the window in front is the exception, and it is the
+            # whole point of a per-application skill: anything asked while
+            # Blender is focused is asked about Blender, whether or not the
+            # sentence happens to reuse a word from the note.
+            return MINIMUM_SCORE + APP_BONUS if here else 0.0
         # Counted once. A word in both the triggers and the body is one word.
         in_body_only = (wanted & self.body_terms) - listed
-        return (len(listed) + BODY_WEIGHT * len(in_body_only)) / len(wanted)
+        words = (len(listed) + BODY_WEIGHT * len(in_body_only)) / len(wanted)
+        return words + APP_BONUS if here else words
 
     def to_prompt(self) -> str:
         return f"How to {self.title}:\n{self.body.strip()}"
@@ -211,6 +287,19 @@ def parse(text: str, path: str = "") -> Recipe | None:
         when: powerpoint, slide, new slide, presentation
 
         Insert ribbon, then New Slide...
+
+    Everything else is optional and every line is one a person would guess:
+
+        app: blender, blender.exe        this is about ONE application
+        site: chess.com, lichess.org     ...or one site inside a browser
+        route: dns = Network & internet > Advanced network settings
+
+    An `app:` or `site:` line makes the recipe a SKILL rather than a note: it
+    is offered whenever that window is in front, even when the sentence
+    shares no words with it, and withheld when a different application is in
+    front. Leave both out for anything about getting TO somewhere - "where is
+    the dark mode setting" is a question asked before Settings is open, and
+    scoping that recipe to SystemSettings.exe broke it.
     """
     lines = text.splitlines()
     title = ""
@@ -261,10 +350,27 @@ def parse(text: str, path: str = "") -> Recipe | None:
             routes[asked] = steps
         route_line_numbers.add(index)
 
+    # Which application and which site this is about. Kept out of the body
+    # for the same reason as the routes: a header line read as prose is a
+    # sentence the model has to work out is not knowledge.
+    scope_line_numbers: set[int] = set()
+    apps: list[str] = []
+    sites: list[str] = []
+    for index, line in enumerate(lines):
+        for pattern, collected in ((APP_LINE, apps), (SITE_LINE, sites)):
+            matched = pattern.match(line)
+            if not matched:
+                continue
+            collected.extend(name.strip().lower()
+                             for name in matched.group(1).split(",")
+                             if name.strip())
+            scope_line_numbers.add(index)
+
     body_lines = [line for index, line in enumerate(lines)
                   if not line.startswith("#")
                   and index not in trigger_line_numbers
-                  and index not in route_line_numbers]
+                  and index not in route_line_numbers
+                  and index not in scope_line_numbers]
     body = "\n".join(body_lines).strip()
 
     if not title or not body:
@@ -272,7 +378,7 @@ def parse(text: str, path: str = "") -> Recipe | None:
         # Skipped rather than guessed at, and the caller reports it.
         return None
     return Recipe(title=title, triggers=triggers, body=body, path=path,
-                  routes=routes)
+                  routes=routes, apps=tuple(apps), sites=tuple(sites))
 
 
 @dataclass
@@ -282,9 +388,17 @@ class Shelf:
     recipes: list[Recipe] = field(default_factory=list)
     skipped: list[tuple[str, str]] = field(default_factory=list)
 
-    def find(self, request: str, limit: int = MAX_RECIPES) -> list[Recipe]:
-        """The best recipes for this request, or nothing."""
-        scored = [(recipe.score(request), recipe) for recipe in self.recipes]
+    def find(self, request: str, limit: int = MAX_RECIPES,
+             app: str = "", title: str = "") -> list[Recipe]:
+        """The best recipes for this request, or nothing.
+
+        `app` and `title` are the window in front. A recipe scoped to that
+        application is favoured and one scoped to a different application is
+        excluded, which is what makes a per-application note a skill rather
+        than another paragraph competing on words.
+        """
+        scored = [(recipe.score(request, app, title), recipe)
+                  for recipe in self.recipes]
         good = [(score, recipe) for score, recipe in scored
                 if score >= MINIMUM_SCORE]
         good.sort(key=lambda row: row[0], reverse=True)
@@ -316,9 +430,10 @@ class Shelf:
                     best, best_words = list(steps), len(key_words)
         return best
 
-    def to_prompt(self, request: str, limit: int = MAX_RECIPES) -> str:
+    def to_prompt(self, request: str, limit: int = MAX_RECIPES,
+                  app: str = "", title: str = "") -> str:
         """The block that goes in the prompt. Empty when nothing matches."""
-        matched = self.find(request, limit)
+        matched = self.find(request, limit, app, title)
         if not matched:
             return ""
         return ("Notes you have written about how to do this:\n\n"

@@ -695,10 +695,50 @@ vocabulary: photo, picture, selfie, snap, capture, webcam, video, record,
 recording, film, shoot. A bare "video" otherwise matches the **VideoLAN
 website** in the installed-application search.
 
-**Ten shipped recipes, four of them multi-step workflows.** The workflow ones
+**Fourteen shipped recipes** - four multi-step workflows, three
+application skills. The workflow ones
 carry the knowledge that ORDER is the answer: find out then write, draft then
 approve, switch then type. `research-into-a-document` exists because doing
 those two jobs the wrong way round produces a confident file full of nothing.
+
+**SKILLS: a recipe can be scoped to the application in front.** `app:` and
+`site:` lines, read off the foreground window's executable and TITLE:
+
+```
+app: blender, blender.exe
+site: chess.com, lichess.org
+```
+
+A scoped recipe is a SKILL rather than a note - offered whenever that window
+is in front **even when the sentence shares no words with it**, and withheld
+when a different application is in front. Retrieval could only score against
+what the user SAID, so knowledge about Blender's interface was reachable by
+saying the word "blender" and unreachable while sitting in Blender, which is
+the one moment it is certainly wanted. The foreground application is in every
+digest and nothing read it.
+
+**Site matching needs no URL.** A Chrome title reads "Play Chess Online -
+Chess.com - Google Chrome", so the site is already in the digest - browser-site
+matching with no new machinery and nothing to read out of a tree that may not
+expose it.
+
+⚠ **Scope a recipe only when it describes an interface you must already be
+IN.** Blender, Resolve and Photoshop qualify. Windows Settings does not:
+"where is the dark mode setting" is a question asked BEFORE Settings is open,
+and scoping that recipe to `SystemSettings.exe` made it unreachable from
+anywhere else. The test suite caught it, which is the test suite doing its
+job - a gate is only correct where being in the wrong application makes the
+knowledge wrong rather than merely early.
+
+**Three shipped skills: Blender, DaVinci Resolve, Photoshop** - chosen because
+they are the three the ablation measured as worst. Blender's note leads with
+the fact its interface is invisible to the tree, so an empty control list is
+never read as an empty window.
+
+⚠ **Generic verbs name no topic and have to be FILLER.** "add" let "how do i
+add a subdivision modifier" match the PowerPoint recipe on that one word, the
+same way "start" and "something" once matched anything. "add", "use", "set",
+"change" and "put" joined them.
 
 **Phase 2.6 done: a new capability is a markdown file.** A heading, a
 `when:` line, a paragraph. Drop it in `recipes/` or `Documents/Meow/Recipes`
@@ -1297,7 +1337,7 @@ meow connectors      which services are connected, and connect one
 meow stress          64 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               283 fast checks - no Windows, no keys, no network
+pytest               290 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

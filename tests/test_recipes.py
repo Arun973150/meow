@@ -224,3 +224,117 @@ def test_a_route_line_is_not_left_in_the_body():
         "The real body.\n")
     assert "route:" not in recipe.body
     assert recipe.body.strip() == "The real body."
+
+
+# --- skills scoped to the application in front -------------------------------
+#
+# Knowledge about Blender's modifier panel was reachable by saying the word
+# "blender" and unreachable while sitting in Blender, which is the one moment
+# it is certainly wanted. The foreground application is in every digest and
+# nothing read it.
+
+
+def shelf_with(*files):
+    """A shelf built from recipe text, with no folder involved."""
+    from meow.knowledge.recipes import Shelf, parse
+
+    shelf = Shelf()
+    for text in files:
+        recipe = parse(text)
+        assert recipe is not None, text[:40]
+        shelf.recipes.append(recipe)
+    return shelf
+
+
+BLENDER = """# work in Blender
+app: blender, blender.exe
+when: modifier, subdivision, viewport
+
+Tab toggles edit mode. The spanner tab holds Add Modifier.
+"""
+
+CHESS_SITE = """# play chess in the browser
+site: chess.com, lichess.org
+when: opening, position
+
+Look at the board before advising a move.
+"""
+
+GENERAL = """# find a setting in Windows Settings
+when: settings, preferences, options
+
+Settings opens with the Windows key then typing.
+"""
+
+
+def test_a_skill_fires_on_the_application_alone():
+    """Anything asked while Blender is focused is asked about Blender,
+    whether or not the sentence reuses a word from the note.
+    """
+    shelf = shelf_with(BLENDER)
+    found = shelf.find("what do i do now", app="blender.exe", title="Blender")
+    assert [r.title for r in found] == ["work in Blender"]
+
+
+def test_a_skill_for_another_application_is_excluded():
+    """A note about Blender's modifier panel is not merely unhelpful in
+    Notepad, it describes an interface that is not on the screen.
+    """
+    shelf = shelf_with(BLENDER)
+    assert shelf.find("how do i add a subdivision modifier",
+                      app="notepad.exe", title="Untitled - Notepad") == []
+
+
+def test_naming_the_application_reaches_it_from_anywhere():
+    """Somebody asking before they open it should not be told nothing is
+    written down.
+    """
+    shelf = shelf_with(BLENDER)
+    found = shelf.find("how do i add a subdivision modifier in blender",
+                       app="notepad.exe", title="Untitled - Notepad")
+    assert [r.title for r in found] == ["work in Blender"]
+
+
+def test_a_site_is_matched_in_the_window_title():
+    """A browser is one application and the skill is about the site inside
+    it. The title already carries the site, so this needs no URL out of a
+    tree that may not expose one.
+    """
+    shelf = shelf_with(CHESS_SITE)
+    found = shelf.find("what is this opening", app="chrome.exe",
+                       title="Play Chess Online - Chess.com - Google Chrome")
+    assert [r.title for r in found] == ["play chess in the browser"]
+
+    assert shelf.find("what is this opening", app="chrome.exe",
+                      title="Gmail - Google Chrome") == []
+
+
+def test_an_unscoped_recipe_is_unaffected_by_the_window():
+    """Most recipes are about getting TO somewhere, and are asked from
+    wherever the person happens to be. Scoping the Windows Settings recipe to
+    SystemSettings.exe broke exactly that - "where is the dark mode setting"
+    is a question you ask before Settings is open.
+    """
+    shelf = shelf_with(GENERAL)
+    for app, title in (("", ""), ("blender.exe", "Blender"),
+                       ("explorer.exe", "File Explorer")):
+        found = shelf.find("where are my settings", app=app, title=title)
+        assert [r.title for r in found] == ["find a setting in Windows Settings"]
+
+
+def test_the_right_application_beats_a_generic_match_on_words():
+    shelf = shelf_with(BLENDER, GENERAL)
+    found = shelf.find("where are the viewport options",
+                       app="blender.exe", title="Blender")
+    assert found[0].title == "work in Blender"
+
+
+def test_the_shipped_skills_declare_the_apps_they_are_about():
+    from meow.knowledge import recipes
+
+    shelf = recipes.load()
+    scoped = {recipe.title: recipe.apps for recipe in shelf.recipes
+              if recipe.scoped}
+    assert scoped, "no shipped recipe is scoped to an application"
+    for title, apps in scoped.items():
+        assert apps, f"{title} declares a scope with nothing in it"

@@ -797,7 +797,15 @@ class Harness:
         # What the user wrote down about doing this. Tagged like the rest of
         # the turn's context so last turn's recipe does not linger into a
         # request about something else entirely.
-        written_down = self.shelf.to_prompt(transcript)
+        # The window in front decides which notes apply, not only the words.
+        # A note about Blender's modifier panel was reachable by saying the
+        # word "blender" and unreachable while sitting in Blender, which is
+        # the one moment it is certainly wanted - the foreground application
+        # is in every digest and nothing read it.
+        written_down = self.shelf.to_prompt(
+            transcript,
+            app=self.digest.app if self.digest else "",
+            title=self.digest.title if self.digest else "")
         if written_down:
             messages.append(SystemMessage(written_down, additional_kwargs=tag))
 
