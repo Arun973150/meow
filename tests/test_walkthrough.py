@@ -467,3 +467,79 @@ def test_a_report_only_counts_while_a_lesson_is_live():
 
     watcher = guiding.Guide(say=lambda _s: None)
     assert watcher.answer("i've added the ball now") is False
+
+
+# --- the lesson goes into the prompt ----------------------------------------
+#
+# "You were teaching me how to animate it. Did you forget it?" - said out
+# loud, by the user, in the middle of a lesson. They had not forgotten;
+# nothing had ever told them. The harness had no idea a lesson was running,
+# so every question in the middle of one was answered from scratch.
+
+
+def test_the_prompt_says_what_is_done_what_is_now_and_what_is_left():
+    from meow.agent.walkthrough import from_steps
+
+    walk = from_steps(BOUNCE, goal="animate a bouncing ball", doing=True)
+    walk.advance()
+    said = walk.where_we_are()
+
+    assert "animate a bouncing ball" in said
+    assert BOUNCE[0] in said, "what they already did"
+    assert BOUNCE[1] in said, "where they are now"
+    assert BOUNCE[2] in said, "what is still to come"
+
+
+def test_the_prompt_forbids_restarting_the_lesson():
+    """Live, mid-lesson questions were answered by re-planning the whole
+    thing - and twice by asking the user what they wanted to do next, when
+    the next step was already decided and they were waiting for it.
+    """
+    from meow.agent.walkthrough import from_steps
+
+    said = from_steps(BOUNCE, doing=True).where_we_are()
+    assert "Do not start the lesson again" in said
+    assert "do not ask them what they want to do next" in said
+
+
+def test_steps_still_to_come_are_marked_as_not_yet():
+    """The whole point is the pacing. A prompt that lists the remaining
+    steps without saying so invites exactly the recitation it replaced.
+    """
+    from meow.agent.walkthrough import from_steps
+
+    said = from_steps(BOUNCE, doing=True).where_we_are()
+    assert "do NOT say these yet" in said
+
+
+def test_a_lesson_with_nothing_in_it_says_nothing():
+    from meow.agent.walkthrough import Walkthrough
+
+    assert Walkthrough(steps=[]).where_we_are() == ""
+
+
+@pytest.mark.parametrize("said", [
+    "okay what next to do", "what do i do now", "yeah done",
+    "right, continue", "ok next one", "what should i do",
+])
+def test_following_along_is_heard_however_it_is_phrased(said):
+    """Exact matching missed "Okay, what next to do?" - so the lesson did not
+    advance, the sentence routed as a question, and the cat said "what's on
+    your screen right now? describe it to me" to somebody waiting to be told
+    the next step.
+    """
+    from meow.language.phrases import following_along
+
+    assert following_along(said), said
+
+
+def test_a_bare_filler_word_still_advances_a_live_lesson():
+    """"Done." and "Yeah." are one word and all filler, so the noise filter
+    dropped them before the walkthrough ever saw them - and "done" is the
+    entire signal a doing lesson runs on.
+    """
+    from meow.language.phrases import following_along, is_noise
+
+    for word in ("done", "yeah", "yes", "ok"):
+        assert is_noise(word), f"{word} is still noise outside a lesson"
+        assert following_along(word), f"{word} must count inside one"

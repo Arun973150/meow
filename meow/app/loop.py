@@ -407,6 +407,7 @@ def main() -> None:
     def stop_teaching() -> None:
         guide.cancel()
         harness.watching = False
+        harness.lesson = ""
 
     panic.on_panic("teaching", stop_teaching)
     panic.on_panic("walkthrough", guide.cancel)
@@ -572,7 +573,16 @@ def main() -> None:
                     stop_teaching()
                     print("          lesson ended - that is a new job")
                 else:
+                    # The lesson goes INTO the prompt. Without it the harness
+                    # had no idea one was running, so a question in the
+                    # middle of being taught was answered from scratch - and
+                    # the user said, out loud, "you were teaching me how to
+                    # animate it, did you forget it?"
                     harness.watching = True
+                    harness.lesson = guide.walkthrough.where_we_are()
+                    print(f"          lesson: step "
+                          f"{guide.walkthrough.index + 1} of "
+                          f"{len(guide.walkthrough.steps)}")
 
             # A plan the user is watching does not need a window. Only work
             # they have walked away from does - which is what a window is FOR,
@@ -670,9 +680,10 @@ def main() -> None:
         finally:
             working.clear()
             # A lesson that ended must not leave a screenshot attached to
-            # every later turn.
+            # every later turn, nor its steps in every later prompt.
             if not guide.active:
                 harness.watching = False
+                harness.lesson = ""
             harness.user_region = None
             pencil.forget()
             replies.put(("done", ""))
@@ -843,6 +854,16 @@ def main() -> None:
                         # it had asked for.
                         answering = elapsed < awaiting_answer["until"]
                         if is_noise(said) and not answering:
+                            # A LESSON suspends it too, and for the same
+                            # reason. "Done." is one word and all filler, so
+                            # it was dropped before the walkthrough ever saw
+                            # it - and "done" is the entire signal a lesson
+                            # runs on. So were "Yeah." and "Now.", in one
+                            # session, while the user waited to be told the
+                            # next step.
+                            if guide.active and guide.answer(said):
+                                print(f"  {elapsed:5.1f}s  heard: {said}")
+                                continue
                             # Not spoken to, not remembered, not routed.
                             print(f"  {elapsed:5.1f}s  (ignored: {said})")
                             continue

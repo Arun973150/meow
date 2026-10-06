@@ -124,6 +124,7 @@ class Guide:
         from ..language.phrases import (
             asks_to_repeat,
             cannot_find_it,
+            following_along,
             wants_the_next_step,
             wants_to_stop_following,
         )
@@ -135,7 +136,12 @@ class Guide:
                 self.say(sentence)
             return True
 
-        if wants_the_next_step(transcript) or self._reports_doing(transcript):
+        # `following_along` is the loose one and it goes LAST of the three,
+        # so "stop" and "say that again" are still heard as themselves. It
+        # is only reached because a lesson is live.
+        if (wants_the_next_step(transcript)
+                or self._reports_doing(transcript)
+                or (walkthrough.doing and following_along(transcript))):
             # They say they did it. BELIEVED, not verified - the watcher
             # exists because looking beats asking, and somebody who has
             # volunteered "done" is not asking to be checked up on. If they

@@ -49,8 +49,20 @@ def build(harness) -> list:
         Say what you are looking for - "the chess position", "which pieces are
         where" - and you get a description of what is on screen.
         """
-        from ..desktop.vision import ScreenContext
         from ..platform.capture import capture_screens
+
+        # Already looking. While a lesson is live the turn CARRIES a picture
+        # of their screen, so calling this is paying 14.6 seconds to be told
+        # what is already in front of the model - measured, with the seeing
+        # model, on a plain VS Code window. The tool was the only way to see
+        # before, and during a lesson it is now the slow way.
+        if harness.watching and harness.saw_the_screen:
+            harness.runs.append(ToolRun(
+                "look_at_screen", what_to_look_for,
+                Outcome(True, "already attached", method="attached")))
+            return ("You can already see their screen - the picture above "
+                    "this turn IS it, taken just now. Answer from that. Do "
+                    "not say you are going to look.")
 
         harness.note("let me look at your screen.")
         shots = capture_screens()

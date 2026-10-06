@@ -374,6 +374,10 @@ class Harness:
         # spending real money - the worst possible reading on a prepaid
         # five dollars.
         self.budget = budget
+        # Set by the app: what lesson is in progress, as a paragraph. The
+        # harness had no idea one was running, so a question in the middle of
+        # being taught was answered from scratch and the lesson was dropped.
+        self.lesson = ""
         # What the user actually said this turn. The risk policy needs it to
         # tell "open notepad" -> open Notepad, which is their own instruction,
         # from "open that" -> open Notepad, which is the cat's inference.
@@ -391,6 +395,10 @@ class Harness:
         # screen, because teaching is a conversation about what THEY are
         # doing. Set by the app, cleared when the lesson ends.
         self.watching = False
+        # Whether THIS turn carried a picture. Read by
+        # look_at_screen, which is the slow way to see
+        # something the model is already holding.
+        self.saw_the_screen = False
         self._last_screen = None
         # A region the user drew round on their own screen, for this turn
         # only. Set by the app before a turn and cleared after it: a region
@@ -675,12 +683,16 @@ class Harness:
         unchanged screen is reported in words instead, the same bargain the
         answer path already makes.
         """
+        self.saw_the_screen = False
         if not self.watching:
             return HumanMessage(transcript)
 
         picture, changed = self._screen_now()
         if picture is None:
             return HumanMessage(transcript)
+        # True either way: an unchanged screen is one the model saw a moment
+        # ago and still has, which is just as good a reason not to look again.
+        self.saw_the_screen = True
         if not changed:
             return HumanMessage(
                 f"{transcript}\n\n[their screen has not changed since the "
@@ -979,6 +991,11 @@ class Harness:
             title=self.digest.title if self.digest else "")
         if written_down:
             messages.append(SystemMessage(written_down, additional_kwargs=tag))
+
+        if self.lesson:
+            # Before the guide reminder, so the reminder's instructions are
+            # read as applying to THIS lesson rather than to a fresh request.
+            messages.append(SystemMessage(self.lesson, additional_kwargs=tag))
 
         if self.guiding:
             # Last, so it is nearest the request. A SHOW turn that answers

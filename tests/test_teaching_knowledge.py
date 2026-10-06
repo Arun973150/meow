@@ -251,3 +251,30 @@ def test_a_screen_that_cannot_be_read_is_not_a_crash(monkeypatch):
     monkeypatch.setattr("meow.platform.capture.capture_screens",
                         lambda: (_ for _ in ()).throw(OSError("no desktop")))
     assert isinstance(harness._with_the_screen("hello").content, str)
+
+
+def test_a_turn_that_carries_a_picture_does_not_look_again(monkeypatch):
+    """`look_at_screen` costs 14.6 seconds with the seeing model, measured on
+    a plain VS Code window. During a lesson the turn already carries the
+    screen, so calling it pays that to be told what the model is holding.
+    """
+    harness = harness_watching(monkeypatch, [b"a-frame"])
+    harness._with_the_screen("what have i done")
+    assert harness.saw_the_screen is True
+
+
+def test_a_turn_without_one_is_free_to_look(monkeypatch):
+    harness = harness_watching(monkeypatch, [b"a-frame"])
+    harness.watching = False
+    harness._with_the_screen("what is on my screen")
+    assert harness.saw_the_screen is False
+
+
+def test_an_unchanged_screen_still_counts_as_seen(monkeypatch):
+    """It is one the model saw a moment ago and still has, which is just as
+    good a reason not to spend fifteen seconds looking again.
+    """
+    harness = harness_watching(monkeypatch, [b"same", b"same"])
+    harness._with_the_screen("first")
+    harness._with_the_screen("second")
+    assert harness.saw_the_screen is True

@@ -604,7 +604,7 @@ resolved day and time back.
 
 ⚠ **There is NO send tool in the harness, and there must never be one.** The
 harness holds the screen, which is private data and untrusted content both;
-one send tool closes the trifecta in a single move. 39 tools, none of them
+one send tool closes the trifecta in a single move. 40 tools, none of them
 send-shaped, and `meow/testing/stress.py` checks that.
 
 **Approval is explicit.** Saying "send it" sends the newest waiting draft, and
@@ -793,6 +793,71 @@ Checked BEFORE anything is fetched. Local, free, trusted and correct, which
 are four things a page off the internet is not reliably. The longest matching
 key wins, so a recipe can hold both `dns` and `dns server address`. This is
 invariant 1 again: when it cannot do something, write the line.
+
+**TEACHING A PROCEDURE, not just a route.** A walkthrough understood steps
+that are PLACES - control names mined from a route, watched for on screen.
+"Press shift a and choose mesh" is not a place and no tree contains it, so
+asked to teach animating a bouncing ball the cat said four steps in two
+breaths. That is the recitation a walkthrough exists to replace, and after it
+the user still could not do the thing.
+
+So there are two kinds. A **named** route is watched for, as before. A
+**doing** route is a procedure the model wrote from what it knows, and is not
+watched for at all - there is nothing on screen to see, and announcing
+progress because a window title changed would be guessing out loud. It
+advances when the person says they have done it. `teach_me_this` is the tool;
+the model supplies the steps and the APP says the first one, so it cannot be
+paraphrased back into a list.
+
+⚠ **THE HARNESS HAD NO IDEA A LESSON WAS RUNNING.** Every question in the
+middle of one was answered from scratch, and the user said out loud: *"you
+were teaching me how to animate it, did you forget it?"* They had not
+forgotten; nothing had ever told them. `Walkthrough.where_we_are()` goes into
+the prompt every turn - what is done, what is now, what is left - and says
+plainly not to restart the lesson, not to re-plan it, and not to ask what they
+want to do next, which it did twice.
+
+⚠ **A lesson SURVIVES A QUESTION and ends on a new job.** "Where is the
+keyframe section?" is a thing somebody asks in the middle of being taught, and
+ending the lesson over it meant the next "what's next" had nothing to advance
+- which happened twice in one session, the second time answering "what's on
+your screen right now?". ACT and PLAN cancel; SHOW and ANSWER do not.
+
+⚠ **The noise filter ate the lesson's own signal.** "Done." is one word and
+all filler, so it never reached the walkthrough - and "done" is the entire
+thing a doing lesson runs on. So were "Yeah." and "Now.", while the user
+waited. A live lesson suspends the filter, exactly as an unanswered question
+already did.
+
+⚠ **Exact phrase matching is too tight INSIDE a lesson.** "Okay, what next to
+do?" is "what next" with two words in the way, and an exact match missed it -
+so the lesson did not advance and the sentence routed as a question.
+`following_along` is containment-based and only ever consulted while a lesson
+is live: outside one those words mean other things, inside one there is a step
+on the table and it is the only thing the sentence could be about. A sentence
+that strips to NOTHING - a bare "yeah", "ok" - counts too, for the same reason.
+
+**THE SCREEN GOES WITH THE SENTENCE while a lesson is live.** The harness is
+normally given the control list and no image, which is right for most turns
+and wrong for every teaching one: somebody doing a thing on their own screen
+and reporting back is a conversation ABOUT the screen. One image in a
+six-minute session, and the reply was *"i can't see what you're talking about,
+tell me what's on your screen"* - to a person it had just sent off to add a
+ball.
+
+⚠ **Paid for only when the picture CHANGED.** A lesson is many turns and a
+flat 2,833 tokens each would make teaching the most expensive thing here. The
+screen changes exactly when the user does the step, which is the only moment
+the image is worth anything; an unchanged one is reported in words.
+
+⚠ **`look_at_screen` is the SLOW way to see something already attached.**
+Measured on a plain VS Code window: `gpt-5-mini` **14,584ms**, `gpt-5.6-luna`
+10,071ms, `gpt-4o-mini` 5,947ms - and 4o-mini is the one the chess measurement
+ruled out for reading content. So the tool is skipped entirely when the turn
+already carries the picture, which is most of the latency in a lesson.
+
+> Measured, for scale: UIA digest **312ms**, screen capture **68ms**, capture
+> plus JPEG **70ms**. The looking is the cost; everything around it is noise.
 
 **Being taught, one step at a time, with somebody watching.** Asking how to
 do something used to get the whole route read out in one breath - "settings,
@@ -1503,7 +1568,7 @@ happened. The model rounds are most of it and the rest was waiting.
 ROUTER (reflex: route · needs_screen · risky — gpt-4.1-nano, strict schema)
  │
  ├──▶ RESEARCH   search + fetch only. No files. No desktop. No send.
- ├──▶ HARNESS    39 tools · 2 prompts · reactive | deliberate(planner)
+ ├──▶ HARNESS    40 tools · 2 prompts · reactive | deliberate(planner)
  └──▶ EXPLAINER  manim pipeline, fixed shape
 ```
 
@@ -1519,7 +1584,7 @@ meow connectors      which services are connected, and connect one
 meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               358 fast checks - no Windows, no keys, no network
+pytest               397 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

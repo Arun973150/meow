@@ -316,6 +316,41 @@ def wants_the_next_step(text: str) -> bool:
     return _for_matching(text) in NEXT_STEP_PHRASES
 
 
+# The same question, asked the way people actually ask it. "Okay, what next
+# to do?" is "what next" with two words in the way, and an exact match missed
+# it - so the lesson did not advance, the sentence routed as a question, and
+# the cat said "what's on your screen right now? describe it to me" to
+# somebody who was waiting to be told the next step.
+#
+# Loose ON PURPOSE, and only ever consulted while a lesson is LIVE. Outside
+# one these words mean other things; inside one there is a step on the table
+# and this is the only thing the sentence could be about. See
+# `Guide.answer`, which is the only caller.
+FOLLOWING_ALONG = ("what next", "whats next", "next step", "next one",
+                   "then what", "and then", "what now", "now what",
+                   "what do i do", "what should i do", "carry on", "go on",
+                   "keep going", "continue", "move on", "done", "did it",
+                   "finished", "got it", "i am there", "im there",
+                   "ready", "yeah", "yep", "yes", "ok", "okay", "right")
+
+
+def following_along(text: str) -> bool:
+    """Mid-lesson, is this "go on" in some shape?
+
+    Containment rather than equality, which is safe only because the caller
+    has already established that somebody is halfway through being taught.
+    """
+    said = _for_matching(text)
+    if not said:
+        # Nothing left after the acknowledgements were stripped, which means
+        # the whole sentence WAS one: a bare "yeah", "ok", "done". Outside a
+        # lesson that is noise and is dropped. Inside one, waiting for the
+        # next step, it is the entire answer - and it was being thrown away
+        # before the walkthrough ever saw it.
+        return bool(spoken_words(text).strip())
+    return any(phrase in said for phrase in FOLLOWING_ALONG)
+
+
 def asks_to_repeat(text: str) -> bool:
     """Do they want the current step said again?"""
     return _for_matching(text) in REPEAT_PHRASES

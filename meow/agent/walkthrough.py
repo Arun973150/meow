@@ -141,6 +141,33 @@ class Walkthrough:
             return f"last one - {self.current.lower()}."
         return f"{self.current.lower()} is next."
 
+    def where_we_are(self) -> str:
+        """The lesson, for the prompt. What is done, what is now, what is left.
+
+        The harness had no idea a lesson was running, so every question in
+        the middle of one was answered from scratch - and the user said, out
+        loud, "you were teaching me how to animate it, did you forget it?"
+        They had not forgotten; nothing had ever told them.
+        """
+        if not self.steps:
+            return ""
+        lines = [f"YOU ARE TEACHING THEM: {self.goal or self.steps[0]}"]
+        if self.walked:
+            lines.append("Already done, by them, do not repeat these:")
+            lines.extend(f"  - {step}" for step in self.walked)
+        lines.append(f"The step they are on NOW: {self.current}")
+        rest = self.steps[self.index + 1:]
+        if rest:
+            lines.append("Still to come, one at a time, do NOT say these yet:")
+            lines.extend(f"  - {step}" for step in rest)
+        lines.append(
+            "Answer whatever they just asked, about THIS. Do not start the "
+            "lesson again, do not re-plan it, and do not ask them what they "
+            "want to do next - you know what is next and they are waiting "
+            "for it. When they say they have done this step, the walkthrough "
+            "says the next one itself.")
+        return chr(10).join(lines)
+
     def recount(self) -> str:
         """The route so far, for when they ask where they had got to."""
         if not self.walked:
