@@ -855,6 +855,31 @@ advances when the person says they have done it. `teach_me_this` is the tool;
 the model supplies the steps and the APP says the first one, so it cannot be
 paraphrased back into a list.
 
+⚠ **THE ANSWER PATH HAS NO IDEA A LESSON EXISTS EITHER.** The lesson is
+injected into the HARNESS prompt, and an answer turn never reaches the
+harness - so "Yes, sir." mid-lesson was answered with *"i'm not quite sure
+what you mean, what's on your screen?"* while the terminal printed `lesson:
+step 1 of 4` on the same turn. ANSWER is promoted to ACT while a lesson is
+live, structurally, like every other promotion here: a sentence said while
+somebody is being taught is about the lesson, and there is nothing for a
+classifier to weigh.
+
+⚠ **A SHORT SENTENCE WITH AN ACTION IN IT IS NEVER AN AGREEMENT.** The
+"short sentence built round an acknowledgement" rule was written as
+ends-with-one, and let **"open notepad now"** through - "now" is an
+acknowledgement and it is three words, so a lesson advanced instead of
+Notepad opening. `_ACTION_WORDS` disqualifies the sentence whatever else it
+contains.
+
+⚠ **The stripping cannot tell "ok cool" from "um".** Both reduce to nothing
+once leading filler goes, and one of them means carry on. The structural
+check runs BEFORE anything is stripped.
+
+⚠ **A bare "what?" mid-lesson is somebody who MISSED the step**, not
+somebody asking a new question. It got *"i'm here to help, but i need a bit
+more information"* - the least useful thing available to say to a person who
+did not catch an instruction. It asks for the step again, reworded.
+
 ⚠ **THE HARNESS HAD NO IDEA A LESSON WAS RUNNING.** Every question in the
 middle of one was answered from scratch, and the user said out loud: *"you
 were teaching me how to animate it, did you forget it?"* They had not
@@ -1655,7 +1680,7 @@ meow connectors      which services are connected, and connect one
 meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               527 fast checks - no Windows, no keys, no network
+pytest               541 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

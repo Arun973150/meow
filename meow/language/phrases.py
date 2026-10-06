@@ -263,6 +263,12 @@ NEXT_STEP_PHRASES = frozenset({
 REPEAT_PHRASES = frozenset({
     "say that again", "again", "repeat", "repeat that", "what was that",
     "sorry what", "come again", "one more time", "say it again",
+    # A bare "what?" mid-lesson is somebody who did not catch the step, not
+    # somebody asking a new question. Live it routed to ANSWER and got "i'm
+    # here to help, but i need a bit more information. what's on your
+    # screen?" - which is the least useful thing available to say to
+    # somebody who just missed an instruction.
+    "what", "huh", "sorry", "pardon", "come again sorry",
 })
 
 # "I cannot find it" - the step is right and the screen is not helping. This
@@ -360,6 +366,40 @@ ACKNOWLEDGEMENTS = frozenset({
 })
 
 
+# Verbs that make a short sentence a REQUEST rather than an acknowledgement.
+# Only consulted by `moving_on`, and only to disqualify - a sentence with one
+# of these in it is somebody asking for something, whatever else it contains.
+_ACTION_WORDS = frozenset({
+    "open", "close", "click", "press", "type", "write", "save", "send",
+    "delete", "run", "stop", "start", "minimise", "minimize", "maximise",
+    "maximize", "switch", "show", "find", "search", "look", "make", "add",
+    "take", "put", "move", "draw", "mark", "read", "tell", "teach", "explain",
+})
+
+
+def _short_and_only_agreeing(whole: str) -> bool:
+    """A SHORT sentence built round an acknowledgement, with no instruction.
+
+    Structural rather than a word list, which is the only kind of rule that
+    survives a language nobody planned for: "accha done", "haan done" and
+    "yes sir" are two words built round an acknowledgement and cannot be
+    anything else mid-lesson, while "i am done with this stupid thing" is six
+    and is not an instruction to carry on. The other words are never
+    examined, and do not need to be understood - only not to get in the way.
+
+    ⚠ The ACTION check is what stops this eating real requests. Written as
+    ends-with-an-acknowledgement first, it let "open notepad now" through:
+    "now" is an acknowledgement and it is three words, so a lesson would have
+    advanced instead of Notepad opening.
+    """
+    words = whole.split()
+    if not 1 < len(words) <= 3:
+        return False
+    if any(word in _ACTION_WORDS for word in words):
+        return False
+    return any(word in ACKNOWLEDGEMENTS for word in words)
+
+
 def moving_on(text: str) -> bool:
     """Mid-lesson, is this "go on" in some shape?
 
@@ -379,6 +419,13 @@ def moving_on(text: str) -> bool:
         # waiting for the next step, it is the entire answer - and it was
         # being thrown away before the walkthrough ever saw it.
         return True
+
+    # The SHORT structural rule, before anything is stripped - because the
+    # stripping cannot tell "ok cool" from "um". Both reduce to nothing, and
+    # one of them means carry on.
+    if _short_and_only_agreeing(whole):
+        return True
+
     said = _for_matching(text)
     if not said:
         # Everything stripped away and it was NOT an acknowledgement, so it
@@ -394,16 +441,7 @@ def moving_on(text: str) -> bool:
     if any(phrase in said for phrase in FOLLOWING_ALONG):
         return True
 
-    # A SHORT sentence ENDING in an acknowledgement. Structural rather than a
-    # word list, which is the only kind of rule that survives a language
-    # nobody planned for: "accha done" and "haan done" are two words ending
-    # in "done" and cannot be anything else mid-lesson, while "i am done
-    # with this stupid thing" is six and is not an instruction to carry on.
-    #
-    # The leading word is never examined. It does not need to be understood,
-    # only not to get in the way.
-    words = whole.split()
-    return 1 < len(words) <= 3 and words[-1] in ACKNOWLEDGEMENTS
+    return False
 
 
 def asks_to_repeat(text: str) -> bool:

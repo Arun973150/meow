@@ -565,6 +565,20 @@ def main() -> None:
             if why:
                 print(f"          {why}")
 
+            if teaching and route.intent is Intent.ANSWER:
+                # ⚠ THE ANSWER PATH HAS NO IDEA A LESSON EXISTS. The lesson
+                # goes into the HARNESS prompt, and an answer turn never
+                # reaches the harness - so "Yes, sir." mid-lesson was
+                # answered with "i'm not quite sure what you mean, what's on
+                # your screen?", while the terminal printed "lesson: step 1
+                # of 4" on the same turn.
+                #
+                # Structural, like every other promotion here: a sentence
+                # said while somebody is being taught is about the lesson,
+                # and there is nothing for a classifier to weigh.
+                route = replace(route, intent=Intent.ACT)
+                print("          mid-lesson, so it goes to the harness")
+
             if teaching:
                 # A lesson survives a question and ends on a new job. Asking
                 # where something is, or what this does, is part of being

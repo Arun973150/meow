@@ -496,3 +496,65 @@ def test_being_stuck_is_never_read_as_having_finished(said):
     watcher = lesson()
     assert watcher.answer(said) is True
     assert watcher.walkthrough.index == 0, said
+
+
+# --- the third live run -----------------------------------------------------
+#
+# "Open blender." routes ACT now, and teach_me_this fired with a real Blender
+# procedure. What broke instead was everything said BACK to it mid-lesson.
+
+
+@pytest.mark.parametrize("said", [
+    "Yes, sir.",
+    "ok cool",
+    "yeah alright",
+    "accha done",
+    "haan done",
+])
+def test_a_short_agreement_advances_however_it_is_dressed(said):
+    """"Yes, sir." was answered with "i'm not quite sure what you mean" while
+    the terminal printed "lesson: step 1 of 4" on the same turn.
+    """
+    watcher = lesson()
+    assert watcher.answer(said) is True, said
+    assert watcher.walkthrough.index == 1
+
+
+@pytest.mark.parametrize("said", [
+    "open notepad now",
+    "show me now",
+    "close it done",
+    "minimize it ok",
+])
+def test_a_short_sentence_with_an_ACTION_is_never_an_agreement(said):
+    """Written as ends-with-an-acknowledgement, the rule let "open notepad
+    now" through - "now" is an acknowledgement and it is three words, so a
+    lesson would have advanced instead of Notepad opening.
+    """
+    watcher = lesson()
+    assert watcher.answer(said) is False, said
+    assert watcher.walkthrough.index == 0
+
+
+@pytest.mark.parametrize("said", ["What?", "huh", "sorry", "pardon"])
+def test_not_catching_the_step_asks_for_it_again(said):
+    """A bare "what?" mid-lesson is somebody who missed the instruction, not
+    somebody asking a new question. Live it got "i'm here to help, but i need
+    a bit more information. what's on your screen?"
+    """
+    watcher = lesson()
+    assert watcher.answer(said) is True, said
+    assert watcher.walkthrough.index == 0, "it must NOT advance"
+    assert watcher.said_lines, "it has to say the step again"
+
+
+def test_the_step_is_reworded_rather_than_repeated_verbatim():
+    """Hearing the identical sentence back is how a person concludes they are
+    talking to a recording.
+    """
+    watcher = lesson()
+    first = watcher.walkthrough.say(
+        __import__("meow.agent.walkthrough", fromlist=["Progress"]).Progress.ARRIVED)
+    watcher.said_lines.clear()
+    watcher.answer("What?")
+    assert watcher.said_lines[0] != first
