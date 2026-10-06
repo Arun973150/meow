@@ -794,6 +794,52 @@ are four things a page off the internet is not reliably. The longest matching
 key wins, so a recipe can hold both `dns` and `dns server address`. This is
 invariant 1 again: when it cannot do something, write the line.
 
+**`tests/test_heard.py` IS THE REAL CORPUS.** Every transcript in it was
+spoken at this machine and printed by the running app - damage and all,
+untidied. The automated suites kept passing while live runs kept failing,
+because the suites were written against sentences a developer types: clean,
+complete, punctuated the way the phrase lists are. The microphone produces
+something else. Four kinds of damage, and all four are now covered:
+
+```
+dropped words     "An you open a new tab on it?"     (can you)
+homophones        "direct me towards the river"      (liver)
+run-together      "Xiaomi where is hello can you"    (show me)
+swallowed starts  "S in my inbox."                   (what's)
+```
+
+It caught four real bugs the moment it was written, which is the argument
+for it: **"um" advanced a lesson step**, a question ending in the word
+"right" was swallowed as "go on", "Now." was ignored, and "right, continue"
+was not heard.
+
+⚠ **Acknowledgements and hesitations are opposite signals wearing the same
+shape.** "yeah" means carry on; "um" means somebody is still thinking. Both
+are one word and all filler, and treating a cough as consent advanced a step
+the user had not taken. They are separate sets now.
+
+⚠ **A bare word is matched WHOLE; only distinctive phrases are matched by
+CONTAINMENT.** "ok", "right" and "yeah" appear inside ordinary sentences -
+"Yourself? You can check my screen, right?" was swallowed on the strength of
+its last word, and the question went unanswered.
+
+**The one rule that survives a language nobody planned for is structural.**
+A short sentence ENDING in an acknowledgement is "go on" - "accha done" and
+"haan done" are two words that cannot be anything else mid-lesson, while "i
+am done with this stupid thing" is six and is not. The leading word is never
+examined; it does not need to be understood, only not to get in the way.
+
+⚠ **One list, one normaliser, one place to add to.** `_reports_doing` lived
+in `guiding.py` as a second phrase list doing the same job as
+`following_along` in `phrases.py` - which is how one of them got
+`spoken_words` instead of `without_split_contractions` and missed every
+contraction it was written for. They are `phrases.moving_on` now.
+
+⚠ **A TEST THAT TOUCHES UIA FROM A WORKER THREAD tells you nothing.** The
+stuck-phrase cases call `_point_now`, which reads the real accessibility
+tree, and the output fills with "CoInitialize has not been called" instead of
+the assertion that failed. Neutered in the fixture.
+
 **TEACHING A PROCEDURE, not just a route.** A walkthrough understood steps
 that are PLACES - control names mined from a route, watched for on screen.
 "Press shift a and choose mesh" is not a place and no tree contains it, so
@@ -1584,7 +1630,7 @@ meow connectors      which services are connected, and connect one
 meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               397 fast checks - no Windows, no keys, no network
+pytest               522 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

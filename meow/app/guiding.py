@@ -124,7 +124,7 @@ class Guide:
         from ..language.phrases import (
             asks_to_repeat,
             cannot_find_it,
-            following_along,
+            moving_on,
             wants_the_next_step,
             wants_to_stop_following,
         )
@@ -140,8 +140,7 @@ class Guide:
         # so "stop" and "say that again" are still heard as themselves. It
         # is only reached because a lesson is live.
         if (wants_the_next_step(transcript)
-                or self._reports_doing(transcript)
-                or (walkthrough.doing and following_along(transcript))):
+                or (walkthrough.doing and moving_on(transcript))):
             # They say they did it. BELIEVED, not verified - the watcher
             # exists because looking beats asking, and somebody who has
             # volunteered "done" is not asking to be checked up on. If they
@@ -173,31 +172,6 @@ class Guide:
             return True
 
         return False
-
-    def _reports_doing(self, transcript: str) -> bool:
-        """"I've added the ball now" - a report of having done the step.
-
-        Only ever consulted while a DOING walkthrough is live, which is what
-        makes it safe to be loose: outside one, the same sentence is an
-        ordinary request and must route normally. Inside one, there is a step
-        on the table and this is the only thing it could be about.
-        """
-        walkthrough = self.walkthrough
-        if walkthrough is None or not walkthrough.doing:
-            return False
-        # `without_split_contractions`, NOT `spoken_words` - the latter
-        # turns an apostrophe into a space, so "I've added" arrives as "i ve
-        # added" and every phrase below misses. Written down once already,
-        # and still the easiest mistake in this file to make twice.
-        from ..language.phrases import without_split_contractions
-
-        said = without_split_contractions(transcript)
-        return any(phrase in said for phrase in (
-            "i have done", "ive done", "i did", "done it", "added it",
-            "i added", "ive added", "i have added", "that is done",
-            "thats done", "its done", "it is done", "finished it",
-            "i pressed", "ive pressed", "i clicked", "ive clicked",
-            "i selected", "ive selected", "i made", "ive made"))
 
     def _point_now(self) -> None:
         """Point at the current step, reading the screen once to do it."""

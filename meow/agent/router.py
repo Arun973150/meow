@@ -460,6 +460,12 @@ class Router:
             self._considered_words = 0
             self.latest = None
             self.latest_text = ""
+            # The generation moves too, so a route still IN FLIGHT for the
+            # sentence just finished cannot land afterwards and be picked up
+            # by the next one. Clearing `latest` alone was not enough: the
+            # worker still passed its generation check and wrote itself back,
+            # which is how a stale SHOW arrived in time for "Open blender."
+            self._generation += 1
 
 
 def _close_enough(partial: str, final: str) -> bool:
@@ -468,6 +474,18 @@ def _close_enough(partial: str, final: str) -> bool:
     Compared on words rather than characters, because the difference between an
     interim and a final turn is usually punctuation and capitalisation - which
     change the string completely and the meaning not at all.
+
+    ⚠ **The old rule had a FLOOR of three words, and for a short sentence it
+    inverted.** "Open blender." is two words, so the threshold was max(3, 1) =
+    3 - which accepted ANY partial of three words or more as "the same
+    sentence", including the previous utterance's. Live, "can you show me
+    where is" was still sitting in `latest` and its SHOW route was handed to
+    "Open blender.", so the cat told the user to say "do it" instead of
+    opening Blender. The real partial for that sentence, "open blen", was
+    REJECTED by the same rule. Exactly backwards.
+
+    So the partial must now also be no LONGER than the final by much. An
+    interim is a prefix of the sentence being spoken; it cannot overshoot.
     """
     if not partial:
         return False
@@ -475,6 +493,8 @@ def _close_enough(partial: str, final: str) -> bool:
     final_words = final.lower().split()
     if not final_words:
         return False
-    # The last interim is normally the full sentence. Accept it when it covers
-    # most of the final text.
-    return len(partial_words) >= max(3, int(len(final_words) * 0.8))
+    # The last interim is normally the full sentence. Accept it when it
+    # covers most of the final text AND does not run past it.
+    covers_enough = len(partial_words) >= len(final_words) * 0.7
+    not_a_different_sentence = len(partial_words) <= len(final_words) + 2
+    return covers_enough and not_a_different_sentence

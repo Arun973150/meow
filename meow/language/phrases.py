@@ -326,29 +326,84 @@ def wants_the_next_step(text: str) -> bool:
 # one these words mean other things; inside one there is a step on the table
 # and this is the only thing the sentence could be about. See
 # `Guide.answer`, which is the only caller.
-FOLLOWING_ALONG = ("what next", "whats next", "next step", "next one",
-                   "then what", "and then", "what now", "now what",
-                   "what do i do", "what should i do", "carry on", "go on",
-                   "keep going", "continue", "move on", "done", "did it",
-                   "finished", "got it", "i am there", "im there",
-                   "ready", "yeah", "yep", "yes", "ok", "okay", "right")
+# Multi-word and distinctive ONLY. A bare "ok", "right" or "yeah" is handled
+# by the whole-sentence rule below instead, because as a CONTAINMENT test they
+# match anything: "Yourself? You can check my screen, right?" was swallowed as
+# "go on" on the strength of its last word, and the question went unanswered.
+FOLLOWING_ALONG = (
+    # Asking for the next one.
+    "what next", "whats next", "next step", "next one", "then what",
+    "and then", "what now", "now what", "what do i do", "what should i do",
+    "carry on", "go on", "keep going", "move on",
+    # Reporting that the current one is behind them. These lived in
+    # `guiding.py` as a second list doing the same job in a different file -
+    # which is how one of them got `spoken_words` instead of
+    # `without_split_contractions` and missed every contraction it was
+    # written for. One list, one normaliser, one place to add to.
+    "did it", "done it", "i did", "i have done", "ive done", "i added",
+    "ive added", "i have added", "added it", "i pressed", "ive pressed",
+    "i clicked", "ive clicked", "i selected", "ive selected", "i made",
+    "ive made", "i typed", "ive typed", "i opened", "ive opened",
+    "that is done", "thats done", "its done", "it is done", "finished it",
+    "i am there", "im there", "im done",
+)
+
+# A sentence that is NOTHING BUT one of these, mid-lesson, is "go on". They
+# are separated from the hesitations below because the two are opposite
+# signals wearing the same shape: "yeah" means carry on, "um" means somebody
+# is still thinking - and treating a cough as consent advanced a step the
+# user had not taken.
+ACKNOWLEDGEMENTS = frozenset({
+    "yeah", "yep", "yes", "ok", "okay", "kay", "right", "sure", "done",
+    "finished", "continue", "next", "now", "cool", "great", "good", "alright",
+    "got it", "all done", "yeah done", "ok done",
+})
 
 
-def following_along(text: str) -> bool:
+def moving_on(text: str) -> bool:
     """Mid-lesson, is this "go on" in some shape?
 
-    Containment rather than equality, which is safe only because the caller
-    has already established that somebody is halfway through being taught.
+    Covers both halves of the same signal - asking for the next step, and
+    reporting that this one is done - because mid-lesson they mean the same
+    thing and splitting them across two files is how one of them ended up
+    with the wrong normaliser.
+
+    Containment rather than equality, which is safe ONLY because the caller
+    has established that somebody is halfway through being taught. Outside a
+    lesson these words mean other things entirely.
     """
+    whole = " ".join(without_split_contractions(text).split())
+    if whole in ACKNOWLEDGEMENTS:
+        # The whole sentence is an acknowledgement: a bare "yeah", "ok",
+        # "done". Outside a lesson that is noise and is dropped; inside one,
+        # waiting for the next step, it is the entire answer - and it was
+        # being thrown away before the walkthrough ever saw it.
+        return True
     said = _for_matching(text)
     if not said:
-        # Nothing left after the acknowledgements were stripped, which means
-        # the whole sentence WAS one: a bare "yeah", "ok", "done". Outside a
-        # lesson that is noise and is dropped. Inside one, waiting for the
-        # next step, it is the entire answer - and it was being thrown away
-        # before the walkthrough ever saw it.
-        return bool(spoken_words(text).strip())
-    return any(phrase in said for phrase in FOLLOWING_ALONG)
+        # Everything stripped away and it was NOT an acknowledgement, so it
+        # was hesitation - "um", "uh", "hmm". Somebody still thinking is not
+        # somebody who has finished, and advancing on one is worse than
+        # waiting.
+        return False
+    if said in ACKNOWLEDGEMENTS:
+        # "Right, continue" - an acknowledgement in front of another one.
+        # What is left after the leading filler goes is the whole
+        # instruction, so it is judged the same way the whole sentence was.
+        return True
+    if any(phrase in said for phrase in FOLLOWING_ALONG):
+        return True
+
+    # A SHORT sentence ENDING in an acknowledgement. Structural rather than a
+    # word list, which is the only kind of rule that survives a language
+    # nobody planned for: "accha done" and "haan done" are two words ending
+    # in "done" and cannot be anything else mid-lesson, while "i am done
+    # with this stupid thing" is six and is not an instruction to carry on.
+    #
+    # The leading word is never examined. It does not need to be understood,
+    # only not to get in the way.
+    words = whole.split()
+    return 1 < len(words) <= 3 and words[-1] in ACKNOWLEDGEMENTS
 
 
 def asks_to_repeat(text: str) -> bool:

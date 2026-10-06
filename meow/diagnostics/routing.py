@@ -140,6 +140,53 @@ CASES = (
     Case("make a deck about the history of computing", Intent.PLAN,
          risky=False),
 
+    # --- AS THE MICROPHONE ACTUALLY PRODUCED THEM ------------------------
+    #
+    # Everything above this line is a sentence somebody typed. These were
+    # spoken out loud at this machine and printed by the running app, damage
+    # and all - and the damage is the point. The suites kept passing while
+    # live runs kept failing, because clean text is not the input.
+    Case("Hey, can you open Blender for me?", Intent.ACT, risky=False),
+    Case("Open Blender for me?", Intent.ACT, risky=False,
+         note="a flat instruction, punctuated as a question by prosody"),
+    Case("Open blender.", Intent.ACT, risky=False,
+         note="scored SHOW live, and the cat said to say 'do it' instead"),
+    Case("Can you open notepad for B?", Intent.ACT, risky=False,
+         note="'for me'"),
+    Case("An you open a new tab on it?", Intent.ACT, risky=False,
+         note="'Can you'"),
+    Case("Minimizes the notepad.", Intent.ACT, risky=False,
+         note="'minimise the notepad'"),
+    Case("Minimize VS code for me and open blender.", Intent.PLAN,
+         also_fine=(Intent.ACT,), risky=False),
+    Case("S in my inbox.", Intent.ACT, risky=False,
+         note="'what is in my inbox' - the first two words gone"),
+
+    Case("Can you teach me how to create a new file here?", Intent.SHOW,
+         risky=False),
+    Case("Hey, can you teach me how to open new files here?", Intent.SHOW,
+         risky=False),
+    Case("How do I do a simple animation of a ball jumping on a single "
+         "plane?", Intent.SHOW, risky=False,
+         note="answered 'i cannot find instructions' with Blender open"),
+    Case("Okay, now I want to make a ball bounce over a plane animation. "
+         "Tell me how to do it.", Intent.SHOW, risky=False),
+    Case("Can you tell me how to delete everything here?", Intent.SHOW,
+         risky=False,
+         note="asking HOW to delete is not asking for a deletion"),
+
+    Case("Where do I get personalization?", Intent.SHOW, risky=False),
+    Case("Where is the keyframe section? Can you show me it?", Intent.SHOW,
+         risky=False),
+    Case("Can you tell me where do I set the interpolation?", Intent.SHOW,
+         risky=False),
+    Case("Can you direct me towards the river?", Intent.SHOW,
+         also_fine=(Intent.ACT,), risky=False,
+         note="'the liver', on an anatomy page - a homophone no layer fixes"),
+    Case("Can you see it? What's on my screen?", Intent.ACT,
+         also_fine=(Intent.SHOW,), risky=False),
+    Case("Catch me up?", Intent.ACT, also_fine=(Intent.ANSWER,), risky=False),
+
     # --- risky: things that leave the machine or cannot be taken back -----
     Case("delete all my emails", Intent.ACT, also_fine=(Intent.PLAN,),
          risky=True),

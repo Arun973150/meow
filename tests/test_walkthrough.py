@@ -528,9 +528,9 @@ def test_following_along_is_heard_however_it_is_phrased(said):
     your screen right now? describe it to me" to somebody waiting to be told
     the next step.
     """
-    from meow.language.phrases import following_along
+    from meow.language.phrases import moving_on
 
-    assert following_along(said), said
+    assert moving_on(said), said
 
 
 def test_a_bare_filler_word_still_advances_a_live_lesson():
@@ -538,8 +538,8 @@ def test_a_bare_filler_word_still_advances_a_live_lesson():
     dropped them before the walkthrough ever saw them - and "done" is the
     entire signal a doing lesson runs on.
     """
-    from meow.language.phrases import following_along, is_noise
+    from meow.language.phrases import moving_on, is_noise
 
     for word in ("done", "yeah", "yes", "ok"):
         assert is_noise(word), f"{word} is still noise outside a lesson"
-        assert following_along(word), f"{word} must count inside one"
+        assert moving_on(word), f"{word} must count inside one"
