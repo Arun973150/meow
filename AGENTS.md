@@ -855,6 +855,47 @@ advances when the person says they have done it. `teach_me_this` is the tool;
 the model supplies the steps and the APP says the first one, so it cannot be
 paraphrased back into a list.
 
+⚠ **A CONFIRMATION THAT BECOMES FURNITURE IS WORSE THAN NONE.** "Open
+spotify in a new chrome tab here" asked **five times** - ctrl+t, ctrl+l,
+ctrl+t, ctrl+l, ctrl+l - and the user said yes to every one. Not one of those
+keystrokes could lose a character of anybody's work. `SAFE_SHORTCUTS` is the
+set that moves somewhere and destroys nothing, and it proceeds: invariant 6
+says judge the ACTION, and the action is going to the address bar.
+
+⚠ **ENTER IS NOT ON THAT LIST, deliberately.** In an address bar it
+navigates; in Slack or a mail client it SENDS, which is the one thing this
+project will not do without a person looking at it. It proceeds only when the
+sentence asked for the thing Enter completes - "search youtube.com" IS the
+instruction to press Enter, and asking separately repeats their own sentence
+back at them.
+
+⚠ **A confirmation that times out must SAY SO.** Twenty seconds was too
+short: somebody answered "Yes." **20.4 seconds** after being asked, the window
+had closed 0.4 seconds earlier, and the yes was eaten by the noise filter
+while the turn carried on having been told no. Then it asked again, and
+again. Forty seconds now, the timeout is spoken, and a yes or no arriving
+within the next twenty-five is answered with "that came a moment too late -
+say it again" rather than dropped. Silence is not consent; it is also not
+invisible.
+
+**"Search X in Chrome" is a SEQUENCE, and it lives in the recipe.** Ctrl+T,
+Ctrl+L, type, Enter - four things, in that order, with nothing to check
+between them. The harness fumbled it live, opening a tab, then saying it
+needed the address bar, then opening another tab.
+
+⚠ **Rewriting a recipe through a shell is how you break the `when:` list.**
+A naive `read_text`/`write_text` turned every CRLF into CRCRLF, so each
+trigger line was separated by a blank one - and the list runs to the first
+BLANK line, so all but the first were silently lost into the body. Restore
+from git and edit with `newline=""` rather than trying to repair it.
+
+**"Know what is on screen always" means where the TREE IS BLIND.** For
+Notepad, Settings or Explorer the digest IS that knowledge, and it is cheaper
+and exact: 1,535 tokens against 2,833, with real coordinates rather than a
+guess. Blender is the other case - five chrome buttons and not one menu, so
+the turn carries a list of nothing and the model is blind without being told.
+`Regime.EMPTY` gets a picture whether or not a lesson is running.
+
 ⚠ **TWO TURNS ON ONE THREAD CORRUPT IT, AND THE SESSION NEVER RECOVERS.**
 They interleave - an assistant message with `tool_calls` followed by a human
 message instead of the tool result - and the API rejects that, then rejects
@@ -1706,7 +1747,7 @@ meow connectors      which services are connected, and connect one
 meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               547 fast checks - no Windows, no keys, no network
+pytest               573 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

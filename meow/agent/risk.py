@@ -105,6 +105,30 @@ DANGEROUS_SHORTCUTS = frozenset({
     "ctrl+alt+delete", "win+l", "ctrl+q",
 })
 
+# Keystrokes that MOVE somewhere or SELECT something and destroy nothing.
+# Invariant 6 says to judge the action rather than the sentence, and the
+# action here is going to the address bar.
+#
+# Live, "open spotify in a new chrome tab" asked FIVE times - ctrl+t, ctrl+l,
+# ctrl+t, ctrl+l, ctrl+l - and the user answered yes to every one, which is
+# precisely how a confirmation becomes furniture. None of them could lose a
+# keystroke of anybody's work.
+SAFE_SHORTCUTS = frozenset({
+    "ctrl+t", "ctrl+l", "ctrl+a", "ctrl+c", "ctrl+f", "ctrl+z", "ctrl+y",
+    "tab", "shift+tab", "escape", "esc", "home", "end", "pageup", "pagedown",
+    "up", "down", "left", "right", "f5", "ctrl+r", "ctrl+tab", "alt+tab",
+    "ctrl+plus", "ctrl+minus", "ctrl+0", "f11",
+})
+
+# ENTER is not on that list, and deliberately. In an address bar it
+# navigates; in Slack or a mail client it SENDS, which is the one thing this
+# project will not do without a person looking at it. So it proceeds only
+# when the sentence asked for the thing Enter completes.
+SUBMITTING_WORDS = frozenset({
+    "search", "google", "go", "find", "look", "submit", "enter", "run",
+    "navigate", "visit", "browse", "open",
+})
+
 
 # Words that appear in an instruction and identify nothing.
 _FILLER = frozenset((
@@ -183,6 +207,17 @@ def is_dangerous(tool: str, target: str) -> bool:
     return bool(_DANGEROUS_PATTERN.search(target))
 
 
+def _asked_to_submit(transcript: str) -> bool:
+    """Did the sentence ask for the thing Enter finishes?
+
+    A word set rather than a model call, and a short one: this runs inside
+    the confirmation gate, where a round trip would be a second of silence in
+    front of a question.
+    """
+    words = set(re.findall(r"[a-z0-9]+", str(transcript).lower()))
+    return bool(words & SUBMITTING_WORDS)
+
+
 def judge(tool: str, target: str, transcript: str,
           route_risky: bool = False) -> Judgement:
     """Ask or proceed, and why.
@@ -198,6 +233,16 @@ def judge(tool: str, target: str, transcript: str,
         # Not overridable by clarity. "Delete everything" is clear and that is
         # not a reason to skip the question.
         return Judgement(Decision.ASK, "this one is hard to undo")
+
+    if tool == "press_keys":
+        chord = target.strip().lower().replace(" ", "")
+        if chord in SAFE_SHORTCUTS:
+            return Judgement(Decision.PROCEED, "moves somewhere, breaks nothing")
+        if chord in ("enter", "return") and _asked_to_submit(transcript):
+            # "Search youtube.com" IS the instruction to press Enter. Asking
+            # separately is repeating their own sentence back to them, which
+            # is what invariant 6 exists to prevent.
+            return Judgement(Decision.PROCEED, "that is what you asked for")
 
     if route_risky:
         return Judgement(Decision.ASK, "sounded risky")

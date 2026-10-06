@@ -5,6 +5,25 @@ search web, youtube, google search, go to, visit, open a page, profile,
 profiles, profile picker,
 which profile, whos using chrome
 
+## Searching for something is FOUR things, in this order
+
+1. Ctrl+T - a new tab
+2. Ctrl+L - the cursor into the address bar
+3. type the search words or the address
+4. Enter
+
+Do all four without stopping between them. None of them can lose any work, so
+there is nothing to check in the middle, and a sequence interrupted halfway is
+a tab sitting open with nothing in it.
+
+A new tab already has the address bar focused, so step 2 is usually redundant -
+and it is harmless, which is why it stays in the list rather than being a thing
+to reason about each time. The failure to avoid is the opposite one: typing
+before anything is focused, which goes nowhere and reports nothing changed.
+
+"Search youtube.com", "search for campus x" and "go to spotify" are all this
+sequence. Whatever follows the word search is what gets typed.
+
 Ctrl+L puts the cursor in the address bar and selects whatever is already
 there, so the next thing typed replaces it. That is more reliable than clicking
 the bar, which sometimes places a cursor mid-text instead of selecting.

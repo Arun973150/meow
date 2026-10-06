@@ -122,3 +122,75 @@ def test_could_not_tell_is_not_treated_as_failure():
     harness.runs.append(ToolRun("click_control", "Name", Outcome(True, "ok")))
     harness.record_verdict(Verdict(None, "nothing observable to check"))
     assert harness.denied_by_the_verifier() == ""
+
+
+# --- a confirmation that becomes furniture is worse than none ---------------
+#
+# Live, "open spotify in a new chrome tab here" asked FIVE times: ctrl+t,
+# ctrl+l, ctrl+t, ctrl+l, ctrl+l. The user answered yes to every one. That is
+# precisely how somebody stops reading the question, which is the failure
+# invariant 6 exists to prevent - and not one of those keystrokes could lose
+# a character of anybody's work.
+
+
+@pytest.mark.parametrize("chord", [
+    "ctrl+t", "ctrl+l", "ctrl+a", "tab", "escape", "ctrl+f", "ctrl+z",
+    "f5", "home", "end",
+])
+def test_a_keystroke_that_moves_somewhere_does_not_ask(chord):
+    from meow.agent.risk import Decision, judge
+
+    decision = judge("press_keys", chord, "open spotify in a new chrome tab")
+    assert decision.decision is Decision.PROCEED, chord
+
+
+@pytest.mark.parametrize("chord", [
+    "ctrl+w", "alt+f4", "shift+delete", "ctrl+shift+delete", "ctrl+q",
+])
+def test_a_keystroke_that_loses_work_always_asks(chord):
+    """Not overridable by clarity. "Close this" is clear and that is not a
+    reason to skip the question.
+    """
+    from meow.agent.risk import Decision, judge
+
+    decision = judge("press_keys", chord, f"press {chord} for me")
+    assert decision.decision is Decision.ASK, chord
+
+
+@pytest.mark.parametrize("said", [
+    "search youtube.com",
+    "google the weather in delhi",
+    "go to spotify dot com",
+    "find campus x on youtube",
+])
+def test_enter_proceeds_when_the_sentence_asked_for_it(said):
+    """"Search youtube.com" IS the instruction to press Enter. Asking
+    separately repeats their own sentence back at them.
+    """
+    from meow.agent.risk import Decision, judge
+
+    assert judge("press_keys", "enter", said).decision is Decision.PROCEED
+
+
+@pytest.mark.parametrize("said", [
+    "say hi to the team",
+    "reply to arun",
+    "post that in the channel",
+    "message him back",
+])
+def test_enter_still_asks_where_it_might_SEND(said):
+    """In an address bar Enter navigates; in Slack or a mail client it sends,
+    which is the one thing this project will not do without a person looking
+    at it. The safe list deliberately does not contain Enter.
+    """
+    from meow.agent.risk import Decision, judge
+
+    assert judge("press_keys", "enter", said).decision is Decision.ASK, said
+
+
+def test_a_dangerous_chord_is_not_rescued_by_the_sentence():
+    """The submitting words must not become a way round the dangerous set."""
+    from meow.agent.risk import Decision, judge
+
+    assert judge("press_keys", "shift+delete",
+                 "search for the file and delete it").decision is Decision.ASK

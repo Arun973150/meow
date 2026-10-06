@@ -112,7 +112,16 @@ REPLY_LINE_SECONDS = 4.0
 # How long the cat waits for a spoken yes or no before giving up on a
 # confirmation. Long enough to think, short enough that a forgotten question
 # does not leave a tool call parked forever.
-CONFIRM_TIMEOUT_SECONDS = 20.0
+# Long enough to look at the screen and think. Twenty seconds was not:
+# live, somebody answered "Yes." 20.4 seconds after being asked, the window
+# had closed 0.4 seconds earlier, and the yes was eaten by the noise filter
+# while the turn carried on having been told no.
+CONFIRM_TIMEOUT_SECONDS = 40.0
+
+# After the window closes, a yes or no is still RECOGNISED - said back to,
+# rather than dropped. The answer is too late to use, and being ignored
+# entirely is how somebody concludes the microphone is broken.
+LATE_ANSWER_SECONDS = 25.0
 
 # How long after the cat asks a question that a short answer is taken
 # seriously. "SRIJA." and "H." are noise in isolation and are the whole point
@@ -192,6 +201,10 @@ def main() -> None:
     confirm_ready = threading.Event()
     awaiting_confirmation = threading.Event()
 
+    # When the last question stopped being answerable. A yes arriving after
+    # that is acknowledged rather than ignored.
+    asked_until = {"at": 0.0}
+
     def ask_out_loud(question: str) -> bool:
         """The Confirmer. Speaks the question and waits for a spoken reply."""
         replies.put(("ask", question))
@@ -200,10 +213,16 @@ def main() -> None:
         awaiting_confirmation.set()
         try:
             if not confirm_ready.wait(CONFIRM_TIMEOUT_SECONDS):
-                return False  # silence is not consent
+                # Silence is not consent - and it is not invisible either.
+                # Said out loud, because a question that is quietly answered
+                # "no" on the user's behalf, while they were still thinking,
+                # is indistinguishable from the cat having ignored them.
+                replies.put(("say", "i did not hear an answer, so i left it."))
+                return False
             return bool(confirm_answer["value"])
         finally:
             awaiting_confirmation.clear()
+            asked_until["at"] = time.perf_counter()
 
     # Before anything is built. The harness turns tracing on for itself, but
     # Mind is constructed first and every path is a ChatOpenAI now, so doing it
@@ -895,6 +914,19 @@ def main() -> None:
                         # "SRIJA.", "Es." and "H." - every letter of the answer
                         # it had asked for.
                         answering = elapsed < awaiting_answer["until"]
+                        # A yes or no just after the window closed is an
+                        # ANSWER that arrived late, not noise. Dropping it
+                        # silently is how somebody decides the microphone is
+                        # broken - live, a "Yes." 0.4 seconds past the
+                        # deadline was ignored while the turn carried on
+                        # having been told no.
+                        late = (time.perf_counter() - asked_until["at"]
+                                < LATE_ANSWER_SECONDS)
+                        if late and hears_yes(said) is not None:
+                            print(f"  {elapsed:5.1f}s  too late: {said}")
+                            replies.put(("say", "that came a moment too "
+                                                "late - say it again."))
+                            continue
                         if is_noise(said) and not answering:
                             # A LESSON suspends it too, and for the same
                             # reason. "Done." is one word and all filler, so

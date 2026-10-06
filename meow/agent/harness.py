@@ -736,7 +736,7 @@ class Harness:
         answer path already makes.
         """
         self.saw_the_screen = False
-        if not self.watching:
+        if not (self.watching or self._tree_is_blind()):
             return HumanMessage(transcript)
 
         picture, changed = self._screen_now()
@@ -770,6 +770,26 @@ class Harness:
              "image_url": {"url": f"data:image/jpeg;base64,{picture}",
                            "detail": "low"}},
         ])
+
+    def _tree_is_blind(self) -> bool:
+        """Does the control list see nothing useful in the window in front?
+
+        **This is the honest reading of "always know what is on screen".**
+        For Notepad, Settings or Explorer the digest IS that knowledge, and
+        it is cheaper and exact - 1,535 tokens against 2,833, with real
+        coordinates instead of a guess. Sending a picture of a window the
+        tree already described is paying more for less.
+
+        Blender is the other case. UIA returns five chrome buttons and not
+        one menu, tool or panel, so the turn carries a list of nothing and
+        the model is blind without being told. There, the picture is the only
+        description there is.
+        """
+        if self.digest is None:
+            return False
+        from ..desktop.uia import Regime
+
+        return self.digest.regime is Regime.EMPTY
 
     def _screen_now(self):
         """(base64 jpeg, changed since last time), or (None, False)."""

@@ -175,6 +175,10 @@ def harness_watching(monkeypatch, frames):
 
     harness = Harness.__new__(Harness)
     harness.watching = True
+    harness.saw_the_screen = False
+    # No digest, so the "the tree is blind here" path cannot fire and these
+    # cases test the lesson path alone.
+    harness.digest = None
     harness._last_screen = None
     harness.budget = Budget()
 
@@ -246,6 +250,8 @@ def test_a_screen_that_cannot_be_read_is_not_a_crash(monkeypatch):
 
     harness = Harness.__new__(Harness)
     harness.watching = True
+    harness.saw_the_screen = False
+    harness.digest = None
     harness._last_screen = None
     harness.budget = None
     monkeypatch.setattr("meow.platform.capture.capture_screens",
@@ -354,3 +360,56 @@ def test_unchanged_says_the_picture_is_still_above(monkeypatch):
     harness._with_the_screen("first")
     second = harness._with_the_screen("second")
     assert "picture above" in second.content
+
+
+# --- a window the tree cannot see gets a picture, lesson or not -------------
+
+
+def blind_digest():
+    from meow.desktop.uia import Element, Regime, WindowDigest
+
+    return WindowDigest(
+        app="blender.exe", title="Blender",
+        elements=[Element(name=n, role="Button", left=0, top=0,
+                          right=9, bottom=9)
+                  for n in ("Minimize", "Maximize", "Close")],
+        regime=Regime.EMPTY, total_found=5, usable_found=0, query_seconds=0.0)
+
+
+def seeing_digest():
+    from meow.desktop.uia import Element, Regime, WindowDigest
+
+    return WindowDigest(
+        app="notepad.exe", title="Untitled - Notepad",
+        elements=[Element(name="Text editor", role="Edit", left=0, top=0,
+                          right=90, bottom=90)],
+        regime=Regime.RICH, total_found=40, usable_found=40, query_seconds=0.0)
+
+
+def test_a_blind_window_gets_the_picture_with_no_lesson(monkeypatch):
+    """Blender returns five chrome buttons and not one menu, tool or panel,
+    so the turn carries a list of nothing and the model is blind without
+    being told. There the picture is the only description there is.
+    """
+    harness = harness_watching(monkeypatch, [b"blender-frame"])
+    harness.watching = False
+    harness.digest = blind_digest()
+
+    message = harness._with_the_screen("what is on screen")
+    assert isinstance(message.content, list)
+    assert harness.saw_the_screen is True
+
+
+def test_a_window_the_tree_CAN_see_does_not_get_one(monkeypatch):
+    """For Notepad the digest IS that knowledge, and it is cheaper and exact
+    - 1,535 tokens against 2,833, with real coordinates rather than a guess.
+    Sending a picture of a window the tree already described is paying more
+    for less.
+    """
+    harness = harness_watching(monkeypatch, [b"notepad-frame"])
+    harness.watching = False
+    harness.digest = seeing_digest()
+
+    message = harness._with_the_screen("click save")
+    assert isinstance(message.content, str)
+    assert harness.budget.images_sent == 0
