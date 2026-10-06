@@ -323,10 +323,53 @@ def keep_the_thread_short(state, runtime):
     surviving = set(map(id, conversation))
     kept = [m for m in kept
             if isinstance(m, SystemMessage) or id(m) in surviving]
-    if len(kept) == len(messages):
+
+    kept, dropped_pictures = _one_picture_only(kept)
+    if len(kept) == len(messages) and not dropped_pictures:
         return None
 
     return {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *kept]}
+
+
+def _one_picture_only(messages):
+    """Keep the NEWEST screenshot and strip every older one.
+
+    A teaching turn carries a picture of the user's screen, and the thread is
+    permanent - so without this, ten turns of being taught means ten
+    screenshots recharged on every call. Measured elsewhere in this project:
+    2,833 tokens each, so six surviving turns is seventeen thousand tokens of
+    pictures of a screen that has since changed.
+
+    Staleness is the worse half, and it is the same argument as the digest
+    above. A model holding four screenshots of four different moments will
+    happily describe something the user undid two steps ago - and during a
+    lesson, where the whole question is "what have they done since", an old
+    picture is not merely wasted, it is the wrong answer.
+
+    The text of the turn stays. What that turn SAID is still history; only
+    the pixels go.
+    """
+    with_pictures = [index for index, message in enumerate(messages)
+                     if isinstance(getattr(message, "content", None), list)
+                     and any(part.get("type") == "image_url"
+                             for part in message.content
+                             if isinstance(part, dict))]
+    if len(with_pictures) < 2:
+        return messages, False
+
+    newest = with_pictures[-1]
+    trimmed = list(messages)
+    for index in with_pictures[:-1]:
+        message = trimmed[index]
+        words = " ".join(part.get("text", "") for part in message.content
+                         if isinstance(part, dict)
+                         and part.get("type") == "text")
+        trimmed[index] = message.__class__(
+            content=(f"{words}  [the screenshot from that turn is no longer "
+                     f"shown - only the most recent one is]"),
+            additional_kwargs=dict(message.additional_kwargs),
+            id=message.id)
+    return trimmed, True
 
 
 class Harness:
@@ -694,14 +737,23 @@ class Harness:
         # ago and still has, which is just as good a reason not to look again.
         self.saw_the_screen = True
         if not changed:
+            # No new pixels, and none needed: the newest screenshot survives
+            # in the thread, so "the picture above" is a real thing the model
+            # is still holding. Saying it while dropping the picture is the
+            # bug `mind.py` already fixed once - the model, correctly given
+            # what it was handed, replies that it cannot see the screen.
             return HumanMessage(
                 f"{transcript}\n\n[their screen has not changed since the "
-                f"last one you saw]")
+                f"picture above - they have not done anything yet]")
         return HumanMessage(content=[
             {"type": "text",
-             "text": f"{transcript}\n\n[their screen right now - they are "
-                     f"doing this themselves, so look at what they have "
-                     f"actually done before saying the next thing]"},
+             # Says CHANGED, not just "here it is". During a lesson the
+             # screen changes exactly when they do the step, so the fact of
+             # the change is itself the news - and a model told only "here
+             # is their screen" asks them what they did instead of looking.
+             "text": f"{transcript}\n\n[their screen RIGHT NOW, and it has "
+                     f"changed since the last picture - so they have done "
+                     f"something. Look at what, before saying anything]"},
             # detail=low, at full size. 2,833 tokens flat regardless of
             # resolution, so downscaling to save money accomplishes nothing
             # and costs detail - see meow/desktop/vision.py.

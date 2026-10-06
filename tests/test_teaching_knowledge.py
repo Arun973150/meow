@@ -278,3 +278,79 @@ def test_an_unchanged_screen_still_counts_as_seen(monkeypatch):
     harness._with_the_screen("first")
     harness._with_the_screen("second")
     assert harness.saw_the_screen is True
+
+
+# --- at most ONE picture in the thread --------------------------------------
+
+
+def human_with_picture(text="look at this"):
+    from langchain_core.messages import HumanMessage
+
+    return HumanMessage(content=[
+        {"type": "text", "text": text},
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,xx",
+                                            "detail": "low"}},
+    ])
+
+
+def has_picture(message) -> bool:
+    return isinstance(message.content, list) and any(
+        part.get("type") == "image_url" for part in message.content
+        if isinstance(part, dict))
+
+
+def test_only_the_newest_screenshot_survives():
+    """A teaching turn carries a picture and the thread is permanent, so ten
+    turns of being taught means ten screenshots recharged on every call -
+    2,833 tokens each, which is seventeen thousand tokens of pictures of a
+    screen that has since changed.
+    """
+    from meow.agent.harness import _one_picture_only
+
+    messages = [human_with_picture("first"), human_with_picture("second"),
+                human_with_picture("third")]
+    kept, dropped = _one_picture_only(messages)
+
+    assert dropped
+    assert [has_picture(m) for m in kept] == [False, False, True]
+
+
+def test_what_an_older_turn_SAID_is_kept():
+    """Only the pixels go. What that turn said is still history."""
+    from meow.agent.harness import _one_picture_only
+
+    kept, _dropped = _one_picture_only(
+        [human_with_picture("i added the ball"), human_with_picture("now what")])
+    assert "i added the ball" in kept[0].content
+    assert "no longer shown" in kept[0].content
+
+
+def test_one_picture_is_left_alone():
+    from meow.agent.harness import _one_picture_only
+
+    messages = [human_with_picture("only one")]
+    kept, dropped = _one_picture_only(messages)
+    assert dropped is False
+    assert kept is messages
+
+
+def test_a_thread_with_no_pictures_is_untouched():
+    from langchain_core.messages import HumanMessage
+
+    from meow.agent.harness import _one_picture_only
+
+    messages = [HumanMessage("open notepad"), HumanMessage("thanks")]
+    kept, dropped = _one_picture_only(messages)
+    assert dropped is False
+    assert kept is messages
+
+
+def test_unchanged_says_the_picture_is_still_above(monkeypatch):
+    """Saying "has not changed" while dropping the picture is the bug mind.py
+    already fixed once: the model, correctly given what it was handed,
+    replies that it cannot see the screen.
+    """
+    harness = harness_watching(monkeypatch, [b"same", b"same"])
+    harness._with_the_screen("first")
+    second = harness._with_the_screen("second")
+    assert "picture above" in second.content

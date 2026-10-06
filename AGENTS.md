@@ -891,6 +891,31 @@ six-minute session, and the reply was *"i can't see what you're talking about,
 tell me what's on your screen"* - to a person it had just sent off to add a
 ball.
 
+⚠ **AT MOST ONE PICTURE IS EVER IN THE THREAD.** The image rides an
+untagged `HumanMessage`, so it survives the per-turn trim with the rest of the
+conversation - which means ten turns of being taught is ten screenshots
+recharged on every call. At 2,833 tokens each that is seventeen thousand
+tokens of pictures of a screen that has since changed. `_one_picture_only`
+keeps the newest and strips the rest, leaving what each turn SAID: only the
+pixels go.
+
+**Staleness is the worse half, and it is the digest argument again.** A model
+holding four screenshots of four different moments will happily describe
+something the user undid two steps ago - and during a lesson, where the whole
+question is "what have they done since", an old picture is not merely wasted,
+it is the wrong answer.
+
+⚠ **"Has not changed" only means anything while the last picture is still
+there.** `mind.py` fixed this once already: dropping the image and sending the
+words made the model reply, correctly given what it was handed, that it could
+not see the screen. The newest screenshot surviving the trim is what makes the
+cheap path honest.
+
+**The message says CHANGED, not just "here it is."** During a lesson the
+screen changes exactly when they do the step, so the fact of the change is
+itself the news - and a model told only "here is their screen" asks them what
+they did instead of looking.
+
 ⚠ **Paid for only when the picture CHANGED.** A lesson is many turns and a
 flat 2,833 tokens each would make teaching the most expensive thing here. The
 screen changes exactly when the user does the step, which is the only moment
@@ -1630,7 +1655,7 @@ meow connectors      which services are connected, and connect one
 meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               522 fast checks - no Windows, no keys, no network
+pytest               527 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all
