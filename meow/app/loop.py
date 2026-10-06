@@ -516,6 +516,34 @@ def main() -> None:
         panel.end(thread)
         return last or ("done" if plan.succeeded else "stopped early")
 
+    # One sentence held back while a turn is running. ONE, replaced rather
+    # than queued: if somebody says three things while the cat is working,
+    # the last is what they mean and the first two have been overtaken.
+    held_back = {"text": "", "at": 0.0}
+
+    def start_a_turn(said: str, elapsed: float) -> None:
+        """Run a sentence, or hold it until the current turn is done.
+
+        ⚠ TWO TURNS ON ONE THREAD CORRUPT IT. They interleave - an assistant
+        message with tool_calls followed by a human message instead of the
+        tool result - and the API rejects that, then rejects every later turn
+        too, because the broken messages stay in the checkpoint. Live: a
+        stray "RFO." arrived 2.9 seconds into a turn that was about to ask
+        for confirmation, and the session 400d on the same call_id until it
+        was restarted.
+
+        Nothing checked `working` before starting a thread. The guard exists
+        a few lines above for the SPEECH BUBBLE and not for the turn itself.
+        """
+        if working.is_set():
+            held_back["text"] = said
+            held_back["at"] = elapsed
+            print(f"  {elapsed:5.1f}s  holding that until this finishes: "
+                  f"{said[:48]}")
+            return
+        threading.Thread(target=ask, args=(said,),
+                         name="turn", daemon=True).start()
+
     def ask(transcript: str) -> None:
         """Route the sentence and run whichever path it asked for."""
         # A live walkthrough gets first refusal on the sentence, and it is
@@ -949,8 +977,7 @@ def main() -> None:
                         if speech is not None:
                             speech.clear()
                         panic.reset()
-                        threading.Thread(target=ask, args=(transcript.text,),
-                                         name="turn", daemon=True).start()
+                        start_a_turn(transcript.text, elapsed)
 
                 while True:
                     try:
@@ -989,6 +1016,13 @@ def main() -> None:
                         bubble_state.say("something went wrong", elapsed)
                     elif kind == "done" and active:
                         animator.set_state(CatState.LISTENING, elapsed)
+                        # Whatever they said while it was working happens
+                        # now, in order, on a thread of its own.
+                        waiting = held_back["text"]
+                        if waiting:
+                            held_back["text"] = ""
+                            print(f"  {elapsed:5.1f}s  now: {waiting[:48]}")
+                            start_a_turn(waiting, elapsed)
 
                 for finished in tasks.newly_finished():
                     mark = {TaskState.DONE: "done",

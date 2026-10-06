@@ -525,6 +525,15 @@ class Harness:
         # Numbers the turns, so each turn's context blocks can be tagged and
         # the previous turn's dropped before the next model call.
         self._turn = 0
+        # ONE thread for the whole session - until it is POISONED. Two turns
+        # running at once interleave into it: an assistant message with
+        # tool_calls followed by a human message instead of the tool result,
+        # which the API rejects outright. And it rejects every turn after it
+        # too, forever, because the broken messages stay in the checkpoint.
+        # Seen live: one stray "RFO." during a confirmation, and the session
+        # 400d on the same call_id until it was restarted.
+        self._thread_name = "session"
+        self._threads_abandoned = 0
         # Which replies have already been spoken. The thread is permanent
         # now, so `messages` carries every reply the session ever made.
         self._spoken: set[str] = set()
@@ -1013,7 +1022,7 @@ class Harness:
         # each turn meant the checkpointer never had anything to resume,
         # so every act and show started blank - which is why "now the
         # other one" had nothing to resolve against.
-        config = {"configurable": {"thread_id": "session"},
+        config = {"configurable": {"thread_id": self._thread_name},
                   # Named, or every harness turn shows up in LangSmith as
                   # "LangGraph" and cannot be told apart from a planner
                   # step at a glance.
@@ -1062,7 +1071,38 @@ class Harness:
         try:
             yield from self._drain({"messages": messages}, config)
         except Exception as error:  # noqa: BLE001 - reported, never fatal
+            if self._thread_is_poisoned(error):
+                # Start a clean thread and run this turn again. The history
+                # is lost, which is a real cost - "now the other one" stops
+                # resolving - and it is far cheaper than a session that
+                # answers every later sentence with the same 400.
+                self.start_a_fresh_thread()
+                config = dict(config, configurable={
+                    "thread_id": self._thread_name})
+                try:
+                    yield from self._drain({"messages": messages}, config)
+                    return
+                except Exception as again:  # noqa: BLE001
+                    error = again
             self.last_error = f"{type(error).__name__}: {error}"
+
+    @staticmethod
+    def _thread_is_poisoned(error) -> bool:
+        """Is this the interleaved-turns 400, rather than an ordinary fault?
+
+        Matched on the message because the API returns a plain BadRequest for
+        it. Narrow on purpose: a fresh thread throws away the conversation,
+        so it must not happen for a rate limit or a bad argument.
+        """
+        said = str(error)
+        return ("tool_call_id" in said
+                and "did not have response messages" in said)
+
+    def start_a_fresh_thread(self) -> str:
+        """Abandon the poisoned thread and take a new name."""
+        self._threads_abandoned += 1
+        self._thread_name = f"session-{self._threads_abandoned}"
+        return self._thread_name
 
     def _drain(self, payload, config) -> Iterator[str | Confirmation]:
         """Run the graph, speaking each sentence the moment it is complete.

@@ -855,6 +855,32 @@ advances when the person says they have done it. `teach_me_this` is the tool;
 the model supplies the steps and the APP says the first one, so it cannot be
 paraphrased back into a list.
 
+⚠ **TWO TURNS ON ONE THREAD CORRUPT IT, AND THE SESSION NEVER RECOVERS.**
+They interleave - an assistant message with `tool_calls` followed by a human
+message instead of the tool result - and the API rejects that, then rejects
+**every later turn too**, because the broken messages stay in the checkpoint.
+
+Live: `"Open."` started a turn, `"RFO."` arrived 2.9 seconds later while that
+turn was about to ask for confirmation, and the session 400d on the same
+`call_id` until it was restarted. The `awaiting_confirmation` guard did not
+help - the stray sentence landed in the window BEFORE the confirmation was
+asked.
+
+**Nothing checked `working` before starting a turn.** The guard a few lines
+above it is for the speech BUBBLE, which is how this was missed twice.
+
+Two halves, and both are needed:
+
+- `start_a_turn` HOLDS a sentence while one is running, and runs it when the
+  turn finishes. One sentence, replaced rather than queued: if somebody says
+  three things while the cat is working, the last is what they mean.
+- `Harness` recognises the specific 400 and **abandons the thread**, taking a
+  new name and re-running the turn. The history is lost, which is a real cost
+  - "now the other one" stops resolving - and it is far cheaper than a
+  session that answers every later sentence with the same error. Matched
+  narrowly, on `tool_call_id` plus "did not have response messages", because
+  a fresh thread must not happen for a rate limit or a bad argument.
+
 ⚠ **THE ANSWER PATH HAS NO IDEA A LESSON EXISTS EITHER.** The lesson is
 injected into the HARNESS prompt, and an answer turn never reaches the
 harness - so "Yes, sir." mid-lesson was answered with *"i'm not quite sure
@@ -1680,7 +1706,7 @@ meow connectors      which services are connected, and connect one
 meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               541 fast checks - no Windows, no keys, no network
+pytest               547 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

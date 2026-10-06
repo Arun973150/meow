@@ -558,3 +558,54 @@ def test_the_step_is_reworded_rather_than_repeated_verbatim():
     watcher.said_lines.clear()
     watcher.answer("What?")
     assert watcher.said_lines[0] != first
+
+
+# --- two turns on one thread, which bricks the session ----------------------
+#
+# Live: "Open." started a turn; "RFO." arrived 2.9 seconds later while that
+# turn was about to ask for confirmation; both ran on the same LangGraph
+# thread. An assistant message with tool_calls was followed by a human
+# message instead of the tool result, the API rejected it - and then rejected
+# EVERY later turn on the same call_id, because the broken messages stay in
+# the checkpoint. The session never recovered.
+
+
+def test_the_interleaved_turns_400_is_recognised():
+    """Narrow on purpose: a fresh thread throws the conversation away, so it
+    must not happen for a rate limit or a bad argument.
+    """
+    from meow.agent.harness import Harness
+
+    poisoned = (
+        "Error code: 400 - {'error': {'message': \"An assistant message with "
+        "'tool_calls' must be followed by tool messages responding to each "
+        "'tool_call_id'. The following tool_call_ids did not have response "
+        "messages: call_u4PLA1frk5WnT4NUxIbw4HPV\"}}")
+    assert Harness._thread_is_poisoned(RuntimeError(poisoned))
+
+
+@pytest.mark.parametrize("message", [
+    "Error code: 429 - rate limit exceeded",
+    "Error code: 400 - invalid 'messages[0].role'",
+    "Connection reset by peer",
+    "Error code: 400 - unknown parameter 'display_width'",
+])
+def test_an_ordinary_failure_does_not_throw_the_conversation_away(message):
+    from meow.agent.harness import Harness
+
+    assert not Harness._thread_is_poisoned(RuntimeError(message))
+
+
+def test_a_fresh_thread_has_a_new_name_every_time():
+    """The checkpointer keys on the name, so reusing it would resume the
+    poisoned state it was abandoned for.
+    """
+    from meow.agent.harness import Harness
+
+    harness = Harness.__new__(Harness)
+    harness._thread_name = "session"
+    harness._threads_abandoned = 0
+
+    names = {harness.start_a_fresh_thread() for _ in range(3)}
+    assert len(names) == 3
+    assert "session" not in names
