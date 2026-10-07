@@ -315,3 +315,258 @@ def test_without_a_ghost_it_still_glides():
 
     assert outcome.method == "glide"
     assert moved
+
+
+# --- only the ink is repainted -----------------------------------------------
+#
+# The whole layer used to be rebuilt at 2x and filtered back down every time a
+# mark changed. The old note in this file said 34ms, which was wrong by an
+# order of magnitude at a real resolution - measured at 2560x1600:
+#
+#     alloc 14ms    draw 23ms    LANCZOS down 266ms    premultiply 51ms
+#
+# The downscale does not care how much was drawn; a 5120x3200 resize filters
+# nine million pixels whether the picture holds one ring or nine. So only the
+# rectangle the marks occupy is rendered, and `Board` writes it into a buffer
+# it keeps between frames:
+#
+#     one ring            370ms -> 2.8ms
+#     a ring and a label  938ms -> 20.6ms
+#     the agent's cursor  984ms -> 1.7ms
+#     a ring + spotlight  985ms -> 163ms
+#
+# The output has to be the same picture, which is what these check. The
+# failure to fear is CLIPPING - a mark with a piece missing reads as a
+# rendering fault rather than as a wrong rectangle.
+
+EVERY_KIND = [
+    ("rings", lambda s: s.rings((450, 300))),
+    ("rings at the edge", lambda s: s.rings((4, 300))),
+    ("rings off the edge", lambda s: s.rings((896, 300))),
+    ("a thick bowed arrow",
+     lambda s: s.arrow((120, 120), (700, 480), bow=0.35, width=9)),
+    ("a straight arrow", lambda s: s.arrow((120, 500), (800, 120))),
+    ("a freehand path",
+     lambda s: s.path([(100, 100), (200, 300), (150, 420), (400, 380)])),
+    ("a curve", lambda s: s.curve([(100, 500), (400, 100), (800, 500)])),
+    ("a box", lambda s: s.box(200, 150, 640, 420)),
+    ("a circle", lambda s: s.circle((400, 300), 120)),
+    ("an ellipse", lambda s: s.ellipse(100, 200, 700, 400)),
+    ("a highlight", lambda s: s.highlight(150, 150, 600, 300)),
+    ("a badge", lambda s: s.number((450, 300), 7)),
+    ("a cursor", lambda s: s.cursor((450, 300))),
+    ("a label", lambda s: s.label((300, 260), "the razor tool")),
+    ("a label with a leader",
+     lambda s: s.label((300, 260), "the razor tool", leader=(700, 500))),
+    ("a spotlight too",
+     lambda s: (s.rings((450, 300)), s.spotlight([(380, 230, 520, 370)]))),
+]
+
+WIDE, TALL = 900, 600
+
+
+def rendered_both_ways(build, origin=(0, 0)):
+    """(the full-canvas picture, the cropped one, the crop that was used).
+
+    Built from two separate sketches with the seeds copied across: the
+    hand-drawn wobble is per mark, so two sketches built the same way would
+    otherwise differ in every pixel of every stroke.
+    """
+    reference, fast = Sketch(), Sketch()
+    build(reference)
+    build(fast)
+    for one, two in zip(reference.marks, fast.marks):
+        two.seed, two.born = one.seed, one.born
+
+    real = Sketch.patch
+    try:
+        Sketch.patch = lambda self, w, h, o=(0, 0): None
+        whole = reference.render(WIDE, TALL, origin)
+    finally:
+        Sketch.patch = real
+    patch, at = fast.render_patch(WIDE, TALL, origin)
+    return whole, patch, at
+
+
+@pytest.mark.parametrize("name, build", EVERY_KIND,
+                         ids=[name for name, _ in EVERY_KIND])
+def test_no_mark_is_clipped_by_the_crop(name, build):
+    """The exact check, and the one that matters. If the full picture has any
+    ink outside the crop, the crop was too small and a mark loses a piece.
+    """
+    whole, patch, at = rendered_both_ways(build)
+    if patch.size == (WIDE, TALL):
+        return                      # nothing was cropped; nothing to clip
+    box = (at[0], at[1], at[0] + patch.size[0], at[1] + patch.size[1])
+    alpha = whole.split()[3].copy()
+    alpha.paste(0, box)             # blank the crop; whatever is left is ink
+    assert not any(alpha.getdata()), f"{name}: ink outside the crop"
+
+
+@pytest.mark.parametrize("name, build", EVERY_KIND,
+                         ids=[name for name, _ in EVERY_KIND])
+def test_the_cropped_picture_is_the_same_picture(name, build):
+    """Gated on the COUNT of differing pixels, not on the worst one.
+
+    The two cannot be bit-identical and that is not a bug: `rings` and
+    `circle` build their outline as `placed_centre + radius * cos(angle)`, so
+    the addition happens at a different magnitude in a crop than on the full
+    canvas and a double rounds differently in the last place. A handful of
+    anti-aliased edge pixels move. Clipping removes whole arcs, and the check
+    above catches that exactly.
+    """
+    from PIL import ImageChops
+
+    whole, patch, at = rendered_both_ways(build)
+    canvas = whole.copy()
+    canvas.paste(0, (0, 0, WIDE, TALL))
+    if patch.size == (WIDE, TALL):
+        canvas = patch
+    else:
+        canvas.paste(patch, at)
+    moved = sum(1 for value in ImageChops.difference(
+        whole.split()[3], canvas.split()[3]).getdata() if value > 8)
+    assert moved <= WIDE * TALL // 10000, f"{name}: {moved} pixels differ"
+
+
+def test_the_crop_is_a_small_part_of_a_big_screen():
+    """The point of all this. A ring is a hundred pixels on a four million
+    pixel layer, and the old path filtered all four million.
+    """
+    sketch = Sketch()
+    sketch.rings((1200, 800))
+    box = sketch.patch(2560, 1600)
+    assert box is not None
+    width, height = box[2] - box[0], box[3] - box[1]
+    assert width * height < 2560 * 1600 // 100
+
+
+def test_a_spotlight_is_the_one_mark_that_really_is_screen_sized():
+    """It dims everything OUTSIDE itself, so no crop contains what it paints
+    and the returned picture is the whole layer.
+
+    The ring on top of it still only needs its own hundred pixels, which is
+    why `patch` is about the MARKS and the spotlight is handled separately -
+    985ms to 163ms. The first version conflated the two and returned a crop
+    that a screen-sized shadow was then composited onto: two images of
+    different sizes, which PIL refuses outright and which would have been a
+    misplaced shadow if it had not.
+    """
+    sketch = Sketch()
+    sketch.rings((450, 300))
+    sketch.spotlight([(380, 230, 520, 370)])
+    marks_box = sketch.patch(WIDE, TALL)
+    assert marks_box is not None, "the ring is still only a ring"
+    assert (marks_box[2] - marks_box[0]) < WIDE // 2
+    patch, at = sketch.render_patch(WIDE, TALL)
+    assert patch.size == (WIDE, TALL) and at == (0, 0)
+
+
+def test_marks_on_another_monitor_cost_nothing_to_not_draw():
+    """Every mark on a display this overlay does not cover. The picture is
+    blank either way, so there is no reason to allocate and premultiply four
+    million pixels of nothing.
+    """
+    sketch = Sketch()
+    sketch.rings((-450, 300))
+    assert sketch.patch(WIDE, TALL) == (0, 0, 0, 0)
+    patch, at = sketch.render_patch(WIDE, TALL)
+    assert patch.size == (1, 1) and at == (0, 0)
+    # And `render` still produces the full blank layer it always did.
+    assert all(pixel[3] == 0
+               for pixel in sketch.render(WIDE, TALL).getdata())
+
+
+def test_a_label_is_measured_with_the_real_font():
+    """Text is the one mark whose size is not in its own coordinates.
+    Guessing from the character count is how a long label gets its tail cut.
+    """
+    short, long = Sketch(), Sketch()
+    short.label((300, 260), "x")
+    long.label((300, 260), "the razor tool, over on the left somewhere")
+    narrow = short.patch(WIDE, TALL)
+    wide = long.patch(WIDE, TALL)
+    assert wide[2] - wide[0] > narrow[2] - narrow[0]
+
+
+# --- the window buffer, kept between frames ---------------------------------
+#
+# UpdateLayeredWindow wants the whole buffer every time, so there is no
+# partial blit - but there is no need to BUILD the whole thing either.
+# Premultiplying 2560x1600 is eight passes over four million pixels, 51ms, to
+# produce a layer that is transparent everywhere except a ring. So the buffer
+# is written once and then only where the ink is.
+#
+# The failure to fear is a GHOST: the previous frame's ink left behind when a
+# mark moves.
+
+
+def bare_board(width=400, height=300):
+    """A Board with no window, so this runs without a desktop."""
+    from meow.desktop.annotate import Board
+
+    class Monitor:
+        left, top = 0, 0
+
+    Monitor.width, Monitor.height = width, height
+
+    board = Board.__new__(Board)
+    board.monitor = Monitor()
+    board.origin = (0, 0)
+    board.sketch = Sketch()
+    board._buffer = None
+    board._inked = None
+    return board
+
+
+def spliced_matches_whole(board):
+    from meow.cat.sprite import rgba_to_premultiplied_bgra
+
+    image, at = board.sketch.render_patch(
+        board.monitor.width, board.monitor.height, board.origin)
+    spliced = board._buffered(image, at)
+    whole = rgba_to_premultiplied_bgra(
+        board.sketch.render(board.monitor.width, board.monitor.height,
+                            board.origin))
+    return bytes(spliced) == bytes(whole)
+
+
+def test_the_spliced_buffer_is_the_whole_layer_premultiplied():
+    board = bare_board()
+    board.sketch.rings((200, 150))
+    assert spliced_matches_whole(board)
+
+
+def test_a_mark_that_MOVES_leaves_no_ghost():
+    """The one failure this design can have. The previous ink has to be
+    erased, and only where it was.
+    """
+    board = bare_board()
+    board.sketch.rings((200, 150))
+    assert spliced_matches_whole(board)
+    board.sketch.clear()
+    board.sketch.rings((80, 60))
+    assert spliced_matches_whole(board), "the old ring is still in the buffer"
+
+
+def test_coming_back_from_a_full_layer_frame_clears_all_of_it():
+    """A spotlight inks the entire buffer. The small mark after it has to
+    clear every row, not just its own.
+    """
+    board = bare_board()
+    board.sketch.rings((200, 150))
+    board.sketch.spotlight([(180, 130, 220, 170)])
+    assert spliced_matches_whole(board)
+    board.sketch.clear()
+    board.sketch.rings((60, 60))
+    assert spliced_matches_whole(board)
+
+
+def test_a_frame_with_everything_on_another_monitor_clears_the_buffer():
+    board = bare_board()
+    board.sketch.rings((200, 150))
+    assert spliced_matches_whole(board)
+    board.sketch.clear()
+    board.sketch.rings((-200, 150))
+    assert spliced_matches_whole(board)
+    assert not any(board._buffer), "nothing should be left drawn"

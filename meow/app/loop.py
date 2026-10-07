@@ -403,14 +403,18 @@ def main() -> None:
                     say=lambda sentence: replies.put(("say", sentence)))
     panic.on_panic("marking", pencil.cancel)
 
-    def start_teaching(steps) -> bool:
+    def start_teaching(steps, stages=None) -> bool:
         """Hand a procedure to the walkthrough and say the first step.
 
         Said from HERE rather than returned to the model, so the model
         cannot paraphrase it back into a recitation - the point of the tool
         is that the other steps are not said yet.
+
+        `stages` names the part of the job each step belongs to, for a lesson
+        long enough to have parts. Passed straight through: the walkthrough
+        drops them if they do not line up with the steps.
         """
-        if not guide.teach(steps, harness.transcript):
+        if not guide.teach(steps, harness.transcript, stages=stages):
             return False
         # From here the turns carry a picture: the whole point of a lesson is
         # watching what they do with it.

@@ -183,8 +183,29 @@ def harness_watching(monkeypatch, frames):
     harness.budget = Budget()
 
     class Shot:
+        """A screen whose PICTURE differs exactly when its token differs.
+
+        Change is decided on the image rather than on the encoded bytes -
+        the harness compares screens the way the answer path does, with a
+        perceptual fingerprint, because an exact hash of the JPEG called an
+        idle screen "changed" on four of five captures.
+
+        So the picture has to be real, and it has to have STRUCTURE: the
+        fingerprint thresholds a 16x16 thumbnail at its own mean, and every
+        flat colour thresholds to the same all-zero bits. Seeded noise from
+        the token gives two different tokens fingerprints about half the
+        bits apart, and the same token the same one twice.
+        """
+
         def __init__(self, data):
             self._data = data
+            import random
+
+            from PIL import Image
+
+            noise = random.Random(data)
+            self.image = Image.new("L", (64, 64))
+            self.image.putdata([noise.randrange(256) for _ in range(64 * 64)])
 
         def to_jpeg(self, quality=None):
             return self._data
@@ -413,3 +434,118 @@ def test_a_window_the_tree_CAN_see_does_not_get_one(monkeypatch):
     message = harness._with_the_screen("click save")
     assert isinstance(message.content, str)
     assert harness.budget.images_sent == 0
+
+
+# --- remembering what was DONE, not only what was said -----------------------
+#
+# A follow-up is usually three words and refers to an action: "do it again",
+# "now the other one", "undo that". None of those can be resolved from a
+# transcript, because what the cat SAID about an action is prose for the ear -
+# "all done, that is typed in for you" names no tool and no target, and it is
+# the only trace the action left.
+
+
+def test_an_action_is_remembered_with_what_it_was_aimed_at():
+    from meow.agent.memory import Memory
+
+    memory = Memory()
+    memory.did("click_control", "Minimize", True)
+    last = memory.last_deed()
+    assert last.tool == "click_control"
+    assert last.target == "Minimize"
+    assert "Minimize" in memory.recall()
+    assert "actually DONE" in memory.recall()
+
+
+def test_a_short_follow_up_is_told_what_the_last_action_was():
+    """The router sees four lines of transcript and cannot tell "do it again"
+    from a question. One line about the last action settles it.
+    """
+    from meow.agent.memory import Memory
+
+    memory = Memory()
+    memory.said("user", "open notepad")
+    memory.said("meow", "all done, notepad is open")
+    memory.did("open_app", "notepad", True)
+    assert "Meow just did: open app: notepad" in memory.recent()
+
+
+def test_a_verdict_of_could_not_tell_is_carried_not_flattened():
+    """Clicking into a text box changes nothing observable, and a follow-up
+    to it is usually "did that work?" - which cannot be answered from a
+    boolean. The three-way verdict is the whole point of having three.
+    """
+    from meow.agent.memory import Memory
+
+    memory = Memory()
+    memory.did("type_text", "hello", None)
+    assert "could not tell" in memory.recall()
+
+    memory.did("press_keys", "ctrl+s", False)
+    assert "did NOT take effect" in memory.recall()
+
+
+def test_reading_tools_are_not_remembered_as_deeds():
+    """A turn that looked at the screen and then answered is fully described
+    by what was said. Recording "looked at the screen" six times pushes out
+    the one line naming the button that was pressed.
+    """
+    from meow.agent.memory import Memory
+
+    memory = Memory()
+    memory.did("look_at_screen", "the timeline", True)
+    memory.did("read_mail", "from:arun", True)
+    assert memory.deeds() == []
+    assert "actually DONE" not in memory.recall()
+
+
+def test_the_same_action_repeated_leaves_ONE_line():
+    """A plan that presses ctrl+s four times must not fill all six slots with
+    one keystroke and push out what the keystroke was done to.
+    """
+    from meow.agent.memory import Memory
+
+    memory = Memory()
+    memory.did("open_app", "notepad", True)
+    for _ in range(4):
+        memory.did("press_keys", "ctrl+s", True)
+    assert len(memory.deeds()) == 2
+    assert memory.deeds()[0].tool == "open_app"
+
+
+def test_only_the_last_few_actions_are_kept():
+    from meow.agent.memory import MAX_DEEDS, Memory
+
+    memory = Memory()
+    for number in range(MAX_DEEDS + 4):
+        memory.did("click_control", f"button {number}", True)
+    assert len(memory.deeds()) == MAX_DEEDS
+    assert memory.deeds()[-1].target.endswith(str(MAX_DEEDS + 3))
+
+
+def test_a_turn_pushes_its_tool_runs_into_the_shared_memory():
+    """`harness.runs` is cleared at the start of every turn, so without this
+    the record of what was done lives exactly as long as the turn that did
+    it - and the next sentence is a three word follow-up to it.
+    """
+    from meow.agent.harness import Harness
+    from meow.agent.memory import Memory
+    from meow.desktop.actions import Outcome
+    from meow.tools.record import ToolRun
+
+    harness = Harness.__new__(Harness)
+    harness.memory = Memory()
+    harness.runs = [
+        ToolRun("click_control", "Save", Outcome(True, "clicked"),
+                verified=True),
+        ToolRun("type_text", "hello", Outcome(True, "typed"), verified=None),
+        ToolRun("press_keys", "ctrl+z", Outcome(False, "refused")),
+    ]
+    harness._remember_what_was_done()
+
+    done = harness.memory.deeds()
+    assert [deed.tool for deed in done] == [
+        "click_control", "type_text", "press_keys"]
+    assert done[0].worked is True
+    assert done[1].worked is None, "unverifiable must not read as successful"
+    assert done[2].worked is False, "a failure is what 'try again' refers to"

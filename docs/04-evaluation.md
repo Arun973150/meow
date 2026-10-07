@@ -156,7 +156,116 @@ it did not produce. An OS-drawn rectangle is an independent label for a vision
 system in a way it is not for the tree that emitted it.
 
 A stronger design would label a held-out set by hand and score both strategies
-against it. That is the obvious next experiment and it is not done here.
+against it. **That experiment has since been run — see below.**
+
+---
+
+## The held-out set: 44 targets, described and marked by hand
+
+`meow label` records a target when a person points at something on their own
+screen, presses F8, and types what they would **call** it — "the button that
+closes this window", not "Close". Two things then hold that did not above: the
+words are the user's rather than the digest's, and the point is where a human
+said it was rather than where the tree said. The screenshot and the digest are
+saved with each label, so the set replays offline as often as you like.
+
+`meow evaluate --labelled`
+
+| | computer-use | UIA |
+|---|---|---|
+| Chrome (a chess board) | 13/17 | 0/17 |
+| Photoshop | 6/10 | 3/10 |
+| DaVinci Resolve | 2/3 | 0/3 |
+| Premiere Pro | 1/6 | 0/6 |
+| Illustrator | 1/8 | 0/8 |
+| **all** | **23/44** | **3/44** |
+
+The tautology is gone and the answer inverts. **Only 5 of the 44 were in the
+UIA digest at all — and UIA still answered 18 times**, matching descriptions
+onto unrelated controls up to 1,288 px away.
+
+That is the finding, and it is sharper than "the tree wins". On a canvas the
+tree does not fail to answer; it answers **wrongly and fast**, which is the
+worse failure, because nothing in the reply suggests a guess. So the two cases
+have to be told apart before either is trusted — `uia.only_chrome` is what
+does it, and `lookup.already_on_screen` is the strict tier that keeps word
+overlap away from a canvas.
+
+**`computer-use` is not the same baseline as `vision`.** Declaring OpenAI's
+`computer` tool activates coordinate-specific training; asking a
+conversational model for a `[POINT:x,y]` tag does not. So the 0/30 above should
+be read narrowly — "gpt-4o-mini emitting a text tag cannot point" — which is
+true, rather than "vision cannot point", which is not. Say that in the writeup
+rather than letting a reviewer say it.
+
+### Three improvements that did not work
+
+All measured against the same 44, which is the only reason they are worth
+recording:
+
+```
+crop and zoom the guess          23/44 -> 23/44     at double the latency
+name the application in front    23/44 -> 23/44     identical per-app
+hand it the screenshot up front     no change       it takes its own anyway
+```
+
+Zooming is the *published* training-free method here, reported elsewhere at
++13.4% on ScreenSpot-Pro. It was built with an agreement gate — a second look
+is believed when it SHARPENS and distrusted when it DISAGREES, since without
+the gate it was worse than net zero in both directions — and verified on the 20
+targets it was not tuned against. It reproduced as nothing.
+
+The useful part is negative: **Illustrator, the worst application in the set,
+did not move for any of the three**, and six of its eight failures are the
+model *declining* rather than missing. So "it cannot see Illustrator's panels"
+is the finding, and resolution, prompt wording and application context are all
+answers to a different question. That rules out a family of ideas cheaply.
+
+### One that did: it does not miss, it misses confidently
+
+The failure mode matters more than the rate. One look answers 36 of 44 and is
+right 25 — so eleven marks a session land on something the user never asked
+about. And the model is not stable: two runs of the same 44 flipped their
+verdict on **six**, with one target 6 px out on one run and 545 px out on the
+next. That instability is a usable signal.
+
+Two looks at the same screenshot, in parallel, answering only where they agree.
+Scored twice, because one pass is a sample rather than a property:
+
+```
+                        marks drawn      right        WRONG
+one look                  36 / 37       25 / 21      11 / 16
+two looks, must agree     29 / 29       24 / 21       5 /  8
+```
+
+The absolute hit rate wanders by four between runs; the shape reproduces
+exactly. Both times it drew eight fewer marks and lost at most one correct one,
+so what it declines is almost entirely what it was getting wrong. Precision
+69% → 83% on one run, 57% → 72% on the other. Three were rescued, which was not
+the aim: the midpoint of two agreeing looks beats either.
+
+**The threshold is 8 px, not the zoom gate's 64.** Those compare different
+things — the refinement weighs a whole-screen guess against a point derived
+from an enlarged crop, so "better located" has to be allowed for, while two
+looks see the identical picture at the identical size. When either look was
+right the two landed 0–6 px apart in 24 of 26 cases:
+
+```
+8px     draws 29, 24 right,  5 wrong      <- the same hits, two fewer misses
+64px    draws 31, 24 right,  7 wrong
+128px   draws 34, 25 right,  9 wrong
+```
+
+**It costs no wall clock.** The two calls do not depend on each other, so they
+go out together: 7.2 s median for the pair against 7.8 s for one, and 7,342 ms
+against 6,939 ms through `meow evaluate`. It costs tokens, not seconds.
+
+Two reporting traps worth naming before a reader hits them. The **median miss
+goes up**, 113 px to 151 px, because the gate removes marks and the statistic
+is then over a smaller, harder set — read `answered` alongside `hits`. And a
+disagreement is **not** "it is not on your screen": the thing is there and only
+which one is missing, so it is reported as uncertainty with a request to circle
+it, which is the one signal measured to change this problem at all.
 
 ### Task suite
 

@@ -151,6 +151,7 @@ So: answer the HOW from what you know, and get the WHERE from the screen. Never 
 - For a setting that is somewhere else entirely, call find_how_to and read out the route.
 - Only once show_on_screen has ALSO failed is it fair to say it is not on this screen.
 - A tool that comes back empty means the tool could not find it, NOT that you have nothing to say. Give them the steps you know and tell them you could not mark it on screen. "I can't find instructions for that" is almost never true and is the worst possible answer: you were asked to teach, the knowledge is yours, and only the pointing failed.
+- There are TWO ways the marking tools come back empty and they must not be said the same way. "Could not find it" means nothing matched - say so. "Looked twice and got two different places" means it IS there and only WHICH one is missing: say you are not certain rather than marking a guess, and ask them to hold ctrl shift m and circle roughly where it is. Then ask again - it gets found inside their circle. Read the tool's own words; it tells you which happened.
 - If the question is about what is ON the screen - a chess position, a diagram, a game, a photo, a video timeline - call look_at_screen FIRST. The control list describes the WINDOW, not the page inside it: on a chess site it lists the browser's tabs and buttons and nothing about the board. Never say you cannot see their screen; look.
 
 Change nothing. Every tool that would is refused on this turn anyway."""
@@ -466,7 +467,20 @@ class Harness:
         # time and somebody watching, not three read at once.
         self.last_directions = None
         self._board = None
+        # Built on first use and kept for the session, which is what makes
+        # its cache of answers worth anything: being asked where the same
+        # thing is twice on one screen is "say that again" and every re-point
+        # of a walkthrough step, not an edge case.
         self._seeing = None
+        # What grounding looked for and was not sure about. See
+        # `could_not_find`: not found and found twice in two places are
+        # different answers and must not be said the same way.
+        #
+        # A SET rather than one name, because `locate_several` asks about
+        # three things at once on three threads - one slot would hold
+        # whichever finished last, and the tool would report the wrong one
+        # as uncertain.
+        self.unsure_about: set = set()
         self.tracing = enable_tracing()
 
         # Tools close over `self` so they can reach the digest and record runs.
@@ -794,8 +808,8 @@ class Harness:
     def _screen_now(self):
         """(base64 jpeg, changed since last time), or (None, False)."""
         import base64
-        import hashlib
 
+        from ..desktop.vision import changed_since
         from ..platform.capture import capture_screens
 
         try:
@@ -810,12 +824,14 @@ class Harness:
         except Exception:  # noqa: BLE001
             return None, False
 
-        # The bytes themselves, not a perceptual hash. A cursor blinking in a
-        # text field changes them, which is a false positive and cheap; the
-        # failure that matters is missing a REAL change, and an exact hash
-        # cannot.
-        fingerprint = hashlib.sha1(data).hexdigest()
-        changed = fingerprint != self._last_screen
+        # The same comparison the answer path makes, from the same function.
+        # This was the SHA1 of the JPEG bytes, on the reasoning that an exact
+        # hash cannot miss a real change - true, and it reported a change on
+        # four of five captures of an IDLE screen. The message attached to a
+        # changed picture says "they have done something, look at what", so
+        # every turn of a lesson told the model the user had acted while they
+        # sat still. See `vision.changed_since`.
+        changed, fingerprint = changed_since(self._last_screen, shots[0].image)
         self._last_screen = fingerprint
         if self.budget is not None:
             if changed:
@@ -887,6 +903,59 @@ class Harness:
         BE a control's name or begin it. Anything looser goes to sight, which
         scored 76% on exactly this board.
         """
+        target, unsure = self._looked(description)
+        self._record_doubt(description, unsure)
+        return target
+
+    def locate_several(self, descriptions):
+        """Find several things at once. Returns them in the order asked.
+
+        Each one is an independent question about the same screen, and each
+        costs two model round trips and about eight seconds - so four things
+        asked one after another is half a minute of somebody waiting while
+        nothing appears on screen. They do not depend on each other, so they
+        go out together and the wall clock is the slowest rather than the sum.
+
+        The order of the results is the order of the request, which matters
+        more here than usual: `number_the_steps` draws the badges 1, 2, 3 and
+        a reordered answer teaches the sequence wrong.
+        """
+        wanted = list(descriptions)
+        if len(wanted) < 2:
+            return [self.locate_anything(thing) for thing in wanted]
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=len(wanted)) as pool:
+            # `map` keeps the input order, which `as_completed` would not.
+            looked = list(pool.map(self._looked, wanted))
+
+        # Recorded AFTER the join, on this thread. Nothing about one answer
+        # is written anywhere the other threads could see it.
+        for description, (_target, unsure) in zip(wanted, looked):
+            self._record_doubt(description, unsure)
+        return [target for target, _unsure in looked]
+
+    def _record_doubt(self, description: str, unsure: bool) -> None:
+        """Two looks landing apart is NOT "it is not there".
+
+        The difference is the whole reason for looking twice, and the tools
+        have to be able to say which happened - see `could_not_find`.
+        """
+        if unsure:
+            self.unsure_about.add(description)
+        else:
+            self.unsure_about.discard(description)
+
+    def _looked(self, description: str):
+        """(target or None, whether the two looks disagreed).
+
+        The real implementation, and it reports through a RETURN rather than
+        through attributes, because `locate_several` runs four of these at
+        once: the grounding object's `disagreed` and `last_error` describe
+        one answer, and four concurrent calls would each read whichever
+        finished last.
+        """
         from ..desktop import lookup
 
         region = self.user_region
@@ -900,13 +969,51 @@ class Harness:
                 # reliable of the two signals, because a person drew it.
                 if region is None or region.contains(
                         Target.from_element(element).centre):
-                    return Target.from_element(element)
+                    return Target.from_element(element), False
 
+        found = self._eyes().look(description, within=region)
+        return found.target, (found.target is None and found.disagreed)
+
+    def _eyes(self):
+        """The grounding model, built once and kept for the session.
+
+        Kept rather than rebuilt per turn because it remembers its answers:
+        being asked where the same thing is twice on one screen is "say that
+        again" and every re-point of a walkthrough step, and a fresh instance
+        would never hit.
+        """
         if getattr(self, "_seeing", None) is None:
             from ..desktop.computeruse import ComputerUseGrounding
 
             self._seeing = ComputerUseGrounding(on_step=self.note)
-        return self._seeing.locate(description, within=region)
+        return self._seeing
+
+    def could_not_find(self, description: str) -> str:
+        """What to tell the model when grounding came back with nothing.
+
+        Two different failures wearing the same empty result, and saying the
+        wrong one is how a cat insists something is absent from a screen that
+        is showing it.
+
+        NOT THERE is the easy one: nothing matched, say so.
+
+        NOT SURE is a screen where two independent looks found the thing in
+        two different places. It IS there; what is missing is which one. The
+        useful answer is the one thing measured to change this problem - a
+        region the user drew round it themselves, which collapses the search
+        from a whole professional interface to one box.
+        """
+        if description in self.unsure_about:
+            return (f"I can see {description!r} is probably on this screen "
+                    f"but I looked twice and got two different places, so I "
+                    f"am NOT drawing a mark on a guess. Tell them that "
+                    f"plainly, and ask them to hold ctrl shift m and circle "
+                    f"roughly where it is - then ask again and it will be "
+                    f"found inside their circle. Do not describe where you "
+                    f"think it is.")
+        return (f"I could not find {description!r} on this screen. Say "
+                f"roughly where it is and I will look again - do not "
+                f"guess at a place for them.")
 
     def record_verdict(self, verdict) -> None:
         """Hang a verifier's verdict on the run that was just recorded.
@@ -1026,6 +1133,7 @@ class Harness:
         self.last_error = None
         self.last_directions = None
         self.runs.clear()
+        self.unsure_about.clear()
         self.transcript = transcript
         # Handed in when the caller started reading the screen while routing
         # was still going. Read here only when nobody did.
@@ -1089,7 +1197,13 @@ class Harness:
         messages.append(SystemMessage(STYLE_REMINDER, additional_kwargs=tag))
 
         try:
-            yield from self._drain({"messages": messages}, config)
+            try:
+                yield from self._drain({"messages": messages}, config)
+            finally:
+                # Whatever happened, what was DONE is recorded. In a finally
+                # because a turn that fails halfway has still pressed things,
+                # and the next sentence is usually about exactly that.
+                self._remember_what_was_done()
         except Exception as error:  # noqa: BLE001 - reported, never fatal
             if self._thread_is_poisoned(error):
                 # Start a clean thread and run this turn again. The history
@@ -1105,6 +1219,24 @@ class Harness:
                 except Exception as again:  # noqa: BLE001
                     error = again
             self.last_error = f"{type(error).__name__}: {error}"
+
+    def _remember_what_was_done(self) -> None:
+        """Push this turn's tool runs into the shared memory.
+
+        `self.runs` is cleared at the start of every turn, so without this the
+        record of what was done on the machine lives exactly as long as the
+        turn that did it - and the next sentence is a three word follow-up to
+        it. See `Memory.did` for why the transcript cannot stand in: the
+        sentence that reported an action is prose for the ear and names no
+        tool and no target.
+        """
+        for run in self.runs:
+            # A failure is recorded too, because "try that again" is a
+            # follow-up to exactly that - and `verified` carries the
+            # three-way verdict for the ones that did run, so an
+            # unverifiable action is not remembered as a successful one.
+            worked = run.verified if run.outcome.ok else False
+            self.memory.did(run.tool, run.argument, worked)
 
     @staticmethod
     def _thread_is_poisoned(error) -> bool:

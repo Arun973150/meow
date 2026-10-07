@@ -86,9 +86,19 @@ def main(argv: list[str] | None = None) -> None:
                 print("  No hand-labelled targets yet. Run:  meow label")
                 print()
                 raise SystemExit(1)
+            # The default pair is the published comparison. Naming
+            # strategies scores others against the same targets in one run,
+            # which is the only way a change to grounding is measured rather
+            # than remembered: `meow evaluate --labelled computer-use
+            # computer-use+agree`.
+            chosen = tuple(name for name in arguments
+                           if name in held_out.STRATEGIES)
             print()
-            print(f"  replaying {len(labels)} hand-labelled targets...")
-            print(held_out.run(labels).summary())
+            print(f"  replaying {len(labels)} hand-labelled targets"
+                  f"{' (' + ', '.join(chosen) + ')' if chosen else ''}...")
+            report = (held_out.run(labels, chosen) if chosen
+                      else held_out.run(labels))
+            print(report.summary())
             print()
             return
 

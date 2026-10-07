@@ -166,6 +166,35 @@ def _difference(first: bytes, second: bytes) -> int:
     return sum(bin(a ^ b).count("1") for a, b in zip(first, second))
 
 
+# Out of 256 bits. Below this the screen is treated as unchanged; a cursor
+# blink and a clock tick land well under it.
+UNCHANGED_BITS = 8
+
+
+def changed_since(previous: bytes | None, image) -> tuple[bool, bytes]:
+    """(has this screen changed, its fingerprint). One answer, one place.
+
+    There were two of these and they disagreed, which is worse than either.
+    The answer path compared a perceptual hash with a tolerance; the harness
+    compared the SHA1 of the JPEG, exactly - and measured on an IDLE machine,
+    with nothing touched between captures, the exact one reported a change on
+    **four of five consecutive captures**.
+
+    That is not merely the cost of an image nobody needed. During a lesson the
+    sentence attached to the picture says the screen has changed "so they have
+    done something - look at what", so an exact hash told the model the user
+    had acted on every single turn while they sat still. A false positive here
+    does not waste tokens, it asserts something untrue about the person being
+    taught.
+
+    So: insensitive to a caret and a clock, sensitive to a window changing.
+    """
+    fingerprint = _fingerprint(image)
+    if previous is None:
+        return True, fingerprint
+    return _difference(previous, fingerprint) > UNCHANGED_BITS, fingerprint
+
+
 @dataclass
 class ScreenAttachment:
     """What to actually put in the request, and what it cost."""
@@ -181,9 +210,10 @@ class ScreenAttachment:
 class ScreenContext:
     """Decides what the model sees, and remembers what it has already seen."""
 
-    # Out of 256 bits. Below this the screen is treated as unchanged; a cursor
-    # blink and a clock tick land well under it.
-    UNCHANGED_THRESHOLD = 8
+    # The threshold used to live here, and it is deliberately NOT a class
+    # attribute any more: the harness compares screens too, and a knob on one
+    # of the two callers is exactly how the two copies came to disagree.
+    # It is `UNCHANGED_BITS`, in one place, for both.
 
     def __init__(self) -> None:
         self._last_fingerprint: bytes | None = None
@@ -206,14 +236,9 @@ class ScreenContext:
         if need is ScreenNeed.NONE or shot is None:
             return ScreenAttachment(need=ScreenNeed.NONE)
 
-        fingerprint = _fingerprint(shot.image)
-        unchanged = (
-            self._last_fingerprint is not None
-            and _difference(self._last_fingerprint, fingerprint)
-            <= self.UNCHANGED_THRESHOLD
-        )
-
-        if unchanged and need is ScreenNeed.LOW:
+        changed, fingerprint = changed_since(self._last_fingerprint,
+                                             shot.image)
+        if not changed and need is ScreenNeed.LOW:
             # Paying twice for identical pixels buys nothing - but only if the
             # previous image is still in context to look at. Mind keeps exactly
             # one and reuses it here. Dropping the image and describing it in

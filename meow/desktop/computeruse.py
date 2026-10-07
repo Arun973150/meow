@@ -36,8 +36,12 @@ from __future__ import annotations
 import base64
 import io
 import math
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
+
+from dataclasses import dataclass
 
 from ..config import openai_api_key
 from .grounding import Source, Target
@@ -135,6 +139,96 @@ REFINE = False
 # the threshold was not chosen on.
 AGREEMENT_PIXELS = 64
 
+# And a much tighter one for two looks at the SAME image, which is a different
+# question wearing the same word. Above, a whole-screen guess is compared with
+# a point derived from an enlarged crop - different scales, so the answer is
+# EXPECTED to move a little and "better located" has to be allowed for. Here
+# both looks are shown the identical picture at the identical size, so a
+# genuine agreement is not approximate, it is the same pixel.
+#
+# Measured, and it matters. Over the 44 hand-labelled targets, when either
+# look was right the two landed 0-6px apart in 24 of 26 cases. Sweeping it:
+#
+#     8px     draws 29 marks, 24 right,  5 wrong,  2 good points thrown away
+#     64px    draws 31 marks, 24 right,  7 wrong,  2 good points thrown away
+#     128px   draws 34 marks, 25 right,  9 wrong,  1 good point thrown away
+#
+# Eight is where it belongs: the same 24 right as sixty-four, with two fewer
+# wrong marks. Reusing 64 here looked tidy and was simply the wrong number for
+# the question - the two gates compare different things and have to differ.
+SAME_POINT_PIXELS = 8
+
+# Whether a plain `locate` takes TWO looks and only answers when they agree.
+# ON, and measured on the same 44 hand-labelled targets as everything else.
+#
+# The failure here was never missing, it was missing CONFIDENTLY. One look
+# answers 36 times out of 44 and is right 25, so eleven marks a session are
+# drawn somewhere the user can see, on something they did not ask about, with
+# nothing in the reply to suggest a guess. This project own rule says that is
+# the worst outcome available: a miss is visible and recoverable, a wrong mark
+# is neither.
+#
+# The model own instability is the signal. Two separate runs of the 44 flipped
+# their verdict on SIX of them, and one target landed 6px out on one run and
+# 545px out on the next. Where two looks land on the same spot it knows; where
+# they land a screen apart it does not.
+#
+# Scored twice, because temperature=0 is not determinism here either:
+#
+#                             marks drawn      right        WRONG
+#     one look                  36 / 37       25 / 21      11 / 16
+#     two looks, must agree     29 / 29       24 / 21       5 /  8
+#
+# The absolute hit rate wanders by four between runs; the SHAPE reproduces
+# exactly. Both times it drew eight fewer marks and lost at most one correct
+# one, so what it declines is almost entirely what it was getting wrong.
+# Precision 69% to 83% on one run, 57% to 72% on the other. It also rescued
+# three, which was not the aim: the midpoint of two looks that agree is better
+# than either. What it declines gets "i am not sure, circle it for me", which
+# is the one signal measured to change this problem at all.
+#
+# **And it costs no time.** Asking twice normally doubles the latency, which
+# is the reason not to - it does not here, because neither call depends on the
+# other, so they go out together and the wall clock is the slower of the two
+# rather than the sum. Measured: 7.2s median for the pair against 7.8s for
+# one. It costs TOKENS, not seconds, which is the trade worth making for a
+# mark drawn on somebody work.
+LOOK_TWICE = True
+
+# How many answers are remembered, and the whole reason for remembering them.
+# Being asked where the same thing is twice on one screen is not an edge case
+# - it is "say that again", "i cannot find it", and every re-point of a
+# walkthrough step, and it cost a fresh eight seconds every time. Keyed on a
+# fingerprint of the screen, so a screen that has moved on simply misses.
+#
+# The fingerprint is the perceptual one the answer path uses, not an exact
+# hash: an exact hash reports a change on four of five captures of an idle
+# screen, which would make the cache never hit at all. See
+# `vision.changed_since`.
+REMEMBERED_POINTS = 32
+
+
+@dataclass
+class Looked:
+    """What one look found, carried rather than left on the object.
+
+    Several looks run at once - `number_the_steps` asks about four things on
+    one screen - and the outcome used to live in attributes reset at the top
+    of `locate`, so concurrent calls clobbered each other and the caller read
+    whichever happened to finish last. The attributes are still set for a
+    single call, because the evaluation and the tests read them, but nothing
+    concurrent may.
+    """
+
+    target: Target | None = None
+    # The two looks landed in different places. NOT a miss: the thing is
+    # there, and what is missing is which one. See `Harness.could_not_find`.
+    disagreed: bool = False
+    remembered: bool = False
+    error: str | None = None
+    passes: int = 0
+    rounds: int = 0
+
 
 class _Box:
     """A rectangle in screen coordinates, shaped like a drawn region.
@@ -154,7 +248,8 @@ class ComputerUseGrounding:
     """Ask a model where something is, and let it answer by clicking."""
 
     def __init__(self, model: str = MODEL, api_key: str | None = None,
-                 frozen=None, on_step=None) -> None:
+                 frozen=None, on_step=None,
+                 look_twice: bool | None = None) -> None:
         self._model = model
         # Said aloud between passes. A single pass is about eight seconds and
         # a refined one is twenty-five, and silence is the thing this project
@@ -164,12 +259,24 @@ class ComputerUseGrounding:
         # A fixed screenshot, for the evaluation. A live window moves between
         # strategies and the comparison stops being one.
         self._frozen = frozen
+        self._look_twice = LOOK_TWICE if look_twice is None else look_twice
+        # (screen fingerprint, description, region) -> the answer. A plain
+        # dict in insertion order, trimmed from the front - least recently
+        # ADDED rather than least recently used, which is the same thing when
+        # every entry is from the last few seconds of one screen.
+        self._remembered: dict = {}
+        # Two looks write the counters and the error. See `_counted`.
+        self._lock = threading.Lock()
         self.last_error: str | None = None
         self.rounds_used = 0
         # How many whole looks it took. One without refinement, two or three
         # with - worth separating from round trips, because the tool insists
         # on fetching its own screenshot, so each pass is two trips.
         self.passes = 0
+        # Set when the two looks landed in different places. The caller says
+        # it is not sure rather than drawing a mark, which is the point.
+        self.disagreed = False
+        self.remembered = False
 
     @property
     def name(self) -> str:
@@ -177,6 +284,22 @@ class ComputerUseGrounding:
 
     def locate(self, description: str, within=None,
                refine: bool | None = None) -> Target | None:
+        """Where is this on screen? For ONE question at a time.
+
+        Sets `passes`, `disagreed`, `remembered` and `last_error` on the
+        object, which the evaluation and the tests read. Use `look` for
+        anything concurrent - these attributes cannot describe four answers.
+        """
+        found = self.look(description, within, refine)
+        self.passes = found.passes
+        self.rounds_used = found.rounds
+        self.disagreed = found.disagreed
+        self.remembered = found.remembered
+        self.last_error = found.error
+        return found.target
+
+    def look(self, description: str, within=None,
+             refine: bool | None = None) -> Looked:
         """Where is this on screen? `within` narrows it to one region.
 
         A region is the single largest improvement available to this, and it
@@ -191,15 +314,154 @@ class ComputerUseGrounding:
         on and nobody drew anything - from the model's own first guess. See
         `_refined`.
         """
-        # Reset here rather than per pass, so a refined call reports the
-        # round trips it ACTUALLY cost - which is the number worth watching.
-        self.rounds_used = 0
-        self.passes = 0
-        if within is None and (REFINE if refine is None else refine):
-            return self._refined(description)
-        return self._one_pass(description, within)
+        # One `Looked` per call, so nothing about this answer is written
+        # anywhere another concurrent call can see it.
+        outcome = Looked()
 
-    def _refined(self, description: str) -> Target | None:
+        shot = self._frozen or (self._capture() or [None])[0]
+        if shot is None:
+            outcome.error = "no screenshot"
+            return outcome
+
+        key = self._key(shot, description, within)
+        if key is not None:
+            with self._lock:
+                answer = self._remembered.get(key)
+            if answer is not None:
+                # Asked the same thing about the same screen. Eight seconds
+                # and two model calls to re-derive an answer that cannot
+                # have changed, which is most of what "say that again" used
+                # to cost.
+                outcome.remembered = True
+                outcome.target = answer
+                return outcome
+
+        if within is None and (REFINE if refine is None else refine):
+            outcome.target = self._refined(description, shot, outcome)
+        elif self._look_twice:
+            outcome.target = self._agreed(description, shot, within, outcome)
+        else:
+            outcome.target = self._one_pass(description, shot, within, outcome)
+
+        if outcome.target is not None and key is not None:
+            # Under the lock: several of these run at once on several
+            # threads, and a length check followed by a pop and an insert is
+            # not one operation.
+            with self._lock:
+                while len(self._remembered) >= REMEMBERED_POINTS:
+                    self._remembered.pop(next(iter(self._remembered)))
+                self._remembered[key] = outcome.target
+        return outcome
+
+    # --- shared between the two looks ---------------------------------------
+    #
+    # Two passes run on two threads, so everything they both write to goes
+    # through here. `passes += 1` is a read, an add and a write, and two
+    # threads interleaving them lose a count - which would not break an
+    # answer but would make the latency report quietly wrong, and a
+    # measurement nobody can trust is the one thing this project cannot
+    # afford.
+
+    def _counted(self, outcome, passes: int = 0, rounds: int = 0) -> None:
+        with self._lock:
+            outcome.passes += passes
+            outcome.rounds += rounds
+
+    def _failed(self, outcome, why: str) -> None:
+        """Record why a look came back empty. The FIRST one wins.
+
+        First rather than last, because the two looks can fail differently -
+        one declining and one timing out - and the earlier failure describes
+        what happened rather than what happened next.
+        """
+        with self._lock:
+            if outcome.error is None:
+                outcome.error = why
+
+    def _key(self, shot, description: str, within):
+        """What identifies this question about this screen, or None.
+
+        None for a frozen shot: the evaluation replays one screenshot against
+        several strategies, and a cache would answer the second one out of
+        the first one pocket.
+        """
+        if self._frozen is not None:
+            return None
+        from .vision import changed_since
+
+        try:
+            _changed, fingerprint = changed_since(None, shot.image)
+        except Exception:  # noqa: BLE001 - no fingerprint, no cache
+            return None
+        region = None if within is None else (
+            within.left, within.top, within.right, within.bottom)
+        return (fingerprint, " ".join(description.lower().split()), region)
+
+    @staticmethod
+    def _capture():
+        from ..platform.capture import capture_screens
+
+        try:
+            return capture_screens()
+        except Exception:  # noqa: BLE001 - a blind turn is not a crash
+            return None
+
+    def _agreed(self, description: str, shot, within,
+                outcome) -> Target | None:
+        """Two looks at once, and an answer only where they land together.
+
+        Both calls go out together, so this is the latency of one look rather
+        than two - see LOOK_TWICE for the measurement and for what it buys.
+
+        A disagreement is not an error and not a miss: it is the model not
+        knowing, which it has no other way of saying. The caller says so out
+        loud rather than drawing a mark on a guess.
+        """
+        # DECODED HERE, on this thread, before either look touches it. PIL
+        # loads lazily, so two threads calling `convert` on a freshly opened
+        # image both drive the decoder and the second finds the file object
+        # already closed: "NoneType has no attribute read", raised from
+        # inside `_ask` with nothing in it about threads.
+        #
+        # A live capture is built in memory and already loaded, so this never
+        # bit the voice path - it bit `meow evaluate --labelled`, which opens
+        # saved screenshots, and it would bite anything handed an
+        # `Image.open`.
+        try:
+            shot.image.load()
+        except Exception:  # noqa: BLE001 - not every shot is a PIL image
+            pass
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            both = [pool.submit(self._one_pass, description, shot, within,
+                                outcome) for _ in range(2)]
+            first, second = (task.result() for task in both)
+
+        if first is None or second is None:
+            # One of them declined. A decline is a real answer - "it is not
+            # there" - and it is not evidence for the other one point.
+            if first is None and second is None:
+                return None
+            outcome.disagreed = True
+            self._failed(outcome, "one look found it and the other did not")
+            return None
+
+        apart = math.dist(first.centre, second.centre)
+        if apart > SAME_POINT_PIXELS:
+            outcome.disagreed = True
+            outcome.error = f"two looks landed {apart:.0f}px apart"
+            return None
+
+        # The midpoint. Two looks at the same icon landing a few pixels apart
+        # average to a better estimate than either, and the radius is the
+        # same POINT_RADIUS either way.
+        x = (first.centre[0] + second.centre[0]) // 2
+        y = (first.centre[1] + second.centre[1]) // 2
+        return Target(left=x - POINT_RADIUS, top=y - POINT_RADIUS,
+                      right=x + POINT_RADIUS, bottom=y + POINT_RADIUS,
+                      name=description, role="", source=Source.VISION)
+
+    def _refined(self, description: str, shot, outcome) -> Target | None:
         """Look once at the whole screen, then again at a crop of the guess.
 
         The first answer is treated as approximately right rather than right,
@@ -215,7 +477,7 @@ class ComputerUseGrounding:
         stands. Never worse than one pass, which is the property that makes
         this safe to turn on by default.
         """
-        first = self._one_pass(description)
+        first = self._one_pass(description, shot, outcome=outcome)
         if first is None:
             return None
 
@@ -226,7 +488,8 @@ class ComputerUseGrounding:
         for radius in (REFINE_RADIUS, RECOVER_RADIUS):
             box = _Box(centre[0] - radius, centre[1] - radius,
                        centre[0] + radius, centre[1] + radius)
-            closer = self._one_pass(description, within=box)
+            closer = self._one_pass(description, shot, within=box,
+                                    outcome=outcome)
             if closer is None:
                 continue
             moved = math.dist(closer.centre, centre)
@@ -238,19 +501,20 @@ class ComputerUseGrounding:
             # candidate, and the coarse pass had the whole screen to judge
             # by - so the coarse pass wins. This is the difference between
             # net zero and a real gain.
-            self.last_error = f"the second look disagreed by {moved:.0f}px"
+            outcome.error = f"the second look disagreed by {moved:.0f}px"
         return first
 
-    def _one_pass(self, description: str, within=None) -> Target | None:
-        from ..platform.capture import capture_screens
+    def _one_pass(self, description: str, shot, within=None,
+                  outcome=None) -> Target | None:
+        """One look at one screenshot.
 
-        self.last_error = None
-        self.passes += 1
-        shot = self._frozen or (capture_screens() or [None])[0]
-        if shot is None:
-            self.last_error = "no screenshot"
-            return None
-
+        The shot is handed IN rather than captured here, which matters for
+        more than tidiness: two looks that each captured their own would be
+        looking at two different moments, so an honest disagreement and the
+        user having moved something would be indistinguishable.
+        """
+        outcome = outcome if outcome is not None else Looked()
+        self._counted(outcome, passes=1)
         image = shot.image
         # Where the image sent to the model sits in the full screenshot, and
         # how much bigger it was made. Both are identity when nothing narrows
@@ -260,11 +524,12 @@ class ComputerUseGrounding:
         if within is not None:
             cropped = self._crop(shot, within)
             if cropped is None:
-                self.last_error = "the marked region is off screen"
+                self._failed(outcome, "the marked region is off screen")
                 return None
             image, offset, zoom = cropped
 
-        point = self._ask(image, description, narrowed=within is not None)
+        point = self._ask(image, description, narrowed=within is not None,
+                          outcome=outcome)
         if point is None:
             return None
 
@@ -315,8 +580,9 @@ class ComputerUseGrounding:
 
     # --- the loop -----------------------------------------------------------
 
-    def _ask(self, image, description: str,
-             narrowed: bool = False) -> tuple[int, int] | None:
+    def _ask(self, image, description: str, narrowed: bool = False,
+             outcome=None) -> tuple[int, int] | None:
+        outcome = outcome if outcome is not None else Looked()
         buffer = io.BytesIO()
         image.convert("RGB").save(buffer, format="PNG")
         encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
@@ -341,8 +607,8 @@ class ComputerUseGrounding:
         }]}]
 
         for _ in range(MAX_ROUNDS):
-            self.rounds_used += 1
-            reply = self._post({
+            self._counted(outcome, rounds=1)
+            reply = self._post(outcome, {
                 "model": self._model,
                 "tools": [{"type": "computer"}],
                 "input": messages,
@@ -356,7 +622,7 @@ class ComputerUseGrounding:
             if call is None:
                 # It answered in words, which is what it does when the thing
                 # is not there. A refusal is a real answer and is not an error.
-                self.last_error = "it did not find it"
+                self._failed(outcome, "it did not find it")
                 return None
 
             # `actions`, a LIST - not the singular `action` the older shape
@@ -376,10 +642,10 @@ class ComputerUseGrounding:
                            "image_url": f"data:image/png;base64,{encoded}"},
             }]
 
-        self.last_error = "never committed to a point"
+        self._failed(outcome, "never committed to a point")
         return None
 
-    def _post(self, body: dict) -> dict | None:
+    def _post(self, outcome, body: dict) -> dict | None:
         """One request. Never raises - a grounding miss is not a crash."""
         try:
             response = httpx.post(
@@ -388,9 +654,10 @@ class ComputerUseGrounding:
                          "Content-Type": "application/json"},
                 json=body, timeout=TIMEOUT_SECONDS)
         except Exception as error:  # noqa: BLE001
-            self.last_error = f"{type(error).__name__}: {error}"
+            self._failed(outcome, f"{type(error).__name__}: {error}")
             return None
         if response.status_code != 200:
-            self.last_error = f"HTTP {response.status_code}: {response.text[:160]}"
+            self._failed(
+                outcome, f"HTTP {response.status_code}: {response.text[:160]}")
             return None
         return response.json()

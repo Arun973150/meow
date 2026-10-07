@@ -170,6 +170,27 @@ against; it is one thread for the session now, trimmed to twelve messages.
 Actors retire when a task is **dismissed**, not when it finishes - what the
 task produced stays reachable, only its status line goes.
 
+⚠ **IT REMEMBERED WHAT WAS SAID AND NOT WHAT WAS DONE.** A follow-up is
+usually three words and refers to an ACTION: "do it again", "now the other
+one", "undo that", "the second one". None of those can be resolved from a
+transcript, because what the cat said about an action is prose written for the
+ear - *"all done, that is typed in for you"* names no tool and no target, and
+it was the only trace the action left. `harness.runs` is cleared at the start
+of every turn, so the record of what was done on the machine lived exactly as
+long as the turn that did it.
+
+So every tool run goes into the memory too - what it was, what it was aimed
+at, and the verifier's **three-way** verdict, because a follow-up to an
+unverifiable action is "did that work?" and a boolean cannot answer it. Six
+of them, read-only tools dropped (a turn that looked at the screen is already
+described by what was said), and the same action on the same target replaces
+rather than appends - a plan pressing ctrl+s four times must not fill all six
+slots with one keystroke and push out what the keystroke was done TO.
+
+The router gets one line of it. "Do it again" is shaped like a question and is
+an instruction, and the only thing that settles it is whether anything was
+done.
+
 **A window means "walk away", not "multi-step".** A plan the user is watching
 runs in the foreground with the thinking animation; only work they have left
 running gets its own window. Deciding on sentence length got this wrong - a
@@ -1013,6 +1034,26 @@ flat 2,833 tokens each would make teaching the most expensive thing here. The
 screen changes exactly when the user does the step, which is the only moment
 the image is worth anything; an unchanged one is reported in words.
 
+⚠ **THERE WERE TWO ANSWERS TO "HAS THE SCREEN CHANGED" AND THEY DISAGREED.**
+The answer path compared a perceptual fingerprint with a tolerance; the
+harness compared the SHA1 of the JPEG, exactly, on the reasoning that an exact
+hash cannot miss a real change. True, and measured on an IDLE machine with
+nothing touched between captures, **the exact one reported a change on four of
+five consecutive captures.**
+
+The cost was never the point. The message attached to a changed picture says
+the screen has changed "so they have done something - look at what", so an
+exact hash told the model the user had acted on every single turn while they
+sat still. A false positive here does not waste tokens, it asserts something
+untrue about the person being taught, which is the failure class this project
+cares about most.
+
+One function, `vision.changed_since`, for both callers - insensitive to a
+caret and a clock, sensitive to a window changing. And the threshold stopped
+being a class attribute on one of the two callers, because a knob on one side
+of a shared judgement is how the two copies came to disagree in the first
+place.
+
 ⚠ **`look_at_screen` is the SLOW way to see something already attached.**
 Measured on a plain VS Code window: `gpt-5-mini` **14,584ms**, `gpt-5.6-luna`
 10,071ms, `gpt-4o-mini` 5,947ms - and 4o-mini is the one the chess measurement
@@ -1100,6 +1141,44 @@ wrongly. Cut rather than refused - fourteen steps of real help beats none -
 and `truncated` makes the last step say "that is as far as the instructions i
 found go" instead of "you are there", which about step fifteen of twenty is a
 lie the user only discovers by not being there.
+
+⚠ **THAT BUDGET IS ABOUT MINED PAGES AND MUST NOT BE APPLIED TO A PROCEDURE
+THE MODEL WROTE.** Fifteen was chosen to catch a web page parsed wrongly.
+"Teach me how to design a full environment in blender" is genuinely thirty-odd
+steps and is not a parsing accident - cutting it at fifteen and then saying
+"that is as far as the instructions i found go" is untrue, because nothing
+truncated it except us. `MAX_DOING_STEPS` is 40; `MAX_STEPS` stays 15 for
+`from_directions`.
+
+**A LONG LESSON HAS PARTS, and that is the one-step-at-a-time argument one
+level up.** Without them the two available options are both bad: compress
+thirty steps into eight vague ones ("model the terrain"), which teaches nobody
+anything and is what the model does when a tool says "two to eight of them";
+or read a flat list of thirty, on which step nineteen tells somebody nothing
+about whether they are nearly done. `stage_of` names the part each step
+belongs to, one name per step, so each step arrives inside something with a
+name and an end:
+
+> *this is 3 parts. first, the ground. add a plane, tell me when you have.*
+> *... that is the ground done. now the light - add a sun lamp*
+
+And `where_we_are()` says "part 2 of 3, the light, 2 steps left in it", so the
+model can answer "how much more of this is there" - the question somebody
+halfway through a big job actually asks, and one a flat list cannot answer.
+
+⚠ **Stage names that do not line up with the steps are DROPPED, not trusted.**
+A lesson whose parts are off by one announces "that is the lighting done" in
+the middle of the terrain. A long flat lesson is worse than a staged one and
+far better than a mislabelled one - and the tool says so in its reply, because
+the model is the only thing that can fix it and would otherwise wonder why
+nothing was staged.
+
+⚠ **The boundary sentence is said at the boundary and nowhere else.** "That is
+the ground done, now the light" is what turns thirty steps into three jobs
+somebody can see the end of; said at every step it is the padding a
+walkthrough exists to remove. And the opening says the COUNT and the first
+part's name only - reading all five names out is the recitation problem again,
+one level up. They hear each part as they reach it.
 
 ⚠ **Names in a walkthrough are matched with `strict_match`.** The steps came
 off a web page. Under fuzzy matching everything exists, and a walkthrough that
@@ -1513,11 +1592,56 @@ asked for four control points produces nonsense.
 from start and end, or a bowed arrow points where a straight line would have
 gone.
 
-⚠ **A full-screen canvas at 2x supersample takes 34ms to render.** A
-time-based throttle does not help - one render exceeds the interval, so "is it
-due" is always true. It redraws only when the picture would actually DIFFER,
-with opacity quantised to 0.2 so a fade costs five redraws rather than sixty a
-second. Measured: 2ms/frame average with a live mark, 0ms when empty.
+⚠ **"A full-screen canvas takes 34ms" WAS WRONG BY AN ORDER OF MAGNITUDE,
+and the wrong number hid the bug for months.** Measured on the real overlay at
+1920x1200, a redraw with one ring on it cost **221ms** - and at 2560x1600,
+370ms. Breaking it down: allocating the 2x canvas 14ms, drawing the ring 23ms,
+**LANCZOS back down 266ms**, premultiplying for GDI 51ms.
+
+The downscale is the whole cost and it does not care how much was drawn: a
+5120x3200 resize filters nine million pixels whether the picture holds one ring
+or nine. So a 221ms stall froze the cat for thirteen frames every time a mark
+changed - which is exactly while somebody is watching it point at something.
+
+**Only the rectangle the marks occupy is rendered**, and `Board` keeps its
+pixel buffer between frames and rewrites only that rectangle. On the real
+overlay, including `UpdateLayeredWindow`:
+
+```
+one ring - pointing          221ms ->  15ms     14.6x
+a ring and a label           262ms ->  22ms     12.2x
+three numbered badges        530ms ->  37ms     14.2x
+the agent's drawn cursor     590ms ->  16ms     36.0x
+a ring plus a spotlight      526ms ->  96ms      5.5x
+an arrow across the screen   496ms -> 419ms      1.2x
+```
+
+The arrow is honest: its bounding box IS the screen, so there is nothing to
+crop. A spotlight genuinely covers the screen too, and still gains 5.5x
+because the ring ON it does not - `Sketch.patch` is about the MARKS and the
+shadow is composited separately.
+
+⚠ **`patch` must return None for a mark whose extent is not arithmetic, and
+the margin must cover everything drawn OUTSIDE a mark's own points.** An
+arrowhead reaches 3.5x the stroke thickness past the last point, the wobble
+3px sideways, and a label's size is in a font rather than in its coordinates -
+`_label_extent` measures it. A box that is too small CLIPS, and a ring with a
+piece missing reads as a rendering fault rather than as a wrong rectangle.
+`tests/test_annotate.py` checks every mark kind two ways: no ink outside the
+crop, exactly, and the same picture inside it.
+
+⚠ **The two renders cannot be bit-identical, and that is not a bug.** `rings`
+and `circle` build their outline as `placed_centre + radius * cos(angle)`, so
+the addition happens at a different magnitude in a crop than on the full
+canvas and a double rounds differently in the last place. A handful of
+anti-aliased edge pixels move. The clipping check is the exact one; the
+equivalence check is gated on how MANY pixels differ, since one edge pixel can
+legitimately flip a long way.
+
+⚠ **A time-based throttle does not help** - one render exceeds the interval,
+so "is it due" is always true. It redraws only when the picture would actually
+DIFFER, with opacity quantised to 0.2 so a fade costs five redraws rather than
+sixty a second.
 
 ⚠ **Labels used PIL's default BITMAP font**, drawn at 2x and shrunk, so
 they came out half-size and unreadable. They need a real outline font asked
@@ -1546,6 +1670,97 @@ controls up to 1,288px away. Blind and confident.
 **Teaching CONTENT works now; teaching dense professional UI does not.** Chess
 at 76% against Illustrator at 12% is the whole argument for doing C before D,
 and for the crop-and-zoom refinement before D at all.
+
+⚠ **THE PROBLEM IS NOT THE PROMPT AND NOT THE RESOLUTION. Three things have
+now been measured and none of them moved the number.**
+
+```
+crop and zoom the guess        23/44 -> 23/44     at double the latency
+name the application in front  23/44 -> 23/44     identical per-app breakdown
+hand it the screenshot up front   no change        it takes its own anyway
+```
+
+Illustrator did not move for any of them, and its 1/8 is mostly the model
+DECLINING - six of the eight. So "it cannot see Illustrator's panels" is the
+finding, and a sharper picture, a better prompt and a fuller description are
+all answers to a different question. Worth knowing before trying a fourth.
+
+⚠ **IT DOES NOT MISS, IT MISSES CONFIDENTLY - and that is fixable.** One look
+answers 36 of 44 and is right 25, so eleven marks a session land on something
+the user did not ask about. Two runs of the same 44 flipped their verdict on
+SIX, and one target landed 6px out on one run and 545px out on the next, so
+the model's own instability is a usable signal. **Two looks at the same
+screenshot, in parallel, answering only where they agree:**
+
+Scored twice, because `temperature=0` is not determinism here either and a
+single pass is a sample rather than a property:
+
+```
+                        marks drawn      right        WRONG
+one look                  36 / 37       25 / 21      11 / 16
+two looks, must agree     29 / 29       24 / 21       5 /  8
+```
+
+The absolute hit rate wanders by four between runs; the SHAPE reproduces
+exactly. Both times it drew eight fewer marks and lost at most one correct
+one, so what it declines to draw is almost entirely what it was getting wrong.
+Precision 69% to 83% on one run, 57% to 72% on the other.
+
+Three it rescued, which was not the aim: a target 543px out on one look, one
+15px out and one 102px out all became hits, because the midpoint of two looks
+that agree is better than either.
+
+**And it costs no wall clock** - the two calls do not depend on each other, so
+they go out together: 7.2s median for the pair against 7.8s for one, and 7,342
+against 6,939 through `meow evaluate`. It costs tokens, not seconds.
+
+⚠ **The median miss goes UP, and that is not a regression.** 113px to 151px,
+because the gate removes marks and the statistic is then over a smaller, harder
+set - the misses it cannot catch are precisely the ones where both looks
+agreed. Read `answered` alongside `hits` or this looks like a loss.
+
+⚠ **The agreement window is EIGHT pixels, not the refinement's sixty-four.**
+Those compare different things. The refinement weighs a whole-screen guess
+against a point derived from an enlarged crop - different scales, so "better
+located" has to be allowed for. Two looks see the identical picture at the
+identical size, so real agreement is the same pixel: when either look was
+right the two landed 0-6px apart in 24 of 26 cases. The sweep:
+
+```
+8px     draws 29, 24 right,  5 wrong      <- the same hits, two fewer misses
+64px    draws 31, 24 right,  7 wrong
+128px   draws 34, 25 right,  9 wrong
+```
+
+Reusing one constant for both looked tidy and was the wrong number.
+
+⚠ **A disagreement is NOT "it is not on your screen", and must not be said as
+one.** The thing is there; what is missing is which one. `Harness.could_not
+_find` says so and asks them to hold **Ctrl+Shift+M and circle it** - which
+is the one signal measured to change this problem, since a circle collapses a
+whole professional interface to one box.
+
+⚠ **Two looks on two threads need one lock and ONE screenshot.** `passes += 1`
+from two threads loses a count, which would not break an answer and would make
+the latency report quietly wrong. And both looks must be handed the SAME
+capture: two that each grabbed their own would be looking at two moments, so
+an honest disagreement and the user having moved something become
+indistinguishable.
+
+⚠ **PIL DECODES LAZILY, so hand the threads a LOADED image.** Two threads
+calling `convert` on a freshly opened file both drive the decoder and the
+second finds the file object gone: `'NoneType' object has no attribute
+'read'`, raised from inside `_ask` with nothing in it about threads. A live
+capture is built in memory and already loaded, so this never touched the voice
+path - it broke `meow evaluate --labelled`, which opens saved screenshots.
+
+**Being asked the same thing twice about the same screen is not an edge case.**
+"Say that again", "i cannot find it", and every re-point of a walkthrough step
+ask where the same thing is on a screen that has not moved, and each one cost
+a fresh eight seconds. `ComputerUseGrounding` remembers its answers, keyed on
+a fingerprint of the screen, so a screen that moved on simply misses. The
+instance is built once and kept for the session, which is what makes it worth
+anything - built per turn it would never hit.
 
 **Phase A: grounding for windows the tree cannot see.** Blender draws its
 whole interface in OpenGL. UIA returns FIVE elements - Minimize, Maximize,
@@ -1747,7 +1962,7 @@ meow connectors      which services are connected, and connect one
 meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               573 fast checks - no Windows, no keys, no network
+pytest               640 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

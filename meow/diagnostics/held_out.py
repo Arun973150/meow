@@ -269,7 +269,8 @@ class _SavedShot:
         self.monitor = self._Monitor(*(origin or (0, 0)))
 
 
-def _computer_use(label, place, refine: bool = False) -> Target | None:
+def _computer_use(label, place, refine: bool = False,
+                  look_twice: bool = False) -> Target | None:
     """Ground through the computer tool, from the saved picture.
 
     `refine` is the second condition: look once at the whole screen, then
@@ -277,6 +278,13 @@ def _computer_use(label, place, refine: bool = False) -> Target | None:
     separate strategy rather than a replacement so the two can be scored
     against the same targets in one run - a refinement measured against a
     remembered number is not measured.
+
+    `look_twice` is the third: two looks at the SAME screenshot, in parallel,
+    answering only where they agree. It is off for the plain `computer-use`
+    row on purpose, even though it is on in the product - otherwise the
+    number this file publishes stops meaning what every other mention of
+    "23/44" in this repository means, and the comparison with UIA quietly
+    changes condition. Ask for `computer-use+agree` to score it.
     """
     from PIL import Image
 
@@ -288,8 +296,16 @@ def _computer_use(label, place, refine: bool = False) -> Target | None:
         return None
     shot = _SavedShot(image, getattr(label, "scale", 1.0),
                       tuple(getattr(label, "origin", (0, 0))))
-    return ComputerUseGrounding(frozen=shot).locate(label.description,
-                                                   refine=refine)
+    return ComputerUseGrounding(frozen=shot,
+                                look_twice=look_twice).locate(
+        label.description, refine=refine)
+
+
+# Every condition this file can score. Named here so the CLI can offer them
+# without knowing how any of them works, and so a typo on the command line is
+# a strategy that does not run rather than one that silently scores zero.
+STRATEGIES = ("uia", "uia+model", "vision", "computer-use",
+              "computer-use+zoom", "computer-use+agree")
 
 
 def run(labels, strategies=("uia", "computer-use")) -> HeldOutReport:
@@ -329,6 +345,8 @@ def run(labels, strategies=("uia", "computer-use")) -> HeldOutReport:
                 target = _computer_use(label, place)
             elif name == "computer-use+zoom" and label.screenshot_file:
                 target = _computer_use(label, place, refine=True)
+            elif name == "computer-use+agree" and label.screenshot_file:
+                target = _computer_use(label, place, look_twice=True)
             milliseconds = (time.perf_counter() - started) * 1000
 
             point = tuple(label.point)

@@ -117,11 +117,12 @@ def build(harness) -> list:
 
         target = harness.locate_anything(description)
         if target is None:
-            harness.runs.append(ToolRun("show_on_screen", description,
-                                        Outcome(False, "could not find it")))
-            return (f"I could not find {description!r} on this screen. Say "
-                    f"roughly where it is and I will look again - do not "
-                    f"guess at a place for them.")
+            unsure = description in harness.unsure_about
+            harness.runs.append(ToolRun(
+                "show_on_screen", description,
+                Outcome(False, "two looks disagreed" if unsure
+                        else "could not find it")))
+            return harness.could_not_find(description)
 
         board = harness.board()
         if board is None:
@@ -183,16 +184,24 @@ def build(harness) -> list:
         belongs on a timeline.
         """
         harness.note("let me look at your screen.")
-        start = harness.locate_anything(from_description)
-        end = harness.locate_anything(to_description)
+        # Both at once. Two independent questions about the same screen, each
+        # about eight seconds, and asked one after the other the user waits
+        # sixteen while nothing happens.
+        start, end = harness.locate_several(
+            [from_description, to_description])
         missing = [name for name, found in
                    ((from_description, start), (to_description, end))
                    if found is None]
         if missing:
             harness.runs.append(ToolRun("draw_a_move", from_description,
                                         Outcome(False, "could not find both")))
-            return (f"I could not find {' or '.join(repr(m) for m in missing)} "
-                    f"on this screen, so I have drawn nothing.")
+            # One of the two may have been found twice in two places rather
+            # than not found - said as such, because "it is not on your
+            # screen" about something they are looking at is the worst of
+            # the available answers.
+            return (f"I could not place {' or '.join(repr(m) for m in missing)} "
+                    f"on this screen, so I have drawn nothing. "
+                    + harness.could_not_find(missing[-1]))
 
         board = harness.board()
         if board is None:
@@ -242,8 +251,13 @@ def build(harness) -> list:
 
         found: list[str] = []
         missing: list[str] = []
-        for position, thing in enumerate(wanted, start=1):
-            target = harness.locate_anything(thing)
+        # All of them at once. Each is two model round trips and about eight
+        # seconds, so four asked in turn is half a minute of silence with
+        # nothing appearing on screen - and they are independent questions
+        # about one screenshot.
+        targets = harness.locate_several(wanted)
+        for position, (thing, target) in enumerate(zip(wanted, targets),
+                                                   start=1):
             if target is None:
                 missing.append(thing)
                 continue
@@ -274,7 +288,8 @@ def build(harness) -> list:
         return answer
 
     @tool
-    def teach_me_this(steps: list[str]) -> str:
+    def teach_me_this(steps: list[str],
+                      stages: list[str] | None = None) -> str:
         """Walk the user through a procedure, ONE STEP AT A TIME.
 
         Use this whenever somebody asks to be TAUGHT how to do something
@@ -290,7 +305,27 @@ def build(harness) -> list:
 
         Each step is one thing to DO, in their own hands, written for the
         ear: "press shift a and choose mesh, then uv sphere". Not "first,
-        you will want to" - just the action. Two to eight of them.
+        you will want to" - just the action.
+
+        For a BIG job - "design a full environment in blender", "edit a
+        whole video", "set up a render" - write ALL the steps it really
+        takes, twenty or thirty of them, and pass `stages` as well: the name
+        of the part of the job each step belongs to, ONE PER STEP, in the
+        same order, repeated for every step in that part. Like this:
+
+            steps  = ["add a plane", "scale it up",   "add a sun lamp", ...]
+            stages = ["the ground",  "the ground",    "the light",      ...]
+
+        Four to six parts, each a handful of steps, named for what it
+        produces rather than for what it does: "the ground", "the light",
+        "the trees". The user then hears "that is the ground done, now the
+        light" as they cross each boundary, and always knows how much is
+        left.
+
+        Do NOT compress a big job into eight vague steps instead. "Model the
+        terrain" is not a step anybody can follow; it is a part, with steps
+        inside it. And do not leave `stages` out of a long one - a flat list
+        of thirty things teaches nobody where they are.
 
         Say nothing after calling this. The first step is said for you.
         """
@@ -299,6 +334,14 @@ def build(harness) -> list:
             return ("That is one step, so just say it. This is for a "
                     "procedure somebody has to be walked through.")
 
+        # Reported rather than silently dropped. The walkthrough refuses
+        # names that do not line up - a lesson whose parts are off by one
+        # announces "that is the lighting done" in the middle of the
+        # terrain - and the model is the only thing that can fix it, so it
+        # has to be told rather than left to wonder why nothing is staged.
+        parts = [name for name in (stages or []) if name and name.strip()]
+        mismatched = bool(parts) and len(stages or []) != len(steps)
+
         if harness.start_teaching is None:
             # No app to drive the pacing - a harness running standalone, or
             # a background task. Fall back to saying them, which is worse
@@ -306,7 +349,8 @@ def build(harness) -> list:
             return ("I cannot pace this here, so say the steps in order, "
                     "briefly: " + "; ".join(wanted))
 
-        started = harness.start_teaching(wanted)
+        started = harness.start_teaching(
+            wanted, None if mismatched else (stages or None))
         harness.runs.append(ToolRun(
             "teach_me_this", f"{len(wanted)} steps",
             Outcome(started, "teaching" if started else "could not start")))
@@ -319,13 +363,19 @@ def build(harness) -> list:
         # request, and the reply after a tool call is where a model most
         # wants to be helpful. So it is given something harmless to say
         # instead of being asked for silence it will not produce.
-        return (f"Started, and the user has ALREADY HEARD: "
-                f"\"{wanted[0]}\" - word for word, out loud, just now. "
-                f"Reply with AT MOST a short acknowledgement that adds "
-                f"something they do not already know - why this step, or "
-                f"what they will see. Never restate the step. Never list "
-                f"the remaining {len(wanted) - 1}. If you have nothing to "
-                f"add, reply with exactly: ok")
+        answer = (f"Started, and the user has ALREADY HEARD: "
+                  f"\"{wanted[0]}\" - word for word, out loud, just now. "
+                  f"Reply with AT MOST a short acknowledgement that adds "
+                  f"something they do not already know - why this step, or "
+                  f"what they will see. Never restate the step. Never list "
+                  f"the remaining {len(wanted) - 1}. If you have nothing to "
+                  f"add, reply with exactly: ok")
+        if mismatched:
+            answer += (f" NOTE: you gave {len(stages or [])} stage names for "
+                       f"{len(steps)} steps, so they were ignored and this "
+                       f"is running as one flat lesson. One name per step, "
+                       f"next time.")
+        return answer
 
     @tool
     def clear_the_screen() -> str:

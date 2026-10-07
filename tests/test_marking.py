@@ -203,7 +203,7 @@ def test_a_point_in_a_crop_maps_back_to_the_right_place(monitor_left, scale):
     region = Region(monitor_left + 200, 150, monitor_left + 400, 300)
 
     # The model is asked about the crop and clicks its exact centre.
-    def centre_of_the_crop(image, description, narrowed=False):
+    def centre_of_the_crop(image, description, narrowed=False, **_):
         assert narrowed, "a cropped image must say so, or 'not on the screen'"
         return (image.size[0] // 2, image.size[1] // 2)
 
@@ -223,7 +223,7 @@ def test_without_a_region_nothing_about_the_old_path_changes():
 
     found = ComputerUseGrounding(api_key="test")
     found._frozen = FakeShot(blank(1280, 800), 1.0, FakeMonitor(0, 0))
-    found._ask = lambda image, description, narrowed=False: (
+    found._ask = lambda image, description, narrowed=False, **_: (
         (640, 400) if not narrowed else (0, 0))
     target = found.locate("the thing", refine=False)
     assert target.centre == (640, 400)
@@ -251,13 +251,17 @@ def refining(answers):
     """
     from meow.desktop.computeruse import ComputerUseGrounding
 
-    found = ComputerUseGrounding(api_key="test")
+    # The agreement gate is OFF here, deliberately: these cases are about
+    # refinement, and two looks popping answers off one queue from two
+    # threads would make the order - and so the expected answer - a race.
+    # The gate has its own section below.
+    found = ComputerUseGrounding(api_key="test", look_twice=False)
     found._frozen = FakeShot(blank(1280, 800), 1.0, FakeMonitor(0, 0))
     found.seen = []
     found.boxes = []
     queued = list(answers)
 
-    def ask(image, description, narrowed=False):
+    def ask(image, description, narrowed=False, **_):
         found.seen.append((image.size, narrowed))
         wanted = queued.pop(0) if queued else None
         if wanted == "centre":
@@ -365,5 +369,367 @@ def test_refinement_is_off_by_default_and_that_is_a_measurement():
 
     found = refining([(640, 400), "centre"])
     found.locate("the thing")
-    assert found.passes == 1
     assert REFINE is False
+    # Asserted as "nothing was shown a crop" rather than "there was one
+    # pass": the agreement gate takes two looks at the WHOLE screen by
+    # default, which is a different thing entirely from refining.
+    assert not any(narrowed for _size, narrowed in found.seen), (
+        "no pass should have been shown a crop")
+
+
+# --- two looks at once, and only answering where they agree -----------------
+#
+# The measured failure was never missing, it was missing CONFIDENTLY. On the
+# 44 hand-labelled targets one look answers 36 times and is right 25, so
+# eleven marks a session land on something the user did not ask about with
+# nothing in the reply to suggest a guess - which this project's own rule
+# calls the worst outcome available, since a miss is recoverable and a wrong
+# mark is not.
+#
+#     one look                 25/44 right, and it points every time it answers
+#     two looks, must agree    24/44 right
+#
+#     agreed and right          24   a mark worth drawing
+#     agreed and wrong           7   the confident miss this does NOT catch
+#     disagreed, both wrong     11   turned into "i am not sure"
+#     disagreed, one was right   2   the cost: a good point thrown away
+#
+# And it costs no time: the two calls do not depend on each other, so they go
+# out together. 7.2s median for the pair against 7.8s for one.
+
+
+def looking_twice(first, second, shot=None):
+    """Grounding whose two parallel looks return these two points.
+
+    Keyed by WHICH THREAD asks rather than by call order, because two threads
+    popping a queue is a race and a test that depends on one is worthless.
+    """
+    import threading
+
+    from meow.desktop.computeruse import ComputerUseGrounding
+
+    found = ComputerUseGrounding(api_key="test")
+    found._frozen = shot or FakeShot(blank(1280, 800), 1.0, FakeMonitor(0, 0))
+    handed_out = []
+    lock = threading.Lock()
+
+    def ask(image, description, narrowed=False, **_):
+        with lock:
+            handed_out.append(None)
+            return first if len(handed_out) == 1 else second
+
+    found._ask = ask
+    return found
+
+
+def test_two_looks_that_agree_answer_with_their_midpoint():
+    """Two looks at the same icon landing a few pixels apart average to a
+    better estimate than either, and nothing is drawn when they do not.
+    """
+    found = looking_twice((600, 400), (604, 402))
+    target = found.locate("the thing")
+    assert target is not None, found.last_error
+    assert target.centre == (602, 401)
+    assert found.passes == 2
+    assert found.disagreed is False
+
+
+def test_two_looks_a_screen_apart_answer_with_NOTHING():
+    """Live, on this model: 6px out on one run and 545px on the next, for the
+    same target. A ring drawn on either is a confident lie about the other.
+    """
+    found = looking_twice((600, 400), (1150, 180))
+    assert found.locate("the thing") is None
+    assert found.disagreed is True
+    assert "apart" in (found.last_error or "")
+
+
+def test_one_look_declining_is_not_evidence_for_the_other():
+    """A decline is a real answer - "it is not there" - and it does not
+    corroborate the point the other look committed to.
+    """
+    found = looking_twice((600, 400), None)
+    assert found.locate("the thing") is None
+    assert found.disagreed is True
+
+
+def test_both_looks_declining_is_a_plain_miss_not_a_disagreement():
+    """The caller says different things for the two, so they must not be
+    reported the same way: "it is not on your screen" about something the
+    user is looking at is the worst answer available.
+    """
+    found = looking_twice(None, None)
+    assert found.locate("the thing") is None
+    assert found.disagreed is False
+
+
+def test_both_looks_see_the_SAME_screenshot():
+    """Captured once and handed to both. Two looks that each grabbed their
+    own would be looking at two moments, making an honest disagreement and
+    the user having moved something indistinguishable.
+    """
+    found = looking_twice((600, 400), (600, 400))
+    seen = []
+    real = found._ask
+
+    def ask(image, description, narrowed=False, **_):
+        seen.append(id(image))
+        return real(image, description, narrowed)
+
+    found._ask = ask
+    found.locate("the thing")
+    assert len(seen) == 2 and seen[0] == seen[1]
+
+
+def test_two_looks_at_one_image_must_agree_far_more_closely_than_a_crop():
+    """The zoom refinement compares a whole-screen guess with a point derived
+    from an enlarged crop - different scales, so the answer is EXPECTED to
+    move a little and 64px allows for "better located". Two looks at the
+    IDENTICAL picture have no such excuse.
+
+    Measured: when either look was right the two landed 0-6px apart in 24 of
+    26 cases, and the sweep says eight keeps the same 24 right as sixty-four
+    with two fewer wrong marks. Reusing one number for both looked tidy and
+    was the wrong number for the question.
+    """
+    from meow.desktop.computeruse import AGREEMENT_PIXELS, SAME_POINT_PIXELS
+
+    assert SAME_POINT_PIXELS < AGREEMENT_PIXELS
+    just_inside = looking_twice((600, 400), (600, 400 + SAME_POINT_PIXELS - 1))
+    assert just_inside.locate("the thing") is not None
+    just_outside = looking_twice((600, 400), (600, 400 + SAME_POINT_PIXELS + 2))
+    assert just_outside.locate("the thing") is None
+    # And the loose one would have accepted it, which is the point.
+    assert SAME_POINT_PIXELS + 2 < AGREEMENT_PIXELS
+
+
+# --- and not paying twice for the same question ------------------------------
+
+
+def remembering(point):
+    """Live grounding - no frozen shot - over a screen that does not move."""
+    from meow.desktop.computeruse import ComputerUseGrounding
+
+    found = ComputerUseGrounding(api_key="test")
+    found.asked = 0
+    # Structure, not a flat colour: the fingerprint thresholds a thumbnail at
+    # its own mean, and every solid image thresholds to the same bits.
+    from PIL import Image
+
+    picture = Image.new("L", (64, 64))
+    picture.putdata([(x * 7 + y * 13) % 256 for y in range(64)
+                     for x in range(64)])
+    shot = FakeShot(picture, 1.0, FakeMonitor(0, 0))
+
+    def ask(image, description, narrowed=False, **_):
+        found.asked += 1
+        return point
+
+    found._ask = ask
+    found._capture = lambda: [shot]
+    return found
+
+
+def test_the_same_question_about_an_unchanged_screen_is_not_asked_twice():
+    """"Say that again", "i cannot find it", and every re-point of a
+    walkthrough step ask where the same thing is on the same screen. That
+    cost a fresh eight seconds and two model calls every time.
+    """
+    found = remembering((600, 400))
+    first = found.locate("the razor tool")
+    asked_once = found.asked
+    second = found.locate("the razor tool")
+    assert first is not None and second is not None
+    assert second.centre == first.centre
+    assert found.asked == asked_once, "it should not have looked again"
+    assert found.remembered is True
+
+
+def test_a_different_question_about_the_same_screen_IS_asked():
+    found = remembering((600, 400))
+    found.locate("the razor tool")
+    asked_once = found.asked
+    found.locate("the blade tool")
+    assert found.asked > asked_once
+    assert found.remembered is False
+
+
+def test_a_screen_that_moved_is_looked_at_again():
+    from PIL import Image
+
+    found = remembering((600, 400))
+    found.locate("the razor tool")
+    asked_once = found.asked
+
+    moved = Image.new("L", (64, 64))
+    moved.putdata([(x * 31 + y * 3) % 256 for y in range(64)
+                   for x in range(64)])
+    found._capture = lambda: [FakeShot(moved, 1.0, FakeMonitor(0, 0))]
+    found.locate("the razor tool")
+    assert found.asked > asked_once, "a changed screen must not be cached"
+
+
+def test_a_frozen_screenshot_is_never_cached():
+    """The evaluation replays one screenshot against several strategies, and
+    a cache would answer the second out of the first one's pocket.
+    """
+    found = looking_twice((600, 400), (600, 400))
+    asks = []
+    real = found._ask
+
+    def ask(image, description, narrowed=False, **_):
+        asks.append(description)
+        return real(image, description, narrowed)
+
+    found._ask = ask
+    found.locate("the thing")
+    after_one = len(asks)
+    found.locate("the thing")
+    assert len(asks) > after_one, "a frozen shot must be looked at every time"
+    assert found.remembered is False
+
+
+def test_a_lazily_opened_screenshot_is_decoded_before_the_threads_see_it():
+    """PIL loads on first use, so two threads calling `convert` on a freshly
+    opened image both drive the decoder and the second finds the file object
+    closed - "NoneType has no attribute read", raised from inside `_ask`
+    with nothing in it about threads.
+
+    A live capture is already in memory, so this never bit the voice path.
+    It bit `meow evaluate --labelled`, which opens saved screenshots.
+    """
+    from meow.desktop.computeruse import ComputerUseGrounding
+
+    class Undecoded:
+        """PIL's lazy decode, modelled rather than raced.
+
+        A real reproduction depends on two threads entering `convert` at the
+        same moment, which is a flaky test and did not fire at all for a
+        small picture. This asserts the invariant the fix actually
+        establishes - loaded BEFORE either look is handed the image - and
+        raises the error PIL really raised when it was not.
+        """
+
+        def __init__(self, real):
+            self._real = real
+            self.size = real.size
+            self.loaded = False
+
+        def load(self):
+            self.loaded = True
+
+        def convert(self, mode):
+            if not self.loaded:
+                raise AttributeError(
+                    "'NoneType' object has no attribute 'read'")
+            return self._real.convert(mode)
+
+    found = ComputerUseGrounding(api_key="test")
+    found._frozen = FakeShot(Undecoded(blank(320, 200)), 1.0,
+                             FakeMonitor(0, 0))
+    # Stubbed at the REQUEST, not at `_ask` - the decode happens inside
+    # `_ask`, where the image is encoded to PNG, so replacing `_ask` would
+    # skip the very thing under test. The first version of this did, and
+    # passed happily with the fix taken out.
+    found._post = lambda outcome, body: {"output": [{
+        "type": "computer_call", "call_id": "x",
+        "actions": [{"type": "click", "x": 160, "y": 100}]}]}
+    target = found.locate("the thing")
+    assert target is not None, found.last_error
+    assert target.centre == (160, 100)
+
+
+# --- several things at once ---------------------------------------------------
+#
+# `number_the_steps` asks about up to four things on one screen and
+# `draw_a_move` about two. Each is two model round trips and about eight
+# seconds, so four asked in turn is half a minute of silence with nothing
+# appearing - and they are independent questions about one screenshot.
+
+
+def harness_that_grounds(answers):
+    """A Harness whose sight returns these answers, keyed by description.
+
+    `answers` maps a description to a point, or to None for "not found", or
+    to the string "unsure" for two looks that landed apart.
+    """
+    import threading
+    import time
+
+    from meow.agent.harness import Harness
+    from meow.desktop.grounding import Source, Target
+
+    harness = Harness.__new__(Harness)
+    harness.digest = None
+    harness.user_region = None
+    harness.unsure_about = set()
+    harness.asked = []
+    harness.overlapped = False
+    running = []
+    lock = threading.Lock()
+
+    class Eyes:
+        def look(self, description, within=None):
+            from meow.desktop.computeruse import Looked
+
+            with lock:
+                harness.asked.append(description)
+                running.append(description)
+                if len(running) > 1:
+                    harness.overlapped = True
+            # Long enough that sequential calls could not overlap by luck.
+            time.sleep(0.05)
+            with lock:
+                running.remove(description)
+
+            wanted = answers.get(description)
+            if wanted == "unsure":
+                return Looked(target=None, disagreed=True)
+            if wanted is None:
+                return Looked(target=None)
+            x, y = wanted
+            return Looked(target=Target(
+                left=x - 2, top=y - 2, right=x + 2, bottom=y + 2,
+                name=description, role="", source=Source.VISION))
+
+    harness._eyes = lambda: Eyes()
+    return harness
+
+
+def test_several_things_are_grounded_at_the_SAME_TIME():
+    harness = harness_that_grounds({"a": (10, 10), "b": (20, 20),
+                                    "c": (30, 30)})
+    found = harness.locate_several(["a", "b", "c"])
+    assert len(found) == 3
+    assert harness.overlapped, "they must not be asked one after another"
+
+
+def test_the_answers_come_back_in_the_ORDER_ASKED():
+    """`number_the_steps` draws the badges 1, 2, 3 - a reordered answer
+    teaches the sequence wrong, which is worse than not numbering at all.
+    """
+    harness = harness_that_grounds({"first": (10, 10), "second": (20, 20),
+                                    "third": (30, 30)})
+    found = harness.locate_several(["first", "second", "third"])
+    assert [target.centre for target in found] == [(10, 10), (20, 20),
+                                                   (30, 30)]
+
+
+def test_one_uncertain_answer_does_not_make_the_others_uncertain():
+    """The grounding object's `disagreed` describes ONE answer. Four
+    concurrent calls reading it would each get whichever finished last.
+    """
+    harness = harness_that_grounds({"clear": (10, 10), "muddled": "unsure",
+                                    "absent": None})
+    found = harness.locate_several(["clear", "muddled", "absent"])
+    assert found[0] is not None and found[1] is None and found[2] is None
+    assert harness.unsure_about == {"muddled"}
+    # And the two empty answers are reported differently, which is the point.
+    assert "circle" in harness.could_not_find("muddled")
+    assert "circle" not in harness.could_not_find("absent")
+
+
+def test_asking_for_one_thing_does_not_start_a_thread_pool():
+    harness = harness_that_grounds({"a": (10, 10)})
+    found = harness.locate_several(["a"])
+    assert len(found) == 1 and not harness.overlapped

@@ -52,7 +52,7 @@ class Guide:
         """Start walking somebody through a route. False if it is not worth it."""
         return self._take(from_directions(directions, goal))
 
-    def teach(self, steps, goal: str = "") -> bool:
+    def teach(self, steps, goal: str = "", stages=None) -> bool:
         """Walk somebody through a PROCEDURE the model knew, not a route.
 
         "Add a UV sphere, set a keyframe, move to a later frame, set another"
@@ -63,7 +63,7 @@ class Guide:
         These are not watched for: there is no name to see. They advance when
         the person says they have done it.
         """
-        return self._take(from_steps(steps, goal, doing=True))
+        return self._take(from_steps(steps, goal, doing=True, stages=stages))
 
     def _take(self, walkthrough) -> bool:
         if walkthrough is None:

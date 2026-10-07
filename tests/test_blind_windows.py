@@ -85,7 +85,7 @@ def grounding_returning(point):
     # `_ask` is handed an IMAGE now, not a screenshot: when the search is
     # narrowed it is a crop of one, and the mapping back out is the caller's
     # job rather than something buried in the request.
-    found._ask = lambda image, description, narrowed=False: point
+    found._ask = lambda image, description, narrowed=False, **_: point
     return found
 
 
@@ -118,7 +118,7 @@ def test_a_refusal_is_not_a_target():
     project cares about most.
     """
     found = ComputerUseGrounding(api_key="test")
-    found._ask = lambda image, description, narrowed=False: None
+    found._ask = lambda image, description, narrowed=False, **_: None
     found._frozen = FakeShot(FakeMonitor(0, 0), FakeImage((1280, 800)), 1.0)
     assert found.locate("something absent") is None
 

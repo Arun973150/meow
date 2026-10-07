@@ -25,6 +25,18 @@ which may be mid-request and cannot be interrupted to reply.
 stops carrying it. A finished task is history, not context, and one that stayed
 would take up room in every prompt for the rest of the session - and, worse,
 invite the model to keep referring to something that no longer exists.
+
+**What was DONE, not only what was said.** A follow-up is usually three words
+and refers to an action rather than to a sentence: "do it again", "now the
+other one", "undo that", "the second one". None of those can be resolved from
+a transcript, because what the cat SAID about an action is prose written for
+the ear - "all done, that is typed in for you" names no tool and no target,
+and it is the only trace the action left.
+
+So every tool run is recorded here too: what it was, what it was aimed at, and
+whether it worked. It is the cheapest context in the file - a handful of short
+lines - and it is the difference between "the other one" resolving and the
+model guessing which of the last ten sentences was about a button.
 """
 
 from __future__ import annotations
@@ -42,12 +54,55 @@ MAX_TURNS = 10
 # clarifies.
 MAX_TURN_CHARACTERS = 220
 
+# How many actions are remembered. Short for the same reason the transcript is
+# short, and shorter: "the other one" refers to something from the last turn or
+# two, never from eight ago, and a long list invites the model to revisit
+# something the user has moved on from.
+MAX_DEEDS = 6
+
+# Tools whose runs are NOT worth remembering, because they changed nothing a
+# follow-up could refer back to. A turn that looked at the screen and then
+# answered is already fully described by what was said; recording "looked at
+# the screen" six times pushes out the one line that said which button was
+# pressed.
+NOT_WORTH_REMEMBERING = frozenset({
+    "look_at_screen", "find_how_to", "look_up", "read_mail", "read_message",
+    "my_agenda", "my_tasks", "check_weather", "hacker_news",
+    "read_google_doc", "read_google_sheet", "list_routines",
+    "clear_the_screen",
+})
+
 
 @dataclass(frozen=True)
 class Said:
     who: str          # "user" or "meow"
     text: str
     at: float = field(default_factory=time.perf_counter)
+
+
+@dataclass(frozen=True)
+class Did:
+    """One thing actually done on the machine, and whether it took."""
+
+    tool: str
+    target: str
+    # True, False, or None for could-not-tell - the verifier's three-way
+    # verdict, carried rather than flattened. A follow-up to something that
+    # did not work is usually "try again", and a follow-up to something
+    # unverifiable is usually "did that work?" - the model cannot answer
+    # either from a boolean.
+    worked: bool | None = None
+    at: float = field(default_factory=time.perf_counter)
+
+    def describe(self) -> str:
+        said = f"{self.tool.replace('_', ' ')}"
+        if self.target:
+            said += f": {self.target}"
+        if self.worked is False:
+            said += "  (did NOT take effect)"
+        elif self.worked is None:
+            said += "  (could not tell whether it worked)"
+        return said
 
 
 @dataclass
@@ -77,6 +132,7 @@ class Memory:
 
     def __init__(self, max_turns: int = MAX_TURNS) -> None:
         self._turns: deque[Said] = deque(maxlen=max_turns)
+        self._deeds: deque[Did] = deque(maxlen=MAX_DEEDS)
         self._actors: dict[str, Actor] = {}
         self._lock = threading.Lock()
 
@@ -94,6 +150,33 @@ class Memory:
     def turns(self) -> list[Said]:
         with self._lock:
             return list(self._turns)
+
+    # --- what was done ---------------------------------------------------
+
+    def did(self, tool: str, target: str, worked: bool | None = None) -> None:
+        """Record an action. Reading tools are dropped - see the list."""
+        name = str(tool).strip()
+        if not name or name in NOT_WORTH_REMEMBERING:
+            return
+        aimed = " ".join(str(target).split())[:60]
+        with self._lock:
+            # Replaced rather than appended when it is the same action on the
+            # same thing. A plan that presses ctrl+s four times should leave
+            # one line, or the six slots fill with one repeated keystroke and
+            # push out what the keystroke was done TO.
+            if self._deeds and (self._deeds[-1].tool == name
+                                and self._deeds[-1].target == aimed):
+                self._deeds[-1] = Did(name, aimed, worked)
+                return
+            self._deeds.append(Did(name, aimed, worked))
+
+    def deeds(self) -> list[Did]:
+        with self._lock:
+            return list(self._deeds)
+
+    def last_deed(self) -> Did | None:
+        with self._lock:
+            return self._deeds[-1] if self._deeds else None
 
     # --- who is working --------------------------------------------------
 
@@ -144,6 +227,17 @@ class Memory:
             parts.append("Working in the background right now:\n" + "\n".join(
                 f"- {actor.describe()}" for actor in actors))
 
+        deeds = self.deeds()
+        if deeds:
+            # Before what was said, because it is what a short follow-up
+            # refers to. "Now the other one" is about the last action, and
+            # the sentence that reported that action does not name it.
+            parts.append(
+                "What you have actually DONE on their machine, oldest first. "
+                "A short follow-up - \"again\", \"the other one\", \"undo "
+                "that\" - almost certainly means the last of these:\n"
+                + "\n".join(f"- {deed.describe()}" for deed in deeds))
+
         if include_turns:
             turns = self.turns()
             if turns:
@@ -164,6 +258,14 @@ class Memory:
         """
         lines = [f"{'Meow' if turn.who == 'meow' else 'User'}: {turn.text}"
                  for turn in self.turns()[-turns:]]
+        # One line about the last ACTION, which is what the router most often
+        # cannot see. "Do it again" and "now the other one" are shaped like
+        # questions and are instructions, and the only thing that settles it
+        # is whether anything was done - the reply that reported it says
+        # "all done, that is typed in for you" and names no tool.
+        last = self.last_deed()
+        if last is not None:
+            lines.append(f"(Meow just did: {last.describe()})")
         return chr(10).join(lines)
 
     def clear(self) -> None:

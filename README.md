@@ -68,20 +68,58 @@ see, blind and confident where it cannot, and the two cases must be told apart
 before either is trusted.* `uia.only_chrome` is what tells them apart — a
 window showing nothing but Minimize, Maximize and Close is EMPTY, not RICH.
 
-### And one negative result, kept because it cost something
+### Three things that did not work, kept because they cost something
 
-Zooming is the published training-free way to improve GUI grounding. Built,
-measured on the same 44 targets, with an agreement gate, and verified on the
-20 it was not tuned against:
+Everything obvious about improving the 23/44 has now been tried against the
+same targets, and none of it moved the number:
 
 ```
-                one pass    two passes
-combined (44)     23/44       23/44       7s -> 16s
+crop and zoom the guess          23/44 -> 23/44     at double the latency
+name the application in front    23/44 -> 23/44     identical per-app
+hand it the screenshot up front     no change       it takes its own anyway
 ```
 
-No gain, at double the latency, so it is off by default. The useful part is
-that **Illustrator — the worst application in the set — did not move at all**,
-which rules out resolution as its problem and a whole family of ideas with it.
+Zooming is the *published* training-free method for this — reported elsewhere
+at +13.4% on ScreenSpot-Pro — and it reproduced as nothing here, with an
+agreement gate, verified on the 20 targets it was not tuned against. The useful
+part is that **Illustrator, the worst application in the set, did not move for
+any of the three**, and that six of its eight failures are the model
+*declining* rather than missing. So "it cannot see Illustrator's panels" is the
+finding, and a sharper picture, a better prompt and a fuller description are all
+answers to a different question.
+
+### What did work: it does not miss, it misses *confidently*
+
+One look answers 36 of 44 and is right 25 — so eleven marks a session land on
+something the user never asked about, with nothing in the reply to suggest a
+guess. Two separate runs of the same 44 flipped their verdict on **six**, and
+one target landed 6px out on one run and 545px out on the next. The model's own
+instability is a usable signal.
+
+So it looks **twice, in parallel, and answers only where the two agree**.
+Scored twice over, because one pass is a sample rather than a property:
+
+| | marks drawn | right | **wrong** |
+|---|---|---|---|
+| one look | 36 / 37 | 25 / 21 | **11 / 16** |
+| two looks, must agree | 29 / 29 | 24 / 21 | **5 / 8** |
+
+The absolute hit rate wanders by four between runs; the shape reproduces
+exactly. Both times it drew eight fewer marks and lost at most one correct one
+— so what it declines to draw is almost entirely what it was getting wrong.
+Precision 69% → 83% on one run, 57% → 72% on the other. It even rescued three,
+because the midpoint of two looks that agree beats either.
+
+**And it costs no wall clock** — neither call depends on the other, so they go
+out together: 7.2s median for the pair against 7.8s for one. It costs tokens,
+not seconds, which is the trade worth making for a mark drawn on somebody's
+work.
+
+The agreement window is **8px, not the zoom gate's 64** — those compare
+different things, and when either look was right the two landed 0–6px apart in
+24 of 26 cases. And a disagreement is not reported as *"it is not on your
+screen"*: the thing is there, so the cat says it is not sure and asks you to
+circle it, which collapses the search to one box.
 
 Full method, including the methodology bugs that produced plausible wrong
 numbers first, in [docs/04-evaluation.md](docs/04-evaluation.md).
@@ -101,6 +139,10 @@ Tap **Ctrl+M**, talk. Tap **Pause** to stop everything.
 - **Checks** — snapshots the desktop either side of an action and reports what
   actually changed. A verdict is yes, no, **or could not tell**, and the third
   matters most
+- **Follows up on three words** — *"do it again"*, *"now the other one"*,
+  *"undo that"*. Every path shares one memory of what was actually **done**,
+  not only what was said: *"all done, that is typed in for you"* names no tool
+  and no target, and it used to be the only trace an action left
 
 **Teaches**
 
@@ -111,6 +153,11 @@ Tap **Ctrl+M**, talk. Tap **Pause** to stop everything.
 - **Procedures, not just menu routes.** *"Teach me how to animate a bouncing
   ball"* in Blender becomes four steps paced one at a time, from what the model
   knows. The screen goes with every turn so it can see what you actually did
+- **A big job has parts.** *"Teach me how to design a full environment"* is
+  thirty-odd steps, so it arrives as named parts — *"this is 3 parts, first the
+  ground"*, then *"that is the ground done, now the light"*. A flat list of
+  thirty tells you nothing at step nineteen, and eight vague steps teach
+  nobody anything
 - **Draws on your screen** — target rings, numbered badges, arrows, curves, a
   spotlight that dims everything else. Hand-drawn rather than plotted
 - **And you can draw back.** Tap **Ctrl+Shift+M**, circle something, then ask
@@ -160,7 +207,7 @@ is planned.
 ### Checking it works
 
 ```
-pytest               # 573 fast checks - no Windows, no keys, no network
+pytest               # 640 fast checks - no Windows, no keys, no network
 meow stress          # 70 edge cases against real UIA and real overlays
 meow smoke           # starts the real app, fails on any traceback
 meow routing         # replays 56 sentences that were spoken out loud
@@ -250,6 +297,12 @@ project has walked into. A sample, each of which cost real time:
 - AssemblyAI's default streaming model transcribes accented English into the
   wrong script
 - Windows 11 hides new tray icons, per icon, forever
+- An exact hash of a screenshot calls an **idle** screen "changed" on four of
+  five captures — which told the model the user had done the step while they
+  sat still
+- A full-screen mark layer cost **221ms** a redraw, not the 34ms this repo
+  claimed, and all of it was one `LANCZOS` downscale of pixels that were
+  transparent
 - `frozen=True` does not freeze a dict inside the dataclass — an approved draft
   was mutated afterwards and delivered to a different address
 - Two turns on one LangGraph thread corrupt it, and every later turn 400s

@@ -543,3 +543,152 @@ def test_a_bare_filler_word_still_advances_a_live_lesson():
     for word in ("done", "yeah", "yes", "ok"):
         assert is_noise(word), f"{word} is still noise outside a lesson"
         assert moving_on(word), f"{word} must count inside one"
+
+
+# --- a long lesson has PARTS -------------------------------------------------
+#
+# "Teach me how to design a full environment in blender" is thirty-odd steps,
+# and without parts the two options are both bad: compress it into eight vague
+# ones ("model the terrain"), which teaches nobody anything, or read a flat
+# list of thirty on which step nineteen says nothing about whether they are
+# nearly done. The same argument as one step at a time, one level up.
+
+
+def building_a_scene():
+    """A long, staged lesson, shaped like what the model is asked to write."""
+    from meow.agent.walkthrough import from_steps
+
+    steps = ["add a plane", "scale it up", "add a displace modifier",
+             "add a sun lamp", "aim it down", "turn the strength up",
+             "add a material", "make it rough"]
+    stages = ["the ground", "the ground", "the ground",
+              "the light", "the light", "the light",
+              "the surface", "the surface"]
+    return from_steps(steps, goal="design a full environment", doing=True,
+                      stages=stages)
+
+
+def test_a_long_lesson_is_not_cut_at_the_mined_route_budget():
+    """Fifteen was chosen to catch a WEB PAGE parsed wrongly - thirty steps
+    off a page is a parsing accident. A model asked how to build a whole
+    environment is not, and cutting it at fifteen and then saying "that is as
+    far as the instructions i found go" is untrue: nothing truncated it
+    except us.
+    """
+    from meow.agent.walkthrough import MAX_DOING_STEPS, MAX_STEPS, from_steps
+
+    assert MAX_DOING_STEPS > MAX_STEPS
+    long_one = from_steps([f"step {n}" for n in range(1, 31)], doing=True)
+    assert len(long_one.steps) == 30
+    assert long_one.truncated is False
+
+    mined = from_steps([f"step {n}" for n in range(1, 31)], doing=False)
+    assert len(mined.steps) == MAX_STEPS
+    assert mined.truncated is True
+
+
+def test_the_parts_are_named_once_each_in_order():
+    lesson = building_a_scene()
+    assert lesson.staged
+    assert lesson.stages == ["the ground", "the light", "the surface"]
+    assert lesson.stage == "the ground"
+    assert lesson.stage_number == 1
+
+
+def test_the_first_step_says_how_many_parts_there_are_and_no_more():
+    """The count and the first part's name. Reading all five names out is the
+    recitation this exists to replace, one level up - they hear each part as
+    they reach it.
+    """
+    from meow.agent.walkthrough import Progress
+
+    lesson = building_a_scene()
+    said = lesson.say(Progress.ARRIVED)
+    assert "3 parts" in said
+    assert "the ground" in said
+    assert "add a plane" in said
+    assert "the light" not in said and "the surface" not in said
+
+
+def test_crossing_into_a_new_part_says_so_and_only_there():
+    """"That is the ground done, now the light" is what turns thirty steps
+    into three jobs somebody can see the end of. Said at every step it would
+    be padding.
+    """
+    from meow.agent.walkthrough import Progress
+
+    lesson = building_a_scene()
+    lesson.say(Progress.ARRIVED)
+
+    inside = lesson.say(lesson.advance())            # still the ground
+    assert "done" not in inside
+    assert "scale it up" in inside
+
+    lesson.say(lesson.advance())                     # last of the ground
+    crossing = lesson.say(lesson.advance())          # into the light
+    assert "that is the ground done" in crossing
+    assert "the light" in crossing
+    assert "add a sun lamp" in crossing
+    assert lesson.stage_number == 2
+
+
+def test_it_can_say_how_much_of_this_part_is_left():
+    lesson = building_a_scene()
+    assert lesson.steps_left_in_stage() == 3
+    lesson.advance()
+    assert lesson.steps_left_in_stage() == 2
+
+
+def test_resuming_a_long_lesson_says_which_part_they_are_in():
+    """A long lesson is where somebody most often loses the thread and asks -
+    which is the whole reason parts exist, so the answer says which part.
+    """
+    lesson = building_a_scene()
+    lesson.advance()
+    lesson.pause()
+    picked_up = lesson.resume()
+    assert "the ground" in picked_up
+    assert "scale it up" in picked_up or "add a displace" in picked_up
+
+
+def test_the_prompt_says_which_part_of_how_many():
+    """The model is asked "how much more of this is there" by somebody
+    halfway through a big job, and a flat list cannot answer it.
+    """
+    lesson = building_a_scene()
+    lesson.advance()
+    lesson.advance()
+    lesson.advance()                                  # into the light
+    where = lesson.where_we_are()
+    assert "3 parts" in where
+    assert "part 2 of 3" in where
+    assert "the light" in where
+    assert "the ground -> the light -> the surface" in where
+
+
+def test_stage_names_that_do_not_line_up_are_DROPPED_not_trusted():
+    """A lesson whose parts are off by one announces "that is the lighting
+    done" in the middle of the terrain. A long flat lesson is worse than a
+    staged one and far better than a mislabelled one.
+    """
+    from meow.agent.walkthrough import from_steps
+
+    lesson = from_steps(["one", "two", "three"], doing=True,
+                        stages=["a", "b"])
+    assert lesson.staged is False
+    assert lesson.stages == []
+    assert lesson.stage == ""
+
+
+def test_an_unstaged_lesson_says_nothing_about_parts():
+    """Most lessons are four steps and do not need naming. The cue has to be
+    silent when there is nothing to cue.
+    """
+    from meow.agent.walkthrough import Progress, from_steps
+
+    lesson = from_steps(["press a", "press b"], doing=True)
+    assert lesson.staged is False
+    assert lesson.stage_number == 0
+    said = lesson.say(Progress.ARRIVED)
+    assert "part" not in said
+    assert said.startswith("press a")

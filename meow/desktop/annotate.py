@@ -142,6 +142,42 @@ CURSOR_SIZE = 16
 LABEL_POINTS = 17
 _FONTS = ("segoeui.ttf", "arial.ttf", "DejaVuSans.ttf")
 
+# --- what is actually repainted ---------------------------------------------
+#
+# Only the rectangle the marks occupy, at 2x, rather than the whole screen.
+# MEASURED, because the old comment about 34ms was wrong by an order of
+# magnitude at this machine's real resolution:
+#
+#     2560x1600, one ring      alloc 14ms   draw 23ms   LANCZOS 266ms
+#
+# The downscale is the whole cost and it does not care how much was drawn - a
+# 5120x3200 resize is nine million pixels of filtering whether the picture
+# holds one ring or nine. Rendering the ring's own 150px box instead makes it
+# arithmetic on 90,000 pixels, and the output is identical because everything
+# outside the box was transparent anyway.
+#
+# `expired` and `opacity` already keep an idle board free; this is the cost of
+# a board with something on it, which is every frame of a walkthrough.
+
+# Added to every side of the box, in output pixels. It has to cover everything
+# drawn OUTSIDE a mark's own geometry, or the fast path clips marks and the bug
+# looks like a rendering fault rather than a wrong rectangle:
+#
+#     the stroke's half-width            width / 2
+#     the hand-drawn wobble              WOBBLE_PIXELS
+#     an arrowhead beyond the last point max(10, width * SUPERSAMPLE * 3.5)
+#
+# Computed per mark from its own width rather than fixed, since a thick arrow's
+# head is 3.5 times its thickness. Four pixels on top, for the resize filter
+# reaching a little past the edge of what was drawn.
+MARK_MARGIN = 4
+
+
+def _mark_margin(mark) -> float:
+    """How far outside its own points a mark can paint, in output pixels."""
+    head = max(10.0, mark.width * SUPERSAMPLE * 3.5) / SUPERSAMPLE
+    return head + mark.width / 2.0 + WOBBLE_PIXELS + MARK_MARGIN
+
 
 def _font(scale: int, points: int = LABEL_POINTS):
     """A scalable font at the supersampled size, or the bitmap fallback."""
@@ -453,6 +489,120 @@ class Sketch:
     def empty(self) -> bool:
         return not self.marks
 
+    # --- what has to be repainted ----------------------------------------
+
+    def extent(self, mark) -> tuple | None:
+        """Where a mark paints, in SCREEN coordinates, or None if unknown.
+
+        None means "repaint the whole screen for this one", which is the safe
+        answer and is why this returns it rather than guessing. A box that is
+        too small clips the mark, and a clipped ring looks like a rendering
+        fault rather than like a wrong rectangle - so anything whose extent is
+        not arithmetic says so.
+        """
+        kind, points = mark.kind, mark.points
+        if not points:
+            return None
+
+        if kind == "spotlight":
+            # It dims everything outside its holes, so its extent IS the
+            # screen. Handled separately in `render` and never in a patch.
+            return None
+
+        if kind in ("circle", "rings"):
+            # The outermost ring is drawn at the full radius; the inner ones
+            # are smaller, so one radius bounds all three.
+            (x, y), (radius, _) = points[0], points[1]
+            corners = [(x - radius, y - radius), (x + radius, y + radius)]
+        elif kind == "number":
+            x, y = points[0]
+            corners = [(x - BADGE_RADIUS, y - BADGE_RADIUS),
+                       (x + BADGE_RADIUS, y + BADGE_RADIUS)]
+        elif kind == "cursor":
+            # Drawn down and to the RIGHT of its point, not centred - the
+            # polygon runs to 1.12 of the size below and 0.7 across.
+            x, y = points[0]
+            corners = [(x - 1, y - 1),
+                       (x + CURSOR_SIZE * 0.8, y + CURSOR_SIZE * 1.2)]
+        elif kind == "arrow" or kind == "line":
+            # The sampled curve stays inside the convex hull of the control
+            # points, so the hull's bounding box bounds the curve.
+            corners = bowed(points[0], points[1], mark.bow)
+        elif kind == "label":
+            measured = self._label_extent(mark)
+            if measured is None:
+                return None
+            corners = measured
+        else:
+            # curve, path, box, ellipse, highlight - all bounded by their own
+            # points, the first two because a Bezier stays inside its hull.
+            corners = points
+
+        margin = _mark_margin(mark)
+        xs = [point[0] for point in corners]
+        ys = [point[1] for point in corners]
+        return (min(xs) - margin, min(ys) - margin,
+                max(xs) + margin, max(ys) + margin)
+
+    @staticmethod
+    def _label_extent(mark) -> list | None:
+        """A label's plate, measured with the real font.
+
+        Text is the one mark whose size is not in its own coordinates, and
+        guessing from the character count is how a long label gets its tail
+        cut off. Measured at point size rather than supersampled and scaled
+        back, since that is the same arithmetic with one less division.
+        """
+        try:
+            font = _font(1, LABEL_POINTS)
+            x, y = mark.points[0]
+            box = ImageDraw.Draw(Image.new("RGBA", (1, 1))).textbbox(
+                (x, y), mark.text, font=font)
+        except Exception:  # noqa: BLE001 - an unmeasurable label repaints all
+            return None
+        corners = [(box[0], box[1]), (box[2], box[3])]
+        if len(mark.points) > 1:
+            corners.append(tuple(mark.points[1]))      # the leader's target
+        return corners
+
+    def patch(self, width: int, height: int,
+              origin: tuple = (0, 0)) -> tuple | None:
+        """The rectangle worth repainting, in OVERLAY coordinates.
+
+        Spotlights are NOT in it. A spotlight dims everything outside itself,
+        so no crop contains what it paints - but the ring sitting on top of it
+        still only needs its own hundred pixels, so the two are separated and
+        `render_patch` pastes one into the other.
+
+        None means repaint every pixel - a mark whose extent cannot be known,
+        or a box so large that cropping saves nothing. `(0, 0, 0, 0)` means
+        there is no ink on this overlay at all, which happens when every mark
+        is on another monitor.
+        """
+        boxes = []
+        for mark in self.marks:
+            if mark.opacity <= 0 or mark.kind == "spotlight":
+                continue
+            box = self.extent(mark)
+            if box is None:
+                return None
+            boxes.append(box)
+        if not boxes:
+            return (0, 0, 0, 0)
+
+        left = max(0, int(min(box[0] for box in boxes)) - origin[0])
+        top = max(0, int(min(box[1] for box in boxes)) - origin[1])
+        right = min(width, int(max(box[2] for box in boxes)) + 1 - origin[0])
+        bottom = min(height, int(max(box[3] for box in boxes)) + 1 - origin[1])
+        if right <= left or bottom <= top:
+            return (0, 0, 0, 0)
+
+        # Cropping a box that is most of the screen buys nothing and costs an
+        # extra paste, so the full path stays for that case.
+        if (right - left) * (bottom - top) > width * height * 0.8:
+            return None
+        return (left, top, right, bottom)
+
     # --- rendering --------------------------------------------------------
 
     def render(self, width: int, height: int,
@@ -463,12 +613,49 @@ class Sketch:
         given in screen coordinates land in the right place on a second
         monitor - whose coordinates are negative when it sits to the left.
         """
+        image, (left, top) = self.render_patch(width, height, origin)
+        if image.size == (width, height) and (left, top) == (0, 0):
+            return image
+        canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        canvas.paste(image, (left, top))
+        return canvas
+
+    def render_patch(self, width: int, height: int,
+                     origin: tuple = (0, 0)) -> tuple:
+        """(image, (left, top)) - only the part of the overlay that has ink.
+
+        The caller composites it, which is the point: a 2560x1600 board takes
+        266ms to downscale from its supersampled canvas and the ring on it
+        occupies 150 pixels. `Board.draw` writes the patch into a buffer it
+        keeps, so nothing larger than the ink is ever touched.
+        """
+        box = self.patch(width, height, origin)
+        # Spotlights last in the code and FIRST in the picture. A shadow is a
+        # layer with holes in it rather than a shape, so it cannot be drawn
+        # with the pen, and drawn in sequence it would dim every mark added
+        # before it.
+        shadows = [mark for mark in self.marks
+                   if mark.kind == "spotlight" and mark.opacity > 0]
+
+        if box == (0, 0, 0, 0) and not shadows:
+            # Every mark is off this overlay - they are all on another
+            # monitor. One transparent pixel rather than a transparent
+            # screen: the picture is the same either way, the caller
+            # composites it, and there is no reason to allocate and
+            # premultiply four million pixels of nothing.
+            return Image.new("RGBA", (1, 1), (0, 0, 0, 0)), (0, 0)
+        if box == (0, 0, 0, 0):
+            return self._shadow(shadows, (width, height), origin), (0, 0)
+        left, top, right, bottom = box or (0, 0, width, height)
+
         scale = SUPERSAMPLE
-        canvas = Image.new("RGBA", (width * scale, height * scale), (0, 0, 0, 0))
+        size = (right - left, bottom - top)
+        canvas = Image.new("RGBA", (size[0] * scale, size[1] * scale),
+                           (0, 0, 0, 0))
 
         def place(point):
-            return ((point[0] - origin[0]) * scale,
-                    (point[1] - origin[1]) * scale)
+            return ((point[0] - origin[0] - left) * scale,
+                    (point[1] - origin[1] - top) * scale)
 
         pen = ImageDraw.Draw(canvas, "RGBA")
         for mark in self.marks:
@@ -481,22 +668,23 @@ class Sketch:
             thickness = max(1, mark.width * scale)
             self._draw(pen, mark, colour, thickness, place, scale)
 
-        marks = canvas.resize((width, height), Image.LANCZOS)
-
-        # Spotlights last in the code and FIRST in the picture. A shadow is a
-        # layer with holes in it rather than a shape, so it cannot be drawn
-        # with the pen, and drawn in sequence it would dim every mark added
-        # before it.
-        #
-        # Built at OUTPUT size rather than supersampled: it is a soft dark
-        # region whose only curve is a corner radius, and building it at 2x
-        # and shrinking it cost 37ms to make something nobody can tell apart.
-        shadows = [mark for mark in self.marks
-                   if mark.kind == "spotlight" and mark.opacity > 0]
+        marks = canvas.resize(size, Image.LANCZOS)
         if not shadows:
-            return marks
-        return Image.alpha_composite(
-            self._shadow(shadows, (width, height), origin), marks)
+            return marks, (left, top)
+
+        # The shadow is the one thing here that genuinely is screen-sized, and
+        # it is built at OUTPUT size rather than supersampled: it is a soft
+        # dark region whose only curve is a corner radius, and building it at
+        # 2x and shrinking it cost 37ms to make something nobody can tell
+        # apart.
+        shadow = self._shadow(shadows, (width, height), origin)
+        if box is None:
+            return Image.alpha_composite(shadow, marks), (0, 0)
+        # The marks are a crop, so only that part of the shadow is composited
+        # and pasted back. Compositing the full layer instead costs a second
+        # pass over every pixel to change a hundred of them.
+        shadow.paste(Image.alpha_composite(shadow.crop(box), marks), box)
+        return shadow, (0, 0)
 
     @staticmethod
     def _shadow(marks, size, origin) -> Image.Image:
@@ -741,6 +929,18 @@ class Board:
         self._blank = True
         self._last_render = 0.0
         self._last_signature = None
+        # The window's whole pixel buffer, kept between frames, and the part
+        # of it that currently holds ink. UpdateLayeredWindow wants the lot
+        # every time, so there is no such thing as a partial blit - but there
+        # is no need to BUILD the lot every time either. Premultiplying a
+        # 2560x1600 layer is eight passes over four million pixels, 51ms, to
+        # produce a buffer that is transparent everywhere except a ring.
+        #
+        # So the buffer is written once and then only where the ink is: the
+        # previous ink is zeroed and the new patch written over it, both of
+        # which touch the mark's own rectangle and nothing else.
+        self._buffer: bytearray | None = None
+        self._inked: tuple | None = None
 
     @property
     def overlay(self):
@@ -759,8 +959,6 @@ class Board:
         Safe to call every frame: it returns immediately when the board is
         empty, and throttles when it is not.
         """
-        from ..cat import rgba_to_premultiplied_bgra
-
         self.sketch.prune()
         if self.sketch.empty:
             # An empty board is hidden rather than drawn transparent. A
@@ -782,13 +980,54 @@ class Board:
             return
         self._last_signature = signature
 
-        image = self.sketch.render(self.monitor.width, self.monitor.height,
-                                   self.origin)
-        self._overlay.draw(rgba_to_premultiplied_bgra(image))
+        image, at = self.sketch.render_patch(
+            self.monitor.width, self.monitor.height, self.origin)
+        self._overlay.draw(self._buffered(image, at))
         if not self._showing:
             self._overlay.show()
             self._showing = True
         self._blank = False
+
+    def _buffered(self, image, at: tuple) -> bytearray:
+        """The whole window's pixels, with only the new ink rewritten.
+
+        `image` is whatever `render_patch` produced - the crop around the
+        marks, or the full layer when a spotlight means there is no crop.
+        """
+        from ..cat import rgba_to_premultiplied_bgra
+
+        width, height = self.monitor.width, self.monitor.height
+        stride = width * 4
+        patch = rgba_to_premultiplied_bgra(image)
+
+        if image.size == (width, height):
+            # Nothing to splice: this IS the window. Cheaper than writing it
+            # into a buffer row by row, and it leaves the whole thing inked.
+            self._buffer = patch
+            self._inked = (0, 0, width, height)
+            return patch
+
+        if self._buffer is None or len(self._buffer) != stride * height:
+            self._buffer = bytearray(stride * height)
+            self._inked = None
+
+        buffer = self._buffer
+        if self._inked is not None:
+            left, top, right, bottom = self._inked
+            blank = bytes((right - left) * 4)
+            for row in range(top, bottom):
+                start = row * stride + left * 4
+                buffer[start:start + len(blank)] = blank
+
+        left, top = at
+        patch_width, patch_height = image.size
+        row_bytes = patch_width * 4
+        for row in range(patch_height):
+            start = (top + row) * stride + left * 4
+            buffer[start:start + row_bytes] = patch[
+                row * row_bytes:(row + 1) * row_bytes]
+        self._inked = (left, top, left + patch_width, top + patch_height)
+        return buffer
 
     def clear(self, group: str | None = None) -> int:
         """Rub out everything, or one group. Returns how many marks went."""

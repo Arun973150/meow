@@ -40,6 +40,16 @@ So a walkthrough holds its goal and its completed steps across a pause, and
 answers four things locally without a model: carry on, say that again, i
 cannot find it, and stop.
 
+**A LONG lesson has PARTS.** "Teach me how to design a full environment in
+blender" is thirty-odd steps, and the two things available without parts are
+both bad: compress it into eight vague ones ("model the terrain") that teach
+nobody anything, or read out a flat list of thirty on which step nineteen
+tells somebody nothing about whether they are nearly done. `stage_of` names
+the part each step belongs to, so each step arrives inside something with a
+name and an end - "that is the terrain done, now the lighting" - and the model
+can answer how much is left without being told again. It is the same argument
+as one step at a time, one level up.
+
 Nothing here touches the screen, the clock or the network. It takes digests
 and returns what to say, so the whole thing can be tested with a list of
 control names.
@@ -58,12 +68,26 @@ from ..desktop.uia import WindowDigest
 # away does not trigger it, short enough to be useful when they are lost.
 PATIENCE = 4
 
-# A budget, not a length. A mined route is normally two to four steps, and
+# A budget, not a length. A MINED route is normally two to four steps, and
 # anything claiming thirty is a page that was read wrongly rather than a
 # genuinely long procedure. Cut rather than refused: fourteen steps of real
 # help beats none, and `truncated` makes the last one say so instead of
 # pretending it was the end.
 MAX_STEPS = 15
+
+# And a different budget for a procedure the MODEL wrote, because the reason
+# for the one above does not apply to it. Fifteen was chosen to catch a web
+# page parsed wrongly; a model asked how to build a whole environment in
+# Blender is not a parsing accident, and cutting it at fifteen and then saying
+# "that is as far as the instructions i found go" is untrue - nothing
+# truncated it except us.
+#
+# "Design a full environment" is genuinely thirty-odd steps, and the honest
+# way to teach thirty steps is not to say them faster. It is STAGES: the
+# terrain, then the lighting, then the materials, each a handful of steps with
+# a name, so somebody always knows which part of the job they are in and how
+# much of it is left. See `stage_of`.
+MAX_DOING_STEPS = 40
 
 
 class Progress(Enum):
@@ -95,6 +119,15 @@ class Walkthrough:
     # Settings had to be recited in one breath, which is the thing a
     # walkthrough exists to replace.
     doing: bool = False
+    # Which part of the job each step belongs to, one name per step, or empty
+    # for a lesson short enough not to need parts.
+    #
+    # A long lesson without this is a flat list, and a flat list of thirty
+    # things is the recitation problem again one level up: somebody on step
+    # nineteen has no idea whether they are nearly done or barely started, and
+    # neither does the model being asked what is next. With it, every step
+    # arrives inside something that has a name and an end.
+    stage_of: list[str] = field(default_factory=list)
     index: int = 0
     started: bool = False
     finished: bool = False
@@ -118,6 +151,57 @@ class Walkthrough:
     def remaining(self) -> int:
         return max(0, len(self.steps) - self.index)
 
+    # --- which part of the job this is -----------------------------------
+
+    @property
+    def staged(self) -> bool:
+        """Does this lesson have named parts? Only long ones do."""
+        return len(self.stage_of) == len(self.steps) and bool(self.stage_of)
+
+    def stage_at(self, index: int) -> str:
+        if not self.staged or not 0 <= index < len(self.stage_of):
+            return ""
+        return self.stage_of[index]
+
+    @property
+    def stage(self) -> str:
+        return self.stage_at(self.index)
+
+    @property
+    def stages(self) -> list[str]:
+        """The parts, in order, each named once."""
+        seen: list[str] = []
+        for name in self.stage_of if self.staged else []:
+            if name and name not in seen:
+                seen.append(name)
+        return seen
+
+    @property
+    def stage_number(self) -> int:
+        """Which part they are in, counting from one. Zero if unstaged."""
+        if not self.stage:
+            return 0
+        return self.stages.index(self.stage) + 1
+
+    @property
+    def starting_a_stage(self) -> bool:
+        """Is the current step the first of a new part?
+
+        The thing worth SAYING. "That is the terrain done - now the lighting"
+        is the sentence that makes a thirty step job feel like five jobs, and
+        it is only true at the boundary.
+        """
+        return (bool(self.stage) and self.index > 0
+                and self.stage_at(self.index - 1) != self.stage)
+
+    def steps_left_in_stage(self) -> int:
+        remaining = 0
+        for position in range(self.index, len(self.steps)):
+            if self.stage_at(position) != self.stage:
+                break
+            remaining += 1
+        return remaining
+
     # --- interrupted, and picked back up ---------------------------------
 
     def pause(self) -> None:
@@ -139,6 +223,13 @@ class Walkthrough:
             return ""
         if self.index == len(self.steps) - 1:
             return f"last one - {self.current.lower()}."
+        if self.staged:
+            # Where they are, not only what is next. A long lesson is where
+            # somebody most often loses the thread and asks - that is the
+            # whole reason parts exist, so the answer says which part.
+            return (f"we are on {self.stage.lower()}, "
+                    f"{self.steps_left_in_stage()} to go. "
+                    f"{self.current.lower()} is next.")
         return f"{self.current.lower()} is next."
 
     def where_we_are(self) -> str:
@@ -152,6 +243,18 @@ class Walkthrough:
         if not self.steps:
             return ""
         lines = [f"YOU ARE TEACHING THEM: {self.goal or self.steps[0]}"]
+        if self.staged:
+            # The shape of the whole job, before the detail of one step. A
+            # long lesson read as a flat list leaves the model unable to
+            # answer "how much more of this is there", which is the question
+            # somebody halfway through a big job actually asks.
+            lines.append(
+                f"This is a long one, in {len(self.stages)} parts: "
+                + " -> ".join(self.stages))
+            lines.append(
+                f"They are in part {self.stage_number} of "
+                f"{len(self.stages)}, {self.stage}, with "
+                f"{self.steps_left_in_stage()} step(s) left in it.")
         if self.walked:
             lines.append("Already done, by them, do not repeat these:")
             lines.extend(f"  - {step}" for step in self.walked)
@@ -306,6 +409,20 @@ class Walkthrough:
         return (digest.app, digest.title,
                 tuple(sorted(element.name for element in digest.elements[:60])))
 
+    def _opening(self) -> str:
+        """What a long lesson says before its very first step, or "".
+
+        The count and the first part's name, and nothing else. Somebody being
+        taught to build a whole environment needs to know it is five parts
+        rather than one endless one - but reading all five names out is the
+        recitation this file exists to replace, one level up. They hear each
+        part's name as they reach it.
+        """
+        if not self.staged or self.index != 0:
+            return ""
+        return (f"this is {len(self.stages)} parts. first, "
+                f"{self.stage.lower()}. ")
+
     def say(self, progress: Progress) -> str:
         """What to speak for this progress, or "" for nothing.
 
@@ -318,9 +435,23 @@ class Walkthrough:
                 # No "i am pointing at it": a doing step is an instruction,
                 # and claiming to point at one is a promise about the screen
                 # that nothing here checked.
-                return f"{self.current.lower()} tell me when you have."
+                # A full stop between the step and the prompt, or the two run
+                # together as one sentence - "add a plane and scale it up
+                # tell me when you have" - and the speech has no pause where
+                # the instruction ends.
+                return (f"{self._opening()}{self.current.lower()}. "
+                        f"tell me when you have.")
             return f"start with {self.current.lower()}. i am pointing at it."
         if progress is Progress.ADVANCED:
+            # Said at a boundary and only there. "That is the terrain done -
+            # now the lighting" is what turns a thirty step list into five
+            # jobs somebody can see the end of; said at every step it would
+            # be the padding this file exists to avoid.
+            if self.starting_a_stage:
+                done = self.stage_at(self.index - 1).lower()
+                ending = "" if self.doing else "."
+                return (f"that is {done} done. now {self.stage.lower()} - "
+                        f"{self.current.lower()}{ending}")
             if self.doing:
                 return f"good. now {self.current.lower()}"
             return f"good. now {self.current.lower()}."
@@ -380,15 +511,38 @@ def from_directions(directions, goal: str = "") -> Walkthrough | None:
     return from_steps(steps, goal)
 
 
-def from_steps(steps, goal: str = "", doing: bool = False):
+def from_steps(steps, goal: str = "", doing: bool = False, stages=None):
     """A walkthrough from plain steps, or None if it is not worth one.
 
     One step is not a walkthrough - it is a sentence, and the ordinary reply
     already handles it better. Two or more is a sequence somebody can lose
     their place in, which is the thing this exists for.
+
+    `stages` names the part of the job each step belongs to, one per step. It
+    is dropped rather than trusted when the two lists do not line up: a
+    mismatch means whoever supplied them lost count, and a lesson whose parts
+    are off by one announces "that is the lighting done" in the middle of the
+    terrain. A long flat lesson is worse than a staged one and far better
+    than a mislabelled one.
     """
-    kept = [str(step).strip() for step in steps if str(step).strip()]
+    # Materialised first: `steps` may be a generator, and consuming it once
+    # to check the lengths would leave nothing to pair with.
+    given = list(steps)
+    named = list(stages) if stages is not None else []
+    if len(named) != len(given):
+        named = [""] * len(given)
+
+    kept: list[str] = []
+    names: list[str] = []
+    for step, name in zip(given, named):
+        if not str(step).strip():
+            continue
+        kept.append(str(step).strip())
+        names.append(str(name or "").strip())
     if len(kept) < 2:
         return None
-    return Walkthrough(steps=kept[:MAX_STEPS], goal=goal, doing=doing,
-                       truncated=len(kept) > MAX_STEPS)
+
+    budget = MAX_DOING_STEPS if doing else MAX_STEPS
+    return Walkthrough(steps=kept[:budget], goal=goal, doing=doing,
+                       stage_of=names[:budget] if any(names) else [],
+                       truncated=len(kept) > budget)
