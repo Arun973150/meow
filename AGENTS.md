@@ -793,6 +793,88 @@ on four numpad keys, "Select" with and without extend, and "Play Animation"
 forwards and in reverse were all the same shape. A question is fair only when
 the words the model sees have exactly one answer.
 
+⚠ **THE 100% WAS MEASURED AGAINST THE MANUAL'S OWN VOCABULARY, and real
+speech is much harder.** Every question in `meow teaching` is built from the
+operator labels, so "Bevel" is asked as "Bevel" - the best possible case for
+word overlap, and not how anybody talks. `meow reference` is the honest half:
+23 sentences a person says, each hand-labelled with the operator that answers
+it, because a person's words are exactly what cannot be generated from the
+index.
+
+```
+                              found anywhere   found FIRST
+substring scoring (first try)    13/23            8/23   (36%)
+after the four fixes below       20/23           20/23   (87%)
+```
+
+⚠ **`word in haystack` IS SUBSTRING MATCHING, and on 2,501 lines it is
+catastrophic rather than loose.**
+
+```
+"bouncing ball"   matched  object.metaball_add     ball inside metaBALL
+"how do i scale"  matched  wm.context_scale_float
+"edit mode"       matched  object.voxel_size_edit
+```
+
+Four fixes, each measured:
+
+- **words, not substrings** - and an operator name is itself several words,
+  so the split breaks on underscores too: `mesh.loopcut_slide` is four.
+- **a minimum score.** A weak match is WORSE than no match: the block tells
+  the model these lines are authoritative and that its own memory is about
+  half right, so handing it metaballs when it asked about a bouncing ball
+  argues against the one source that would have been right.
+- **a penalty per label word the request did not ask about**, so a label
+  ABOUT the request beats one that merely contains it. "How do i move this"
+  hits "Move" and "Extrude and Move on Normals" once each.
+- **the keymap CONTEXT ranks.** `object.duplicate_move` and
+  `nla.duplicate_move` share the label "Duplicate", and the context is the
+  only thing that separates them. A standing preference for the viewport
+  contexts, beaten by a live read when there is one. Not a filter - a
+  Sequencer question still reaches its lines.
+
+⚠ **AND THAT IS WHERE THE LIVE BLENDER READ EARNS ITS PLACE.** It was built
+to tell the model which mode they are in and measured as buying nothing for
+that. Feeding it into RETRIEVAL instead is what separates `object.*` from
+`nla.*` on a tied label. Same capability, different consumer.
+
+⚠ **Blender's words are not the user's, and no scoring closes that.**
+`transform.resize` is labelled "Resize" and everybody says "scale";
+`object.select_all` is "(De)select All" and people say "everything".
+`SAID_INSTEAD` is a short hand-written table per application, added to the
+request rather than substituted. Both sides are STEMMED, because the request
+is stemmed by then and a raw key never matches - a bug hidden by an earlier
+stemmer that happened to leave "scale" alone.
+
+⚠ **The stemmer must drop a trailing "e" as well as the suffix.** Trimming
+only the ending gives "rotating" -> "rotat" and leaves "rotate" alone, so the
+two never meet, which is the whole point of having one. It mangles words that
+were never inflected - "mode" becomes "mod" - and that costs nothing, because
+both sides of every comparison go through it.
+
+⚠ **A constant that calls a function defined later in the file is a
+NameError at import.** `SAID_INSTEAD` stems its own keys and sat above
+`_stem`.
+
+⚠ **THREE OF MY OWN GROUND-TRUTH LABELS WERE WRONG, and the diagnostic
+found them.** `mesh.extrude_region_move`, `object.editmode_toggle` and
+`object.transform_mirror` are not BOUND to anything - the keyed operators are
+`view3d.edit_mesh_extrude_move_normal`, `object.mode_set` and
+`transform.mirror`. A fourth was worse: "my object disappeared" was labelled
+as having no answer, and `H = Hide Objects` is a good one. Check what the
+application calls a thing before asserting what the answer is.
+
+**WHETHER A LESSON IS BETTER IS STILL NOT ESTABLISHED.** Everything above
+measures single-shortcut lookup. `teach_me_this` writes four to thirty steps
+in one go and retrieval runs ONCE against the whole request, so the win does
+not transfer for free. An attempt to measure it FAILED and is not reported as
+a result: the key extractor found keys in only 2 of 8 lessons, modal keys like
+"press X to constrain the axis" are not keymap bindings and were flagged
+wrongly, and grading "adjust the position" against the label "Move" by word
+overlap marks a CORRECT step as mismatched. Six keys and a broken grader is
+not evidence. Measuring it properly needs a person reading a handful of
+lessons.
+
 ⚠ **A CAVEAT WAS WRITTEN HERE SAYING THE WIN NEEDED THE CONTEXT. IT WAS
 WRONG.** The reasoning was sound - a shortcut is only correct inside one
 context, X deletes the object in Object Mode and opens a menu in Edit Mode,
@@ -2083,7 +2165,8 @@ meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
 meow teaching        does the model need the app's own manual?
-pytest               660 fast checks - no Windows, no keys, no network
+meow reference       does the lookup survive real speech?
+pytest               688 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

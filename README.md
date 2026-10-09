@@ -97,18 +97,19 @@ one target landed 6px out on one run and 545px out on the next. The model's own
 instability is a usable signal.
 
 So it looks **twice, in parallel, and answers only where the two agree**.
-Scored twice over, because one pass is a sample rather than a property:
+Scored three times, because one pass is a sample rather than a property — and
+because the one-look rate wanders by four between runs, so a two-run
+comparison would have been noise:
 
 | | marks drawn | right | **wrong** |
 |---|---|---|---|
-| one look | 36 / 37 | 25 / 21 | **11 / 16** |
-| two looks, must agree | 29 / 29 | 24 / 21 | **5 / 8** |
+| one look | 36 / 37 / 37 | 25 / 21 / 21 | **11 / 16 / 16** |
+| two looks, must agree | 29 / 29 / 29 | 24 / 21 / 19 | **5 / 8 / 10** |
 
-The absolute hit rate wanders by four between runs; the shape reproduces
-exactly. Both times it drew eight fewer marks and lost at most one correct one
-— so what it declines to draw is almost entirely what it was getting wrong.
-Precision 69% → 83% on one run, 57% → 72% on the other. It even rescued three,
-because the midpoint of two looks that agree beats either.
+It draws **29 marks every single time**, removes 6–8 wrong ones, and loses 0–2
+right ones. Precision improves in all three runs — 69%→83%, 57%→72%, 57%→66%.
+The size of the win varies; the direction does not. It even rescued three
+targets, because the midpoint of two agreeing looks beats either.
 
 **And it costs no wall clock** — neither call depends on the other, so they go
 out together: 7.2s median for the pair against 7.8s for one. It costs tokens,

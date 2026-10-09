@@ -189,3 +189,150 @@ def test_the_questions_a_learner_actually_asks(tmp_path, question, expected):
     found = manual.about(question)
     assert found, f"{question!r} matched nothing"
     assert found[0].keys == expected
+
+
+# --- surviving the way people actually talk ---------------------------------
+#
+# The first version scored with `word in haystack`, which is SUBSTRING
+# matching, and on a 2,501 line manual that is catastrophic rather than
+# merely loose. Measured on 23 spoken sentences with the answer known
+# (`meow reference`): 8/23 right first before these fixes, 20/23 after.
+
+
+def test_a_word_is_never_matched_as_a_SUBSTRING(tmp_path):
+    """The bug that started this. "bouncing ball" retrieved metaball
+    operators, "scale" retrieved wm.context_scale_float, and "edit mode"
+    retrieved object.voxel_size_edit.
+    """
+    rough = bundle()
+    rough["shortcuts"].append(
+        {"context": "Metaball", "keys": "shift+A",
+         "operator": "object.metaball_add", "properties": {}})
+    rough["operators"].append(
+        {"operator": "object.metaball_add", "label": "Add Metaball",
+         "description": "Add an metaball object to the scene"})
+    manual = library_from(tmp_path, rough).for_window("blender.exe")
+    found = manual.about("teach me how to animate a bouncing ball")
+    assert "object.metaball_add" not in [line.operator for line in found]
+
+
+def test_an_operator_name_is_several_words(tmp_path):
+    """`mesh.loopcut_slide` is four words. Splitting only on non-word
+    characters leaves "loopcut_slide" as one token nothing matches.
+    """
+    from meow.knowledge.manuals import _words
+
+    # Stemmed, so "slide" lands on "slid" - both sides of every comparison
+    # go through the same stemmer, so that costs nothing.
+    assert _words("mesh.loopcut_slide") >= {"loopcut", "slid", "mesh"}
+
+
+def test_endings_are_trimmed_so_rotating_finds_rotate(tmp_path):
+    from meow.knowledge.manuals import _words
+
+    assert _words("rotating") == _words("rotate") == _words("rotates")
+    # But not so eagerly that short words are destroyed.
+    assert "ask" in _words("ask")
+
+
+def test_a_WEAK_match_returns_NOTHING(tmp_path):
+    """A weak match is worse than no match: the block tells the model these
+    lines are authoritative and that its own memory is half right, so a bad
+    line argues against the one source that would have been right.
+    """
+    manual = library_from(tmp_path, bundle()).for_window("blender.exe")
+    assert manual.about("i want to make this object metallic") == []
+    assert manual.to_prompt("my render looks flat") == ""
+
+
+def test_a_label_ABOUT_the_request_beats_one_that_merely_contains_it(tmp_path):
+    """Asked "how do i move this", "Move" and "Extrude and Move on Normals"
+    both hit once, and only one of them is the answer.
+    """
+    rough = bundle()
+    rough["shortcuts"] += [
+        {"context": "Object Mode", "keys": "G",
+         "operator": "transform.translate", "properties": {}},
+        {"context": "Mesh", "keys": "E",
+         "operator": "view3d.edit_mesh_extrude_move_normal", "properties": {}},
+    ]
+    rough["operators"] += [
+        {"operator": "view3d.edit_mesh_extrude_move_normal",
+         "label": "Extrude and Move on Normals",
+         "description": "Extrude region together along the average normal"},
+    ]
+    manual = library_from(tmp_path, rough).for_window("blender.exe")
+    assert manual.about("how do i move this")[0].operator == "transform.translate"
+
+
+def test_what_people_SAY_is_mapped_to_what_blender_CALLS_it(tmp_path):
+    """No amount of scoring turns "scale" into "resize". Blender's label is
+    "Resize" and nobody says it.
+    """
+    rough = bundle()
+    rough["shortcuts"].append(
+        {"context": "Object Mode", "keys": "S",
+         "operator": "transform.resize", "properties": {}})
+    rough["operators"].append(
+        {"operator": "transform.resize", "label": "Resize",
+         "description": "Scale (resize) selected items"})
+    manual = library_from(tmp_path, rough).for_window("blender.exe")
+    assert manual.about("how do i scale it")[0].operator == "transform.resize"
+
+
+def test_the_LIKELY_context_wins_a_tie(tmp_path):
+    """`object.duplicate_move` and `nla.duplicate_move` share the label
+    "Duplicate", and somebody saying "this object" is looking at the
+    viewport, not the NLA editor.
+    """
+    rough = bundle()
+    rough["shortcuts"] += [
+        {"context": "Object Mode", "keys": "shift+D",
+         "operator": "object.duplicate_move", "properties": {}},
+        {"context": "NLA Editor", "keys": "shift+D",
+         "operator": "nla.duplicate_move", "properties": {}},
+    ]
+    for operator in ("object.duplicate_move", "nla.duplicate_move"):
+        rough["operators"].append(
+            {"operator": operator, "label": "Duplicate",
+             "description": "Duplicate selected strips and move them"})
+    manual = library_from(tmp_path, rough).for_window("blender.exe")
+    first = manual.about("how do i duplicate this")[0]
+    assert first.operator == "object.duplicate_move", first.context
+
+
+def test_the_LIVE_context_beats_the_standing_preference(tmp_path):
+    """When something can read the mode from the application itself, that
+    outranks a guess about where people usually are. This is the one real
+    job the live read has.
+    """
+    rough = bundle()
+    rough["shortcuts"] += [
+        {"context": "Object Mode", "keys": "shift+D",
+         "operator": "object.duplicate_move", "properties": {}},
+        {"context": "NLA Editor", "keys": "shift+D",
+         "operator": "nla.duplicate_move", "properties": {}},
+    ]
+    for operator in ("object.duplicate_move", "nla.duplicate_move"):
+        rough["operators"].append(
+            {"operator": operator, "label": "Duplicate",
+             "description": "Duplicate selected strips and move them"})
+    manual = library_from(tmp_path, rough).for_window("blender.exe")
+    first = manual.about("how do i duplicate this", context="NLA Editor")[0]
+    assert first.context == "NLA Editor"
+
+
+def test_an_unlikely_context_is_still_REACHABLE(tmp_path):
+    """Not a filter. A question about the Sequencer is real; its lines just
+    do not win a tie against the viewport.
+    """
+    rough = bundle()
+    rough["shortcuts"].append(
+        {"context": "Sequencer", "keys": "K",
+         "operator": "sequencer.split", "properties": {}})
+    rough["operators"].append(
+        {"operator": "sequencer.split", "label": "Split Strips",
+         "description": "Split the selected strips in two"})
+    manual = library_from(tmp_path, rough).for_window("blender.exe")
+    found = [line.operator for line in manual.about("how do i split a strip")]
+    assert "sequencer.split" in found

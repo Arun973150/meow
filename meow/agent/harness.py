@@ -333,6 +333,20 @@ def keep_the_thread_short(state, runtime):
     return {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *kept]}
 
 
+def _keymap_context(state) -> str:
+    """The keymap context a live scene read implies, or "".
+
+    Separated out because it is the only thing retrieval wants from the read -
+    the rest of the state is for the model to talk about.
+    """
+    if not state:
+        return ""
+    from ..desktop.scene import SPOKEN_MODES
+
+    context, _spoken = SPOKEN_MODES.get(str(state.get("mode") or ""), ("", ""))
+    return context
+
+
 def _one_picture_only(messages):
     """Keep the NEWEST screenshot and strip every older one.
 
@@ -1203,10 +1217,18 @@ class Harness:
         # the nine it fixed would have damaged the user's work: "delete a
         # keyframe" came back as X, which deletes the OBJECT, and "mirror
         # this" as shift+D, which duplicates it. See `meow teaching`.
+        # The live mode goes into RETRIEVAL, not only into the prompt, and
+        # that is the one job the Blender read turned out to be good for.
+        # `object.duplicate_move` and `nla.duplicate_move` share the label
+        # "Duplicate", and the mode is what tells them apart - measured, it
+        # took the spoken-sentence lookup from 8/23 right-first to 20/23.
+        state = self.scene.look() if self.digest and self.digest.app.lower(
+        ) == "blender.exe" else None
         reference = self.library.to_prompt(
             transcript,
             app=self.digest.app if self.digest else "",
-            title=self.digest.title if self.digest else "")
+            title=self.digest.title if self.digest else "",
+            context=_keymap_context(state))
         if reference:
             messages.append(SystemMessage(reference, additional_kwargs=tag))
 
@@ -1218,7 +1240,7 @@ class Harness:
             # the project that can say which mode they are in - asked only
             # when a manual already matched, so the socket is never touched
             # on a turn about something else.
-            live = self.scene.describe()
+            live = self.scene.describe(state) if state else ""
             if live:
                 messages.append(SystemMessage(live, additional_kwargs=tag))
 

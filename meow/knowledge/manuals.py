@@ -90,8 +90,86 @@ FILLER = frozenset((
     "add", "use", "set", "change", "put", "make", "get", "how", "what",
     "where", "which", "can", "you", "your", "its", "all", "any", "new",
     "current", "active", "selected", "selection", "value", "values",
-    "object", "objects", "item", "items", "mode", "type", "data",
+    "item", "items", "type", "data",
+    # "object" was briefly in this list and it cost more than it saved:
+    # `object.duplicate_move` and `nla.duplicate_move` share the label
+    # "Duplicate", and the word "object" is the only thing that tells them
+    # apart. The noise it carried is dealt with by ranking the CONTEXT
+    # instead - see LIKELY_CONTEXTS.
+    # Said by every person asking every question, and present in half the
+    # descriptions. "show me how to bevel this edge" scored
+    # outliner.show_active above mesh.bevel on the strength of "show".
+    "teach", "show", "tell", "help", "want", "need", "please", "again",
+    "does", "did", "will", "would", "should", "could", "about", "there",
+    "here", "then", "when", "something", "thing", "things", "some",
 ))
+
+# A line has to earn this much to be offered at all. Three is one hit in the
+# LABEL, or three anywhere else.
+#
+# **A WEAK MATCH IS WORSE THAN NO MATCH**, which is the whole reason this
+# exists. The block tells the model these lines are authoritative and that
+# its own memory is right about half the time - so handing it lines about
+# metaballs when it asked about a bouncing ball does not waste tokens, it
+# argues against the one source that would have been right. "My render looks
+# flat" used to come back with render.view_cancel.
+MINIMUM_SCORE = 3.0
+
+# A hit in the LABEL is worth this much more than one anywhere else. "Bevel"
+# in the label of mesh.bevel is the thing being asked for; "bevel" in another
+# operator's description is a coincidence.
+LABEL_WEIGHT = 3.0
+
+# Charged per word of the label the request did NOT ask about, so a line whose
+# label is ABOUT the request beats one that merely contains it. Asked "how do
+# i move this", "Move" and "Extrude and Move on Normals" both hit once, and
+# only one of them is the answer.
+WANDERING_PENALTY = 0.5
+
+# What people say against what the application calls it. Hand-written and
+# short on purpose: this is the one gap word overlap cannot close, because no
+# amount of scoring turns "scale" into "resize".
+#
+# Blender's own labels are the right-hand side. Measured misses before this
+# existed: "how do i scale it" never found transform.resize (labelled
+# "Resize"), and "how do i select everything" never found select_all
+# (labelled "(De)select All").
+#
+# Added to the request rather than used to replace words, so a sentence that
+# happens to use the application's own vocabulary is unaffected.
+# Which keymap contexts a person talking to a desktop companion is plausibly
+# in, best first. Scored as a bonus, because the alternative is nonsense: the
+# same label exists in the NLA Editor, the Dopesheet, the Grease Pencil
+# keymap and half a dozen other editors, and "how do i duplicate this" came
+# back with `nla.duplicate_move` on a tie.
+#
+# Not a filter. A question about the Sequencer is real and its lines are
+# still reachable; they just do not win a tie against the 3D viewport, which
+# is where somebody saying "this object" is looking.
+LIKELY_CONTEXTS = ("Object Mode", "Mesh", "3D View", "Object Non-modal",
+                   "Screen", "Window", "Frames", "Sculpt", "Curve",
+                   "Armature", "Pose", "Grease Pencil")
+
+# Worth slightly less than a body-word hit, so it only ever breaks a tie and
+# never beats a line that actually matches the words better.
+CONTEXT_BONUS = 0.8
+
+# Written the way a person would say them. Stemmed into `_SAID_INSTEAD` below,
+# once, after `_stem` exists - a constant that calls a function defined later
+# in the file is a NameError at import, which is how this was first written.
+SAID_INSTEAD = {
+    "blender": {
+        "scale": ("resize",),
+        "size": ("resize",),
+        "grab": ("move", "translate"),
+        "everything": ("all",),
+        "unhide": ("show", "hidden"),
+        "spin": ("rotate",),
+        "copy": ("duplicate",),
+        "subdivide": ("subdivision",),
+        "smooth": ("shade", "subdivision"),
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -119,9 +197,62 @@ class Shortcut:
                          self.keys, self.context)).lower()
 
 
-def _meaningful(text: str) -> set:
-    return {word for word in re.split(r"\W+", text.lower())
+def _stem(word: str) -> str:
+    """Trim the endings that stop "rotate" matching "rotating".
+
+    Four characters minimum before trimming, or "ask" becomes "a". Crude on
+    purpose: a real stemmer is a dependency and a model call is a GPU, and
+    neither is available on the critical path of a spoken turn.
+
+    **The trailing "e" has to go too, and that is not cosmetic.** Trimming
+    only the suffix gives "rotating" -> "rotat" and leaves "rotate" alone, so
+    the two still do not meet - which is the whole thing this function exists
+    to do. Stripping a final "e" afterwards lands both on "rotat", and
+    "move"/"moving"/"moves" all on "mov".
+
+    It mangles words that were never inflected - "mode" becomes "mod" - and
+    that costs nothing, because BOTH sides of every comparison go through
+    here.
+    """
+    for ending in ("ing", "ed", "es", "s"):
+        if len(word) > len(ending) + 3 and word.endswith(ending):
+            word = word[: -len(ending)]
+            break
+    if len(word) > 3 and word.endswith("e"):
+        word = word[:-1]
+    return word
+
+
+def _words(text: str) -> set:
+    """Text as a set of stemmed WORDS - never as a substring haystack.
+
+    This is the fix for the worst bug this file had. Scoring with
+    `word in haystack` is substring matching, and on a 2,501 line manual that
+    is catastrophic rather than merely loose:
+
+        "bouncing ball"  matched  object.metaball_add      ball in metaball
+        "how do i scale" matched  wm.context_scale_float   scale in scale_float
+        "edit mode"      matched  object.voxel_size_edit   edit in size_edit
+
+    An operator name is itself several words - `mesh.extrude_region_move` is
+    four - so the split has to break on punctuation and underscores too.
+    """
+    return {_stem(word) for word in re.split(r"[\W_]+", text.lower())
             if len(word) >= MEANINGFUL_LETTERS and word not in FILLER}
+
+
+def _meaningful(text: str) -> set:
+    return _words(text)
+
+
+# Both sides stemmed, because `wanted` holds stemmed words by the time this
+# is consulted and a raw key like "scale" would never match the "scal" in it.
+# That was a real bug, hidden by an earlier stemmer that left "scale" alone.
+_SAID_INSTEAD = {
+    application: {_stem(said): tuple(_stem(w) for w in instead)
+                  for said, instead in table.items()}
+    for application, table in SAID_INSTEAD.items()
+}
 
 
 @dataclass
@@ -133,7 +264,8 @@ class Manual:
     version: str = ""
     shortcuts: list = field(default_factory=list)
 
-    def about(self, request: str, limit: int = MAX_LINES) -> list:
+    def about(self, request: str, limit: int = MAX_LINES,
+              context: str = "") -> list:
         """The lines worth putting in front of the model, best first.
 
         Word overlap, model-free - the same technique as recipe retrieval and
@@ -141,27 +273,49 @@ class Manual:
         and the target machine has no GPU. An embedding hop here would be
         wrong twice over.
         """
-        wanted = _meaningful(request)
+        wanted = _words(request)
         if not wanted:
             return []
+        # The vocabulary gap, added rather than substituted. See
+        # SAID_INSTEAD - and note that BOTH SIDES are stemmed, because
+        # `wanted` holds stemmed words and a raw key like "scale" would
+        # never match the "scal" in it. That was a real bug hidden by a
+        # stemmer that happened to leave "scale" alone.
+        spoken = _SAID_INSTEAD.get(self.application.lower(), {})
+        for word in list(wanted):
+            wanted.update(spoken.get(word, ()))
+        # Where they ACTUALLY are, when something can say so - `scene.py`
+        # reads it from Blender itself. A shortcut is only correct inside one
+        # context, so this is the strongest signal available and it is worth
+        # more than the standing preference below.
+        here = (context or "").strip()
+
         scored = []
         for shortcut in self.shortcuts:
-            haystack = shortcut.haystack()
-            hits = sum(1 for word in wanted if word in haystack)
-            if not hits:
+            label = _words(shortcut.label)
+            body = _words(shortcut.description) | _words(shortcut.operator)
+            in_label = wanted & label
+            score = (LABEL_WEIGHT * len(in_label)
+                     + len(wanted & body)
+                     - WANDERING_PENALTY * len(label - wanted))
+            if score < MINIMUM_SCORE:
                 continue
-            # A hit in the LABEL counts double. "Bevel" in the label of
-            # mesh.bevel is the thing being asked for; "bevel" appearing in
-            # some other operator's description is a coincidence.
-            label = shortcut.label.lower()
-            hits += sum(1 for word in wanted if word in label)
-            scored.append((hits, shortcut))
-        scored.sort(key=lambda row: (-row[0], row[1].keys))
-        return [shortcut for _hits, shortcut in scored[:limit]]
+            if here and shortcut.context == here:
+                score += CONTEXT_BONUS * 2
+            elif shortcut.context in LIKELY_CONTEXTS:
+                # Earlier in the list is more likely, so the bonus tapers.
+                place = LIKELY_CONTEXTS.index(shortcut.context)
+                score += CONTEXT_BONUS * (1.0 - place / len(LIKELY_CONTEXTS))
+            scored.append((score, shortcut))
+        # Ties broken by the shorter label, which is the more central
+        # operator: "Move" over "Interactive Light Track to Cursor".
+        scored.sort(key=lambda row: (-row[0], len(row[1].label), row[1].keys))
+        return [shortcut for _score, shortcut in scored[:limit]]
 
-    def to_prompt(self, request: str, limit: int = MAX_LINES) -> str:
+    def to_prompt(self, request: str, limit: int = MAX_LINES,
+                  context: str = "") -> str:
         """The block for the prompt. Empty when nothing matched."""
-        lines = self.about(request, limit)
+        lines = self.about(request, limit, context)
         if not lines:
             return ""
         return (
@@ -205,11 +359,11 @@ class Library:
         return None
 
     def to_prompt(self, request: str, app: str = "", title: str = "",
-                  limit: int = MAX_LINES) -> str:
+                  limit: int = MAX_LINES, context: str = "") -> str:
         manual = self.for_window(app, title)
         if manual is None:
             return ""
-        return manual.to_prompt(request, limit)
+        return manual.to_prompt(request, limit, context)
 
 
 def folder() -> Path:

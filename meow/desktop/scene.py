@@ -214,7 +214,7 @@ class Scene:
 
     # --- saying it --------------------------------------------------------
 
-    def describe(self) -> str:
+    def describe(self, state=None) -> str:
         """The block for the prompt. Empty when Blender is not listening.
 
         Deliberately leads with the KEYMAP CONTEXT rather than with the mode's
@@ -222,7 +222,9 @@ class Scene:
         by: a model told "Mesh" can match the Ctrl+B line, and one told
         "EDIT_MESH" has to make the leap itself.
         """
-        state = self.look()
+        # Takes a state it has already been handed, so a turn that read the
+        # scene for retrieval does not read it a second time to talk about.
+        state = state if state is not None else self.look()
         if not state:
             return ""
 

@@ -10,6 +10,7 @@
     meow evaluate        the UIA / vision ablation
     meow evaluate --labelled   score against the hand-marked set
     meow teaching              does the model need the app's own manual?
+    meow reference             does the lookup survive real speech?
 
 A desktop application ships one executable. `doctor` and `stress` are things
 you ask it about itself, not separate programs, and a folder of loose scripts
@@ -25,7 +26,7 @@ import sys
 # `meow ...` with no recognised subcommand runs the companion and passes
 # everything through, so `meow --mute` keeps working without being listed.
 COMMANDS = ("doctor", "connectors", "stress", "smoke", "evaluate", "label",
-            "routing", "teaching", "help")
+            "routing", "teaching", "reference", "help")
 
 
 def _usage() -> None:
@@ -76,6 +77,11 @@ def main(argv: list[str] | None = None) -> None:
         from .diagnostics import teaching
 
         raise SystemExit(teaching.main())
+
+    if command == "reference":
+        from .diagnostics import reference
+
+        raise SystemExit(reference.main())
 
     if command == "label":
         from .diagnostics import label
