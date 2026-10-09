@@ -87,7 +87,7 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command
 
 from ..desktop import actions, apps, lookup, verify
-from ..knowledge import documents, recipes
+from ..knowledge import documents, manuals, recipes
 from ..desktop.actions import Confirmer, Outcome, always_allow
 from ..config import cat_name, get, openai_api_key
 from ..desktop.grounding import Target
@@ -413,6 +413,11 @@ class Harness:
         # during one, and re-reading a folder before every turn would put disk
         # access on the path that can least afford it.
         self.shelf = recipes.load()
+        # The applications' own references, generated from the installed copy
+        # by `scripts/blender_reference.py`. Read once for the same reason as
+        # the recipes, and it matters more here: Blender's is 715KB of JSON
+        # and loading that per turn would be absurd.
+        self.library = manuals.load()
         # Shared with the answer path, which was the only thing counting.
         # A session spent entirely on act and show reported $0.0000 while
         # spending real money - the worst possible reading on a prepaid
@@ -1180,6 +1185,24 @@ class Harness:
             title=self.digest.title if self.digest else "")
         if written_down:
             messages.append(SystemMessage(written_down, additional_kwargs=tag))
+
+        # And the application's OWN reference, for the window in front. A
+        # skill says how a program thinks and is injected whole; a manual is
+        # its command surface and is far too big for that - Blender defines
+        # 2,501 shortcuts - so only the handful a lookup found goes in.
+        #
+        # Worth the tokens, which is measured rather than assumed. On 26
+        # shortcut questions built from Blender's own keymap the teaching
+        # model scored 17 from memory and 26 with these lines - and two of
+        # the nine it fixed would have damaged the user's work: "delete a
+        # keyframe" came back as X, which deletes the OBJECT, and "mirror
+        # this" as shift+D, which duplicates it. See `meow teaching`.
+        reference = self.library.to_prompt(
+            transcript,
+            app=self.digest.app if self.digest else "",
+            title=self.digest.title if self.digest else "")
+        if reference:
+            messages.append(SystemMessage(reference, additional_kwargs=tag))
 
         if self.lesson:
             # Before the guide reminder, so the reminder's instructions are

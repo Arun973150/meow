@@ -753,6 +753,71 @@ anywhere else. The test suite caught it, which is the test suite doing its
 job - a gate is only correct where being in the wrong application makes the
 knowledge wrong rather than merely early.
 
+**AN APPLICATION'S OWN MANUAL, read from the copy that is installed.**
+`meow/knowledge/manuals.py`, built by `python scripts/blender_reference.py`
+into `%LOCALAPPDATA%/Meow/manuals/`.
+
+A skill is 2.7KB of hand-written knowledge, injected whole whenever that
+window is in front. That is the right shape for "how this program thinks" and
+the wrong shape for its command surface: Blender 4.1.1 defines **2,501
+shortcuts across 267 contexts and 2,297 operators**, 715KB. So a manual is a
+skill too big to inject, and what goes in is the six lines a lookup found -
+same scoping, same word-overlap retrieval as the recipes, different size.
+
+**MEASURED, on 26 shortcut questions built from Blender's own keymap** - no
+hand-labelling, nothing to argue about, `meow teaching`:
+
+```
+from memory        17/26   (65%)
+with the manual    26/26   on this run
+```
+
+Two of the nine it fixed would have **damaged the user's work**:
+
+```
+"how do i delete a keyframe"   it said X        -> deletes the OBJECT
+"how do i mirror this"         it said shift+D  -> DUPLICATES it
+```
+
+The rest are the derailing kind: Clear Scale as Ctrl+A, which is the Apply
+menu; Batch Rename as F2, which renames one thing; Set 3D Cursor as
+Shift+right click, which is what it was before 2.8 changed it. A model's
+memory of a keymap is a memory of whichever version it read most about.
+
+⚠ **A METHODOLOGY BUG CAME FIRST AND SAID 50% -> 85%.** The question set was
+keyed on the operator and its properties rather than on **what the model is
+shown**. "Hide Collection" is one label with a binding per collection, so 1
+through 9 were nine separate rows and one identical question - the model was
+asked to pick one of nine and marked wrong for picking another. "View Orbit"
+on four numpad keys, "Select" with and without extend, and "Play Animation"
+forwards and in reverse were all the same shape. A question is fair only when
+the words the model sees have exactly one answer.
+
+⚠ **THE WIN IS CONDITIONAL ON KNOWING THE CONTEXT, and the measurement was
+handed it.** Every question states "they are working in: Mesh". A shortcut is
+only correct inside one context - G is Move in the 3D View, the UV Editor, the
+Graph Editor and the Node Editor, and X deletes the object in Object Mode
+while opening a menu in Edit Mode. **Nothing in the accessibility tree says
+which mode Blender is in: its whole tree is seven nodes.** Until the agent
+reads the mode from the screen or from Blender itself, the real score is below
+this one.
+
+⚠ **Matched on the EXECUTABLE, never on the window title.** A Chrome tab
+called "Blender donut tutorial" is not Blender, and matching on the title
+hands Blender's keymap to a web page - after which the cat teaches Blender
+shortcuts to somebody looking at a browser. `tests/test_manuals.py` checks it.
+
+**It is read from the installed copy, which is a better trust position than
+anything `find_how_to` has.** A fetched page is untrusted and may only
+contribute LOOK-FOR candidates; this is what the program on this machine
+actually does. Re-run the generator after upgrading - nothing checks, and a
+keymap one minor version stale still beats 65%.
+
+⚠ **The keymap is DEFINED in Python and shipped with Blender, and that is the
+only way to read it in the background.** `wm.keyconfigs` is populated lazily,
+so a headless probe got 12 items out of 2,501. `blender_default.generate
+_keymaps()` returns the whole thing and needs no window.
+
 **Three shipped skills: Blender, DaVinci Resolve, Photoshop** - chosen because
 they are the three the ablation measured as worst. Blender's note leads with
 the fact its interface is invisible to the tree, so an empty control list is
@@ -1692,32 +1757,40 @@ SIX, and one target landed 6px out on one run and 545px out on the next, so
 the model's own instability is a usable signal. **Two looks at the same
 screenshot, in parallel, answering only where they agree:**
 
-Scored twice, because `temperature=0` is not determinism here either and a
-single pass is a sample rather than a property:
+Scored THREE times, because `temperature=0` is not determinism here either and
+a single pass is a sample rather than a property:
 
 ```
-                        marks drawn      right        WRONG
-one look                  36 / 37       25 / 21      11 / 16
-two looks, must agree     29 / 29       24 / 21       5 /  8
+                        marks drawn         right            WRONG
+one look               36 / 37 / 37    25 / 21 / 21     11 / 16 / 16
+two looks, must agree  29 / 29 / 29    24 / 21 / 19      5 /  8 / 10
 ```
 
-The absolute hit rate wanders by four between runs; the SHAPE reproduces
-exactly. Both times it drew eight fewer marks and lost at most one correct
-one, so what it declines to draw is almost entirely what it was getting wrong.
-Precision 69% to 83% on one run, 57% to 72% on the other.
+The one-look hit rate wanders by four between runs, so **a two-run comparison
+would have been noise**. Across three, what holds:
+
+- it draws **29 marks every single time**, from 36 or 37
+- it removes **6 to 8 wrong** ones
+- it loses **0 to 2 right** ones
+- precision improves in all three: 69%->83%, 57%->72%, 57%->66%
+
+The size of the win varies; the direction does not. The first run's "one fewer
+correct mark" was the best of the three and should not be quoted on its own.
 
 Three it rescued, which was not the aim: a target 543px out on one look, one
 15px out and one 102px out all became hits, because the midpoint of two looks
 that agree is better than either.
 
 **And it costs no wall clock** - the two calls do not depend on each other, so
-they go out together: 7.2s median for the pair against 7.8s for one, and 7,342
-against 6,939 through `meow evaluate`. It costs tokens, not seconds.
+they go out together: 7.2s median for the pair against 7.8s for one, and
+7,191-7,342 against 6,233-6,939 through `meow evaluate`. It costs tokens, not
+seconds.
 
-⚠ **The median miss goes UP, and that is not a regression.** 113px to 151px,
-because the gate removes marks and the statistic is then over a smaller, harder
-set - the misses it cannot catch are precisely the ones where both looks
-agreed. Read `answered` alongside `hits` or this looks like a loss.
+⚠ **The median miss MOVES EITHER WAY and means nothing on its own.** 113px to
+151px on one run, 140px to 79px on the next. The gate removes marks, so the
+statistic is computed over a smaller and differently-shaped set - it is not a
+regression when it rises and not a win when it falls. Read `answered` alongside
+`hits`.
 
 ⚠ **The agreement window is EIGHT pixels, not the refinement's sixty-four.**
 Those compare different things. The refinement weighs a whole-screen guess
@@ -1962,7 +2035,8 @@ meow connectors      which services are connected, and connect one
 meow stress          70 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
-pytest               640 fast checks - no Windows, no keys, no network
+meow teaching        does the model need the app's own manual?
+pytest               660 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all

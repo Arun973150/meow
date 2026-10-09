@@ -9,6 +9,7 @@
     meow routing         replay the sentences routing got wrong once
     meow evaluate        the UIA / vision ablation
     meow evaluate --labelled   score against the hand-marked set
+    meow teaching              does the model need the app's own manual?
 
 A desktop application ships one executable. `doctor` and `stress` are things
 you ask it about itself, not separate programs, and a folder of loose scripts
@@ -24,7 +25,7 @@ import sys
 # `meow ...` with no recognised subcommand runs the companion and passes
 # everything through, so `meow --mute` keeps working without being listed.
 COMMANDS = ("doctor", "connectors", "stress", "smoke", "evaluate", "label",
-            "routing", "help")
+            "routing", "teaching", "help")
 
 
 def _usage() -> None:
@@ -70,6 +71,11 @@ def main(argv: list[str] | None = None) -> None:
         from .diagnostics import routing
 
         raise SystemExit(routing.main())
+
+    if command == "teaching":
+        from .diagnostics import teaching
+
+        raise SystemExit(teaching.main())
 
     if command == "label":
         from .diagnostics import label
