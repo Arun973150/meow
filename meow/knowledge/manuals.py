@@ -40,14 +40,24 @@ on four numpad keys, "Select" with and without extend, and "Play Animation"
 forwards and in reverse were all the same shape. A question is fair only when
 the words the model sees have exactly one answer.
 
-⚠ **THE WIN IS CONDITIONAL ON KNOWING THE CONTEXT, and that measurement was
-handed it.** Every question told the model "they are working in: Mesh", and a
-shortcut is only correct inside one context: G is `transform.translate` in the
-3D View, the UV Editor, the Graph Editor and the Node Editor, and X deletes
-the object in Object Mode while opening a menu in Edit Mode. Nothing in the
-accessibility tree says which mode Blender is in - its whole tree is seven
-nodes - so the agent has to get that from the screen or from Blender itself.
-The number above is an upper bound until it does.
+⚠ **I WROTE A CAVEAT HERE SAYING THE WIN NEEDED THE CONTEXT. IT WAS WRONG,
+AND MEASURING IT WAS CHEAP.** The reasoning was sound - a shortcut is only
+correct inside one context, X deletes the object in Object Mode and opens a
+menu in Edit Mode, and nothing in the accessibility tree says which mode
+Blender is in. The conclusion did not follow: every retrieved line CARRIES
+its own context, so the model picks the right one without being told.
+
+Re-measured on 24 questions with the context never stated, all for the mode
+Blender was really in:
+
+    from memory                        11/24   (46%)
+    the manual, context NOT stated     24/24
+    the manual plus a live read        24/24
+
+So the honest headline is better than the first one, not worse. And reading
+Blender's live state - which was built to close this gap - closes nothing,
+because there was no gap. That is the fourth measured improvement in this
+project to buy exactly zero.
 
 **Trust.** These lines come from the installed application, not from a page
 about some other version, which is a better position than `find_how_to` has

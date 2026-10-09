@@ -793,14 +793,61 @@ on four numpad keys, "Select" with and without extend, and "Play Animation"
 forwards and in reverse were all the same shape. A question is fair only when
 the words the model sees have exactly one answer.
 
-⚠ **THE WIN IS CONDITIONAL ON KNOWING THE CONTEXT, and the measurement was
-handed it.** Every question states "they are working in: Mesh". A shortcut is
-only correct inside one context - G is Move in the 3D View, the UV Editor, the
-Graph Editor and the Node Editor, and X deletes the object in Object Mode
-while opening a menu in Edit Mode. **Nothing in the accessibility tree says
-which mode Blender is in: its whole tree is seven nodes.** Until the agent
-reads the mode from the screen or from Blender itself, the real score is below
-this one.
+⚠ **A CAVEAT WAS WRITTEN HERE SAYING THE WIN NEEDED THE CONTEXT. IT WAS
+WRONG.** The reasoning was sound - a shortcut is only correct inside one
+context, X deletes the object in Object Mode and opens a menu in Edit Mode,
+and nothing in the accessibility tree says which mode Blender is in. The
+conclusion did not follow: every retrieved line CARRIES its own context, so
+the model picks the right one without being told. Re-measured on 24 questions
+with the context never stated:
+
+```
+from memory                        11/24   (46%)
+the manual, context NOT stated     24/24
+the manual plus a live read        24/24
+```
+
+The honest headline is therefore BETTER than the first one. Worth remembering
+as a habit: the caveat cost one command to check and would have sat in this
+file as a known limitation for months.
+
+**A LIVE READ OF BLENDER, and it did not help the thing it was built for.**
+`meow/desktop/scene.py` talks to the `blender-mcp` add-on's socket on
+localhost:9876 and returns the mode, the active object, the selection, its
+modifiers and its materials in ~50ms - faster than a UIA digest. It was built
+to close the context gap above, and the gap was not there: 24/24 either way.
+The fourth measured improvement in this project to buy exactly zero.
+
+It stays because the job it is actually good for is DIAGNOSIS, which is
+**unmeasured**: "nothing is selected, which is why that did nothing", "you are
+in Edit Mode, so Ctrl+B bevelled an edge instead of setting a render region".
+Say unmeasured rather than implying otherwise.
+
+⚠ **THE MODEL NEVER COMPOSES ANYTHING THAT GOES DOWN THAT SOCKET.** The
+add-on's `execute_code` is a bare `exec(code, {"bpy": bpy})` with no sandbox
+and NO AUTHENTICATION, so the danger is entirely about who writes the string.
+Every question is a module constant in `scene.py`, read-only by inspection,
+with no parameter and no formatting - there is no path from a spoken sentence,
+a model reply or a fetched page to the code that runs. Same containment rule
+the project already applies to web-derived names: the untrusted side says what
+to LOOK FOR, never what to DO.
+
+⚠ **THE ADD-ON SHIPS `Auto-Start Server` AS `default=True`**, which opens that
+unauthenticated code-execution port on every Blender launch, for the life of
+the session, whether or not anything is there to use it. Patched to False on
+install; the user presses Connect when they want it. Re-check after any
+upgrade of the add-on.
+
+⚠ **It refuses to serve in `blender -b`** and says so - "commands would never
+execute" - because its queue is drained by a `bpy.app.timers` callback and
+background mode has no event loop. So this only ever finds a Blender the user
+has open, which is the only one worth asking about. The REFERENCE generator is
+the opposite: headless, no window, no socket.
+
+⚠ **None of the add-on's twenty read-only commands report the MODE.**
+`get_world_state_snapshot` returns twenty-one fields and not one is it, which
+is why `scene.py` goes through `execute_code` with a constant rather than
+using the read-only surface.
 
 ⚠ **Matched on the EXECUTABLE, never on the window title.** A Chrome tab
 called "Blender donut tutorial" is not Blender, and matching on the title

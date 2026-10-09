@@ -39,11 +39,24 @@ words the model is SHOWN, so the set filled with unanswerable questions -
 "Hide Collection" is one label with a binding per collection, so 1 through 9
 were nine rows and one question. See `questions()`.
 
-⚠ **THE CONTEXT IS HANDED OVER, and that is a ceiling rather than a result.**
-Each question states "they are working in: Mesh". A shortcut is only correct
-inside one context, and nothing in the accessibility tree says which mode
-Blender is in - its whole tree is seven nodes. Until the agent reads the mode
-from the screen or from Blender itself, the real score sits below this.
+⚠ **I WROTE A CAVEAT HERE SAYING THE WIN NEEDED THE CONTEXT. IT WAS WRONG,
+AND MEASURING IT WAS CHEAP.** The reasoning was sound - a shortcut is only
+correct inside one context, X deletes the object in Object Mode and opens a
+menu in Edit Mode, and nothing in the accessibility tree says which mode
+Blender is in. The conclusion did not follow: every retrieved line CARRIES
+its own context, so the model picks the right one without being told.
+
+Re-measured on 24 questions with the context never stated, all for the mode
+Blender was really in:
+
+    from memory                        11/24   (46%)
+    the manual, context NOT stated     24/24
+    the manual plus a live read        24/24
+
+So the honest headline is better than the first one, not worse. And reading
+Blender's live state - which was built to close this gap - closes nothing,
+because there was no gap. That is the fourth measured improvement in this
+project to buy exactly zero.
 """
 
 from __future__ import annotations

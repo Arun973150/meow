@@ -91,6 +91,7 @@ from ..knowledge import documents, manuals, recipes
 from ..desktop.actions import Confirmer, Outcome, always_allow
 from ..config import cat_name, get, openai_api_key
 from ..desktop.grounding import Target
+from ..desktop.scene import Scene
 from ..connectors import Outbox
 from .memory import Memory
 from .mind import SentenceChunker
@@ -418,6 +419,11 @@ class Harness:
         # the recipes, and it matters more here: Blender's is 715KB of JSON
         # and loading that per turn would be absurd.
         self.library = manuals.load()
+        # A live read of Blender, when its add-on is listening. Holds no
+        # connection, remembers a refusal for a few seconds, and asks only
+        # the constant read-only questions in that module - the model never
+        # composes anything that goes down the socket.
+        self.scene = Scene()
         # Shared with the answer path, which was the only thing counting.
         # A session spent entirely on act and show reported $0.0000 while
         # spending real money - the worst possible reading on a prepaid
@@ -1203,6 +1209,18 @@ class Harness:
             title=self.digest.title if self.digest else "")
         if reference:
             messages.append(SystemMessage(reference, additional_kwargs=tag))
+
+            # The manual's measured win was CONDITIONAL on knowing the
+            # context, and every question in that measurement was handed it.
+            # A shortcut is only correct inside one: X deletes the object in
+            # Object Mode and opens a menu in Edit Mode. Blender's whole
+            # accessibility tree is seven nodes, so this is the only thing in
+            # the project that can say which mode they are in - asked only
+            # when a manual already matched, so the socket is never touched
+            # on a turn about something else.
+            live = self.scene.describe()
+            if live:
+                messages.append(SystemMessage(live, additional_kwargs=tag))
 
         if self.lesson:
             # Before the guide reminder, so the reminder's instructions are
