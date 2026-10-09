@@ -792,7 +792,39 @@ def stress_uia() -> None:
         time.sleep(1.0)
         apps.focus_window(window)     # must return, not raise
 
+    def the_ocr_bridge_is_installed():
+        """A data file not listed in package-data is absent from a wheel.
+
+        That is how all six recipes vanished once - silently, because a shelf
+        with nothing on it looks exactly like a request that matched nothing.
+        The .ps1 would fail the same way: OCR would report "missing
+        winocr.ps1" on every blind window and nothing else would notice.
+        """
+        from meow.desktop import ocr
+
+        assert ocr.SCRIPT.is_file(), f"{ocr.SCRIPT} is not installed"
+        text = ocr.SCRIPT.read_text(encoding="utf-8")
+        assert "OcrEngine" in text, "the bridge does not reach the OCR engine"
+        # It must write to a FILE, not to stdout: PowerShell 5.1 encodes the
+        # console in the ANSI codepage and an application's UI text is
+        # routinely not cp1252, which lost whole readings silently.
+        assert "WriteAllText" in text, "the result must come back in a file"
+
+    def ocr_survives_a_picture_of_nothing():
+        from PIL import Image
+
+        from meow.desktop import ocr
+
+        reading = ocr.read(Image.new("RGB", (64, 48), (255, 255, 255)))
+        assert reading.error == "", reading.error
+        assert ocr.describe(reading) == ""
+        assert ocr.find("anything", reading) == []
+
     check("uia: twelve digests in a row", repeated_digests)
+    check("ocr: the powershell bridge is installed",
+          the_ocr_bridge_is_installed)
+    check("ocr: a blank screen reads as nothing",
+          ocr_survives_a_picture_of_nothing)
     check("uia: window dies mid-read", window_that_dies_mid_read)
     check("uia: focus a closed window", focus_a_closed_window)
 

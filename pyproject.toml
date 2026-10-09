@@ -74,7 +74,12 @@ include = ["meow*"]
 [tool.setuptools.package-data]
 # Inside the package, so a wheel actually contains them. "../recipes"
 # named a folder outside the package and installed nothing.
-meow = ["recipes/*.md"]
+#
+# The .ps1 is the WinRT bridge for OCR. A data file that is not listed here
+# is missing from a wheel and the feature fails with "missing winocr.ps1" -
+# which is exactly how all six recipes vanished once, silently, because a
+# shelf with nothing on it looks like a request that matched nothing.
+meow = ["recipes/*.md", "desktop/*.ps1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -269,6 +269,43 @@ class _SavedShot:
         self.monitor = self._Monitor(*(origin or (0, 0)))
 
 
+def _ocr(label, place) -> Target | None:
+    """Find the words of a description in what Windows can read on screen.
+
+    The third grounding strategy, and the one that cannot see an icon. It is
+    here to measure WHICH HALF of the problem it solves - a razor tool and a
+    chess piece have no text, and a panel heading has nothing else.
+    """
+    from PIL import Image
+
+    from ..desktop import ocr
+    from ..desktop.grounding import Source
+
+    name = label.screenshot_file
+    if name not in _READINGS:
+        try:
+            _READINGS[name] = ocr.read(Image.open(place / name))
+        except OSError:
+            _READINGS[name] = ocr.Reading(error="could not open")
+    reading = _READINGS[name]
+
+    found = ocr.find(label.description, reading, limit=1)
+    if not found:
+        return None
+    _score, box, _text = found[0]
+
+    # Image pixels to screen pixels: undo the capture scale, then add the
+    # monitor origin, which is NEGATIVE for a display left of the primary.
+    scale = getattr(label, "scale", 1.0) or 1.0
+    origin = tuple(getattr(label, "origin", (0, 0)) or (0, 0))
+    left, top, right, bottom = box
+    return Target(
+        left=origin[0] + int(left / scale), top=origin[1] + int(top / scale),
+        right=origin[0] + int(right / scale),
+        bottom=origin[1] + int(bottom / scale),
+        name=label.description, role="", source=Source.VISION)
+
+
 def _computer_use(label, place, refine: bool = False,
                   look_twice: bool = False) -> Target | None:
     """Ground through the computer tool, from the saved picture.
@@ -305,7 +342,11 @@ def _computer_use(label, place, refine: bool = False,
 # without knowing how any of them works, and so a typo on the command line is
 # a strategy that does not run rather than one that silently scores zero.
 STRATEGIES = ("uia", "uia+model", "vision", "computer-use",
-              "computer-use+zoom", "computer-use+agree")
+              "computer-use+zoom", "computer-use+agree", "ocr")
+
+# OCR is ~900ms a screenshot and several labels share one, so it is read once
+# per FILE. Without this the run pays 44 reads for 20-odd pictures.
+_READINGS: dict = {}
 
 
 def run(labels, strategies=("uia", "computer-use")) -> HeldOutReport:
@@ -347,6 +388,8 @@ def run(labels, strategies=("uia", "computer-use")) -> HeldOutReport:
                 target = _computer_use(label, place, refine=True)
             elif name == "computer-use+agree" and label.screenshot_file:
                 target = _computer_use(label, place, look_twice=True)
+            elif name == "ocr" and label.screenshot_file:
+                target = _ocr(label, place)
             milliseconds = (time.perf_counter() - started) * 1000
 
             point = tuple(label.point)

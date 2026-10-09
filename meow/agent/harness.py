@@ -810,6 +810,28 @@ class Harness:
                            "detail": "low"}},
         ])
 
+    def _words_on_screen(self) -> str:
+        """The OCR of a window the tree cannot see, or "".
+
+        Only for a BLIND window, and that is the whole bargain. Where the
+        tree can see, it is exact and 268ms and the digest already carries
+        every name; OCR there would be a worse copy of what the turn has,
+        garbled - "AGENTSmd", "conso py" - and 800ms slower.
+        """
+        if not self._tree_is_blind():
+            return ""
+        from ..desktop import ocr
+        from ..platform.capture import capture_screens
+
+        try:
+            shots = capture_screens()
+            if not shots:
+                return ""
+            reading = ocr.read(shots[0].image)
+        except Exception:  # noqa: BLE001 - a blind turn is not a crash
+            return ""
+        return ocr.describe(reading, self.digest.app if self.digest else "")
+
     def _tree_is_blind(self) -> bool:
         """Does the control list see nothing useful in the window in front?
 
@@ -1243,6 +1265,22 @@ class Harness:
             live = self.scene.describe(state) if state else ""
             if live:
                 messages.append(SystemMessage(live, additional_kwargs=tag))
+
+        # And the WORDS, when the tree cannot see the window at all. Blender
+        # is the case: the tree returns five elements - Minimize, Maximize,
+        # Close, System, System - and the operating system's own OCR returns
+        # 128 words in 801ms, including the menus, the workspace tabs, the
+        # outliner, the Transform panel's values, and "Object Mode" itself.
+        #
+        # It is the only description of such a window that is cheap. The
+        # picture is 2,833 tokens flat; this is about 200, and `look_at_screen`
+        # measured 5,947ms for gpt-4o-mini and 14,584ms for gpt-5-mini on one
+        # window. It does NOT replace the picture - it cannot see an icon, and
+        # as a way of POINTING it scored 4/44 against sight's 21-25 - so both
+        # go in, and each is labelled as what it is.
+        words = self._words_on_screen()
+        if words:
+            messages.append(SystemMessage(words, additional_kwargs=tag))
 
         if self.lesson:
             # Before the guide reminder, so the reminder's instructions are

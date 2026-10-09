@@ -122,6 +122,37 @@ different things, and when either look was right the two landed 0–6px apart in
 screen"*: the thing is there, so the cat says it is not sure and asks you to
 circle it, which collapses the search to one box.
 
+### And OCR, which turned out to be a reader rather than a pointer
+
+Windows ships an OCR engine, so this cost no dependency. Scored on the same
+44 targets it is clearly worse than sight — and the interesting part is *how*
+it fails:
+
+| | answered | hit | precision |
+|---|---|---|---|
+| OCR | 14/44 | 4 | 29% |
+| computer-use | 29–37/44 | 21–25 | 57–83% |
+
+**Its highest-scoring answer is a miss.** "blade edit mode" matched the text
+*"Blade Edit Mode"* exactly and pointed somewhere else entirely, because the
+text that *names* a thing is not the thing — a label beside a control, a menu
+entry duplicating a toolbar button, a tooltip. No confidence threshold fixes
+that, and it cannot see an icon at all.
+
+But on a window the tree is blind to, it is the only cheap description there
+is:
+
+```
+Blender, accessibility tree     5 elements - Minimize, Maximize, Close, System
+Blender, OCR                  128 words, 65 lines, 801ms
+```
+
+— and those lines include the menus, the workspace tabs, the outliner, the
+Transform values, and **"Object Mode"** itself. 240–363 tokens against 2,833
+for a picture of the same window, and 801ms against 6–14 seconds for a vision
+model. So it is wired in as *words*, beside the picture, and never as a way to
+point.
+
 Full method, including the methodology bugs that produced plausible wrong
 numbers first, in [docs/04-evaluation.md](docs/04-evaluation.md).
 
@@ -208,8 +239,8 @@ is planned.
 ### Checking it works
 
 ```
-pytest               # 640 fast checks - no Windows, no keys, no network
-meow stress          # 70 edge cases against real UIA and real overlays
+pytest               # 705 fast checks - no Windows, no keys, no network
+meow stress          # 72 edge cases against real UIA and real overlays
 meow smoke           # starts the real app, fails on any traceback
 meow routing         # replays 56 sentences that were spoken out loud
 ```

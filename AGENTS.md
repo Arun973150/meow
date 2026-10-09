@@ -74,7 +74,7 @@ meow/tools/knowledge.py     look things up, and how to do them
 meow/tools/workspace.py     documents, and what a task already made
 meow/tools/support.py       measured constants, below harness and tools both
 meow/tools/record.py        ToolRun - shared, so neither imports the other
-meow/testing/stress.py      70 edge cases across every module
+meow/testing/stress.py      72 edge cases across every module
 meow/testing/smoke.py       runs the REAL app and fails on any traceback
 meow/diagnostics/           keys · connectors · the ablation
 tests/                      pytest - language, dictation, and the invariants
@@ -300,7 +300,7 @@ click it. Each step names the real bug it is watching for.
 
 **Two automated checks.** `meow smoke`
 starts the real app and fails on a traceback; `meow stress` throws
-70 edge cases at every module — empty strings, 10,000 characters, Devanagari,
+72 edge cases at every module — empty strings, 10,000 characters, Devanagari,
 emoji, SQL, path traversal, reserved Windows filenames, eight threads at once,
 a window killed mid-read. Both are verified to fail on real bugs.
 
@@ -1964,6 +1964,81 @@ a fingerprint of the screen, so a screen that moved on simply misses. The
 instance is built once and kept for the session, which is what makes it worth
 anything - built per turn it would never hit.
 
+**OCR: A READER, NOT A POINTER. Measured twice, and the two answers
+disagree.** `meow/desktop/ocr.py`, through `Windows.Media.Ocr` - the engine
+Windows already ships, so no model download, no `torch`, no GPU and no new
+dependency. The target is CPU-only and this project already refused one SDK
+over a version conflict.
+
+⚠ **AS GROUNDING IT FAILS, and no threshold rescues it.**
+`meow evaluate --labelled ocr`, same 44 hand-labelled targets as everything
+else:
+
+```
+                answered    hit    precision
+ocr               14/44       4       29%
+computer-use      29-37/44  21-25     57-83%
+```
+
+**The highest scoring answer is a MISS.** "blade edit mode" matched the text
+"Blade Edit Mode" exactly, scored 7.0 where everything else scored 2.0, and
+pointed somewhere the user did not mean. **The text that NAMES a thing is not
+the thing** - a label beside a control, a menu entry duplicating a toolbar
+button, a tooltip. All read perfectly and all point wrongly. And it cannot
+see an icon at all: a razor tool, a move tool and a chess piece have no text,
+which is most of the 44. Of its four hits, all four were already
+computer-use hits, so it adds no coverage either.
+
+That is the fifth measured improvement in this project to buy nothing as the
+thing it was tried as.
+
+**AS A READER OF A WINDOW THE TREE CANNOT SEE, IT IS THE ONLY THING THERE
+IS.** Measured on a live Blender:
+
+```
+the accessibility tree     5 elements - Minimize, Maximize, Close, System
+OCR                      128 words, 65 lines, 801ms
+the low-detail picture   2,833 tokens, flat
+the OCR block              240-363 tokens
+look_at_screen           5,947ms (gpt-4o-mini) to 14,584ms (gpt-5-mini)
+```
+
+And the lines ARE the interface: the File/Edit/Render menus, the Layout,
+Modeling, Sculpting, UV Editing and Shading tabs, the outliner's Collection /
+Camera / Light / Cube, the Transform panel with Rotation X and Scale X and
+their values - and **"Object Mode"**, which is otherwise only reachable
+through Blender's own add-on and a socket. So a user who installs nothing
+still gets the mode.
+
+It goes in BESIDE the picture for a blind window, not instead of it: the
+picture sees icons and layout and this sees words, and each is labelled as
+what it is.
+
+⚠ **It garbles small text and splits words**, so it is EVIDENCE and never a
+quotation. From the same readings: "Object Mod e", "Vew", "Sha dima",
+"Collectbns", and out of VS Code "Traceback (nnst recent call last)" and
+"AGENTSmd". The prompt says so and gives the concrete example, because a
+model that repeats a line verbatim says something that is not on screen, and
+one that treats the damage as a wrong answer throws away the only description
+of the window.
+
+⚠ **Only for a BLIND window.** Where the tree can see, it is exact, 268ms,
+and the digest already holds every name - OCR there is a worse copy of what
+the turn already has, 800ms slower.
+
+⚠ **THE RESULT HAS TO COME BACK IN A FILE, AS UTF-8.** Windows PowerShell 5.1
+encodes stdout in the ANSI codepage, and an application's own UI text is
+routinely not representable in cp1252: a reader thread died on byte 0x90 out
+of Photoshop, the whole reading was lost SILENTLY, and the first measurement
+was quietly understated - 6 screenshots read as empty. Found by the numbers
+not adding up, not by an exception anybody saw.
+
+⚠ **Score a RUN OF ADJACENT WORDS, never the line.** A line is a visual row
+and a menu bar is one row of nine unrelated items, so penalising a row for
+being long scored Photoshop's real `Filter` menu at 0.25 and a "Filter Filter
+Recent Files" panel at 1.50. The length of the row a word sits in says
+nothing about the word.
+
 **Phase A: grounding for windows the tree cannot see.** Blender draws its
 whole interface in OpenGL. UIA returns FIVE elements - Minimize, Maximize,
 Close, System, System - and not one menu, tool or panel.
@@ -2161,12 +2236,12 @@ pip install -e .
 meow                 the companion
 meow doctor          what is installed, which keys are set
 meow connectors      which services are connected, and connect one
-meow stress          70 edge cases across every module
+meow stress          72 edge cases across every module
 meow smoke           start the real app, fail on a traceback
 meow routing         replay the sentences routing got wrong once
 meow teaching        does the model need the app's own manual?
 meow reference       does the lookup survive real speech?
-pytest               688 fast checks - no Windows, no keys, no network
+pytest               705 fast checks - no Windows, no keys, no network
 ```
 
 **A capability is a module, not a diff.** `Harness.__init__` defined all
