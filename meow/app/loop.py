@@ -480,6 +480,11 @@ def main() -> None:
         if board is not None:
             board.sketch.clear(group=LESSON_MARK)
 
+    # The lesson ENDING is the same tidying up as the lesson being
+    # abandoned, and nothing ran on that path at all: the last ring stayed
+    # pinned for the rest of the session, pointing at a finished step.
+    guide.done = stop_teaching
+
     panic.on_panic("teaching", stop_teaching)
     panic.on_panic("walkthrough", guide.cancel)
     panic.on_panic("marks", lambda: (

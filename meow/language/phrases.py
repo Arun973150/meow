@@ -352,6 +352,14 @@ FOLLOWING_ALONG = (
     "ive made", "i typed", "ive typed", "i opened", "ive opened",
     "that is done", "thats done", "its done", "it is done", "finished it",
     "i am there", "im there", "im done",
+    # ARRIVAL, which is not the same as having DONE something and was the
+    # whole gap. Live: "Yes I have it now." went to the router, so the model
+    # answered - and paraphrased the next step itself, which the walkthrough
+    # then said again on the following sentence. Every step heard twice, the
+    # lesson one behind the conversation.
+    "i have it", "ive got it", "i have got it", "got it now", "i got it",
+    "i can see it", "i see it", "its there", "it is there", "theres one",
+    "that worked", "it worked", "i have the", "ive got the", "i got the",
 )
 
 # A sentence that is NOTHING BUT one of these, mid-lesson, is "go on". They
@@ -400,6 +408,59 @@ def _short_and_only_agreeing(whole: str) -> bool:
     return any(word in ACKNOWLEDGEMENTS for word in words)
 
 
+# Words that make a sentence a QUESTION, so it is not a progress report
+# however it opens. "yes but how do i do that" wants an answer, not the next
+# step, and the four local branches below it do not cover that one.
+_ASKING_WORDS = frozenset({
+    "what", "why", "how", "where", "which", "who", "whats", "wheres",
+    "hows", "cant", "cannot", "dont", "doesnt", "isnt", "wont", "didnt",
+})
+
+
+# Somebody reporting TROUBLE, which opens exactly like a report of success
+# and means the opposite. "ok i did not get it" must not advance a step.
+_TROUBLE_WORDS = frozenset({
+    "not", "no", "nothing", "wrong", "problem", "stuck", "confused",
+    "error", "missing", "but", "nowhere", "unable", "failed",
+})
+
+# A progress report has a SUBJECT - them, or the thing they were sent after.
+_SELF_OR_THIS = frozenset({
+    "i", "im", "ive", "me", "my", "we", "weve", "it", "its", "that",
+    "thats", "this", "there", "theres", "theyre", "got", "have", "did",
+})
+
+
+def _opens_by_agreeing(whole: str) -> bool:
+    """Does it OPEN with an acknowledgement and then just describe doing it?
+
+    "yes i have it now", "ok i can see the sphere", "yeah i added that one"
+    are reports of progress of any length, and the phrase list cannot hold
+    every shape of them - it was written from sentences a developer types,
+    and the microphone keeps producing new ones. So this is structural, like
+    `_short_and_only_agreeing` one size up: the acknowledgement has to come
+    FIRST, there must be no instruction in it, and it must not be asking
+    anything.
+
+    ⚠ FIRST, not anywhere. A trailing one is how "Yourself? You can check my
+    screen, right?" was swallowed as "go on" and the question went
+    unanswered. The opening word is the one that cannot be a coincidence.
+    """
+    words = whole.split()
+    if len(words) < 2 or words[0] not in ACKNOWLEDGEMENTS:
+        return False
+    rest = words[1:]
+    if any(word in _ACTION_WORDS for word in rest):
+        return False
+    if any(word in _ASKING_WORDS or word in _TROUBLE_WORDS for word in rest):
+        return False
+    # It has to be ABOUT them or about the thing. Without this, "okay so the
+    # thing is" counts - a sentence somebody trailed off in the middle of,
+    # which `tests/test_heard.py` has from a real microphone and which is
+    # not a report of anything. A progress report has a subject.
+    return any(word in _SELF_OR_THIS for word in rest)
+
+
 def moving_on(text: str) -> bool:
     """Mid-lesson, is this "go on" in some shape?
 
@@ -426,6 +487,9 @@ def moving_on(text: str) -> bool:
     if _short_and_only_agreeing(whole):
         return True
 
+    if _opens_by_agreeing(whole):
+        return True
+
     said = _for_matching(text)
     if not said:
         # Everything stripped away and it was NOT an acknowledgement, so it
@@ -438,6 +502,13 @@ def moving_on(text: str) -> bool:
         # What is left after the leading filler goes is the whole
         # instruction, so it is judged the same way the whole sentence was.
         return True
+    if any(word in _TROUBLE_WORDS for word in said.split()):
+        # A NEGATED report is the opposite signal in the same shape, and the
+        # phrase list cannot see it: "i did not get it" contains "i did", so
+        # somebody saying the step did not work advanced the lesson past it.
+        # Checked here rather than inside each phrase, because every entry
+        # in that list negates the same way.
+        return False
     if any(phrase in said for phrase in FOLLOWING_ALONG):
         return True
 
@@ -490,3 +561,35 @@ def one_spelling(word: str) -> str:
         if word.endswith(british):
             return word[:-len(british)] + american
     return word
+
+
+# Somebody asking to be TAUGHT, rather than asking where a thing is. Narrow
+# on purpose, like every other structural rule here: these four openings
+# cannot mean anything else, and a wider net would catch "how do i change
+# dark mode", which is a ROUTE through menus and belongs to find_how_to.
+BEING_TAUGHT = (
+    "teach me", "show me how", "walk me through", "guide me through",
+    "can you teach", "could you teach", "teach my", "teach ne",
+)
+
+
+def asks_to_be_taught(transcript: str) -> bool:
+    """Is this a request to be walked through something, step by step?
+
+    **Structural, because the model would not reach for the tool.** Live:
+    "hey, can you teach me how to make a ball bounce on a plane?" came back
+    as prose - "i see a cube in the viewport. let's start by adding a plane"
+    - which names the wrong object, describes the screen instead of teaching,
+    and is the one-breath recitation `teach_me_this` exists to replace. The
+    tool was loaded, mentioned twice in the prompt, and not called.
+
+    That is the same shape as every other promotion in this project: a
+    sentence beginning "teach me" is not something for a model to weigh
+    against twelve other bullets, so it is decided here instead.
+
+    Matched by CONTAINMENT, because people prefix: "hey, can you teach me",
+    "ok so teach me". The openings are distinctive enough to survive that -
+    unlike a bare acknowledgement, which has to match whole.
+    """
+    said = without_split_contractions(transcript)
+    return any(opening in said for opening in BEING_TAUGHT)

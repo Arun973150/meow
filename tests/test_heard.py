@@ -609,3 +609,36 @@ def test_a_fresh_thread_has_a_new_name_every_time():
     names = {harness.start_a_fresh_thread() for _ in range(3)}
     assert len(names) == 3
     assert "session" not in names
+
+
+
+# --- reporting ARRIVAL, which is not the same as reporting a DEED -----------
+#
+# Spoken at this machine, mid-lesson, and printed by the running app. "Yes I
+# have it now." went to the ROUTER: the model then paraphrased the next step
+# itself - "now you need to scale the sphere up slightly" - and the
+# walkthrough said the same step again on the following sentence. Every step
+# heard twice, the lesson a step behind the conversation.
+
+
+@pytest.mark.parametrize("said", [
+    "Yes I have it now.",
+    "Yeah I got it.",
+    "Ok I can see it.",
+    "Yes it is there.",
+    "Yeah that worked.",
+    "Okay I have the sphere now.",
+])
+def test_arriving_somewhere_is_following_along(said):
+    assert moving_on(said), said
+
+
+@pytest.mark.parametrize("said", [
+    "Okay so the thing is",          # trailed off, from the corpus above
+    "Yes I did not get it.",         # TROUBLE, which opens the same way
+    "Yeah I cannot see it.",
+    "Ok but how do i do that?",
+    "Yes open notepad now.",         # an instruction wearing an agreement
+])
+def test_what_opens_like_a_report_and_is_not(said):
+    assert not moving_on(said), said

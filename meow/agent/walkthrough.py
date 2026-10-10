@@ -283,8 +283,23 @@ class Walkthrough:
         lines.append(f"The step they are on NOW: {self.current}")
         rest = self.steps[self.index + 1:]
         if rest:
-            lines.append("Still to come, one at a time, do NOT say these yet:")
-            lines.extend(f"  - {step}" for step in rest)
+            # THE COUNT, NOT THE TEXT - withheld rather than forbidden. This
+            # listed every step still to come under "do NOT say these yet",
+            # and live, handed a sentence the guide had not recognised as
+            # "done", the model read the next one out: "now you need to
+            # scale the sphere up slightly". The walkthrough then said the
+            # same step itself on the following sentence, so the user heard
+            # every step twice and the lesson ran a step behind.
+            #
+            # Same answer as `wants_the_web` withholding the digest: a
+            # prompt asking a model to ignore what it has been handed is a
+            # request. The count is what the question "how much more of this
+            # is there" actually needs; the words are what it must not have.
+            lines.append(f"There are {len(rest)} more step(s) after this "
+                         f"one. You have NOT been told what they are, "
+                         f"deliberately - the walkthrough says each one "
+                         f"when they are ready for it. Say how many are "
+                         f"left if they ask, never what they are.")
         lines.append(
             "Answer whatever they just asked, about THIS. Do not start the "
             "lesson again, do not re-plan it, and do not ask them what they "

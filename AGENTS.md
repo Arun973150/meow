@@ -1070,6 +1070,80 @@ advances when the person says they have done it. `teach_me_this` is the tool;
 the model supplies the steps and the APP says the first one, so it cannot be
 paraphrased back into a list.
 
+⚠ **ASKING TO BE TAUGHT DOES NOT GO TO THE AGENT AT ALL, because the prompt
+could not make it.** Live, in Blender: *"teach me how to make a ball bounce on
+a plane"* came back as *"i see a cube in the viewport, let's start by adding a
+plane"* - the wrong object named, the steps said in one breath, and no lesson
+started, so there was nothing to pace, nothing to say "done" to and nothing to
+circle. The tool was loaded, allowed on the turn, and named twice in the
+prompt.
+
+**A `TEACH_REMINDER` was tried FIRST and failed**, placed last so it sat
+nearest the request: *"you have a cube in the scene. let's start by turning
+that cube into a ball. press shift a..."* - correct advice, still prose, still
+the wrong object first. Which is this project's own rule arriving late: a
+prompt saying "call the tool" is a REQUEST, exactly as a prompt saying "do not
+click" is, and `guiding` refuses in the tools for that reason.
+
+So `phrases.asks_to_be_taught` promotes structurally and `Harness._teach`
+makes ONE call with `tool_choice="teach_me_this"`, where prose is not an
+available shape. Everything the ordinary turn would have had is still in the
+messages - digest, skill, manual, live scene, OCR, picture - so the lesson is
+written with the same knowledge and only loses the option of talking instead.
+Same sentence, same window: **7 steps, 7 marks, 5.9s, nothing spoken**, step
+one *"press shift a and choose mesh, then uv sphere"* - it adds the ball they
+asked for.
+
+The reminder stays, because it shapes the CONTENT of the forced call, but it
+is not the mechanism.
+
+⚠ **A FORCED TOOL NEEDS A PATH BACK.** Taking away the model's ability to
+say "i cannot pace that" is only safe if a request this cannot teach still
+gets an answer. Every failure in `_teach` returns None and the ordinary turn
+runs: no tool, no call, a tool that refused, fewer than two steps, or no app
+to pace them.
+
+⚠ **A marks list that does not line up is REPORTED to the model**, as the
+stages list already was. Asked to teach a bouncing ball it produced ELEVEN
+steps and TEN marks, and both lists were silently thrown away - so the model
+could not tell a dropped list from a feature that does not exist.
+
+⚠ **THE MODEL WAS HANDED THE STEPS IT WAS TOLD NOT TO SAY, and said one.**
+`where_we_are()` listed every step still to come under *"do NOT say these
+yet"*. Live: *"Yes I have it now."* was not recognised as a report of
+progress, so it went to the harness - which read the next step out, *"now you
+need to scale the sphere up slightly"* - and the walkthrough then said the
+same step itself on the following sentence. **Every step heard twice, the
+lesson a step behind the conversation.**
+
+The prompt is not the fix, for the third time in this file: the COUNT goes in
+and the words do not. "There are 3 more steps after this one. You have NOT
+been told what they are." That is what "how much more of this is there"
+actually needs, and it is the same answer as `wants_the_web` withholding the
+digest rather than asking the model to ignore it.
+
+⚠ **Reporting ARRIVAL is not reporting a DEED, and the phrase list only had
+deeds.** "i did it", "i added", "i pressed" were all there; *"yes i have it
+now"*, "i can see it", "that worked" were not. So `_opens_by_agreeing` is the
+structural rule one size up from `_short_and_only_agreeing`: an
+acknowledgement FIRST, then a subject, no instruction and no question. First,
+never anywhere - a trailing one is how "Yourself? You can check my screen,
+right?" was swallowed.
+
+⚠ **A NEGATED report is the opposite signal in the same shape.** "i did not
+get it" contains "i did", so the phrase list advanced the lesson past a step
+that had just failed. `_TROUBLE_WORDS` is checked before the list rather than
+written into each entry, because every one of them negates the same way.
+
+⚠ **NOTHING RAN WHEN A LESSON FINISHED.** `Guide.active` simply went False:
+the last PINNED ring stayed on screen for the rest of the session - the
+user's words, *"that thing which it pointed is not going away"* - and
+`harness.watching` stayed set, paying 2,833 tokens for a screenshot on every
+later turn of a lesson that was over. Cancelling was wired for a lesson
+ABANDONED and finishing needs the same tidying up, so `Guide.done` fires on
+the last step, from the watcher thread as well as from `answer` - which is
+safe only because `cancel` sets an event and joins nothing.
+
 ⚠ **A CONFIRMATION THAT BECOMES FURNITURE IS WORSE THAN NONE.** "Open
 spotify in a new chrome tab here" asked **five times** - ctrl+t, ctrl+l,
 ctrl+t, ctrl+l, ctrl+l - and the user said yes to every one. Not one of those

@@ -487,7 +487,7 @@ def test_the_prompt_says_what_is_done_what_is_now_and_what_is_left():
     assert "animate a bouncing ball" in said
     assert BOUNCE[0] in said, "what they already did"
     assert BOUNCE[1] in said, "where they are now"
-    assert BOUNCE[2] in said, "what is still to come"
+    assert f"{len(BOUNCE) - 2} more step" in said, "HOW MANY are still to come"
 
 
 def test_the_prompt_forbids_restarting_the_lesson():
@@ -502,14 +502,22 @@ def test_the_prompt_forbids_restarting_the_lesson():
     assert "do not ask them what they want to do next" in said
 
 
-def test_steps_still_to_come_are_marked_as_not_yet():
-    """The whole point is the pacing. A prompt that lists the remaining
-    steps without saying so invites exactly the recitation it replaced.
+def test_the_steps_still_to_come_are_withheld_not_forbidden():
+    """WITHHELD. They were listed under "do NOT say these yet", and live the
+    model read the next one out anyway - "now you need to scale the sphere up
+    slightly" - after which the walkthrough said the same step itself, so
+    the user heard every step twice and the lesson ran a step behind.
+
+    Same answer as `wants_the_web` withholding the digest: asking a model to
+    ignore something it has been handed is a request. The count is what "how
+    much more is there" needs; the words are what it must not have.
     """
     from meow.agent.walkthrough import from_steps
 
     said = from_steps(BOUNCE, doing=True).where_we_are()
-    assert "do NOT say these yet" in said
+    for step in BOUNCE[1:]:
+        assert step not in said, "handed the model the step it must not say"
+    assert f"{len(BOUNCE) - 1} more step" in said
 
 
 def test_a_lesson_with_nothing_in_it_says_nothing():
@@ -782,3 +790,53 @@ def test_an_unmarked_step_asks_for_nothing():
     guide.teach(["press g", "press escape"], goal="move it")
     guide.answer("done")
     assert marked == []
+
+
+
+# --- a lesson that FINISHES tidies up ---------------------------------------
+#
+# Nothing ran at the END of a lesson at all. `Guide.active` simply went
+# False, so the last PINNED ring stayed on screen for the rest of the
+# session - the user's words: "that thing which it pointed is not going
+# away" - and the harness kept `watching` set, paying for a screenshot on
+# every later turn.
+
+
+def test_the_last_step_tells_the_app_the_lesson_is_over():
+    from meow.app.guiding import Guide
+
+    tidied = []
+    guide = Guide(say=lambda sentence: None,
+                  done=lambda: tidied.append(True))
+    guide.teach(["press g", "press escape"], goal="move it")
+
+    assert guide.answer("done") is True
+    assert tidied == [], "not after the FIRST of two steps"
+
+    assert guide.answer("done") is True
+    assert tidied == [True], "the lesson is over and nothing was told"
+
+
+def test_a_lesson_still_running_tidies_up_nothing():
+    from meow.app.guiding import Guide
+
+    tidied = []
+    guide = Guide(say=lambda sentence: None,
+                  done=lambda: tidied.append(True))
+    guide.teach(["one", "two", "three"], goal="a thing")
+    guide.answer("done")
+    guide.answer("say that again")
+    guide.answer("i cannot find it")
+    assert tidied == []
+
+
+def test_a_guide_with_nothing_to_tell_does_not_crash_on_the_last_step():
+    """`done` is optional - the diagnostics and the tests build a Guide
+    without one, and finishing a lesson must not depend on it."""
+    from meow.app.guiding import Guide
+
+    guide = Guide(say=lambda sentence: None)
+    guide.teach(["press g", "press escape"], goal="a thing")
+    assert guide.answer("done") is True
+    assert guide.answer("done") is True
+    assert guide.active is False

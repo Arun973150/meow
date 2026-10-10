@@ -409,6 +409,15 @@ def build(harness) -> list:
                        f"{len(steps)} steps, so they were ignored and this "
                        f"is running as one flat lesson. One name per step, "
                        f"next time.")
+        if marks_mismatched:
+            # Reported for the same reason as the stages: the model is the
+            # only thing that can fix it, and would otherwise wonder why
+            # nothing was circled. Measured: asked to teach a bouncing ball
+            # it produced ELEVEN steps and TEN marks.
+            answer += (f" NOTE: you gave {len(marks or [])} marks for "
+                       f"{len(steps)} steps, so nothing will be circled. "
+                       f"One per step - count them - and an empty string "
+                       f"for a step with nothing on screen to circle.")
         return answer
 
     @tool

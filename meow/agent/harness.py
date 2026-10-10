@@ -101,7 +101,7 @@ from ..connectors.drafts import spoken_email
 # too. A research question routed to ANSWER never reaches this class at all, so
 # withholding the digest here cannot help - the answer path has no tools and
 # invents GPU prices from training data instead of looking them up.
-from ..language.phrases import wants_the_web
+from ..language.phrases import asks_to_be_taught, wants_the_web
 from ..tools import build as build_tools
 from ..tools.record import ToolRun
 from ..tools.support import (
@@ -156,6 +156,18 @@ So: answer the HOW from what you know, and get the WHERE from the screen. Never 
 - If the question is about what is ON the screen - a chess position, a diagram, a game, a photo, a video timeline - call look_at_screen FIRST. The control list describes the WINDOW, not the page inside it: on a chess site it lists the browser's tabs and buttons and nothing about the board. Never say you cannot see their screen; look.
 
 Change nothing. Every tool that would is refused on this turn anyway."""
+
+TEACH_REMINDER = """THEY ASKED TO BE TAUGHT. Call teach_me_this. Now, on this turn, before saying anything.
+
+This overrides every other instruction about what to do with this turn.
+
+- Do NOT describe what is on their screen. They did not ask what is there.
+- Do NOT say the steps yourself, in any form - not as a list, not as a sentence, not as "let's start by...". Saying them IS the recitation they asked you to replace, and after it they still cannot do the thing.
+- Do NOT ask them what they want to do first. They told you.
+- Write the steps from what you KNOW about this application. That is not what you need a tool for; the tool is for the PACING.
+- They asked about a THING THEY WANT TO MAKE. If they said a ball and the scene holds a cube, the cube is not the ball - the lesson starts by adding what they asked for.
+
+Give `steps`, and `marks` naming what to circle for each one. EVERY list you pass must have EXACTLY as many entries as `steps` - count them. A list that is one short is thrown away whole, and the lesson loses its parts and its marks."""
 
 RESEARCH_REMINDER = """This is a RESEARCH turn: the answer is on the web, not on the screen.
 
@@ -554,6 +566,11 @@ class Harness:
         self._writer = ChatOpenAI(model=model, api_key=openai_api_key(),
                                   max_completion_tokens=500)
 
+        # Kept, not only handed to the graph: a teaching turn reaches for
+        # `teach_me_this` by name and calls it with the tool choice forced,
+        # which is the only way to guarantee a lesson rather than prose.
+        self.tools = build_tools(self)
+
         self.agent = create_agent(
             model=ChatOpenAI(model=model, api_key=openai_api_key(),
                              max_completion_tokens=MAX_OUTPUT_TOKENS),
@@ -564,7 +581,7 @@ class Harness:
             # adding a file. The trifecta rule still holds and is stated
             # where the tools are: READ and DRAFT only, no send tool in any
             # module the harness loads.
-            tools=build_tools(self),
+            tools=self.tools,
             system_prompt=SYSTEM_PROMPT,
             middleware=middleware,
             checkpointer=InMemorySaver(),
@@ -1302,8 +1319,36 @@ class Harness:
         if self.researching:
             messages.append(SystemMessage(RESEARCH_REMINDER,
                                           additional_kwargs=tag))
+        teaching_now = asks_to_be_taught(transcript) and not self.lesson
+        if teaching_now:
+            messages.append(SystemMessage(TEACH_REMINDER,
+                                          additional_kwargs=tag))
         messages.append(self._with_the_screen(transcript))
         messages.append(SystemMessage(STYLE_REMINDER, additional_kwargs=tag))
+
+        # ENFORCED IN THE TOOL, NOT IN THE PROMPT - which this project
+        # already knew and this turn had to relearn. TEACH_REMINDER was
+        # added first, placed last so it sat nearest the request, and the
+        # model read it and answered in prose anyway:
+        #
+        #   "hey, can you teach me how to make a ball bounce on a plane?"
+        #   -> "you have a cube in the scene. let's start by turning that
+        #      cube into a ball. press shift a to add a mesh, then choose
+        #      uv sphere."
+        #
+        # Correct advice, said in one breath, which is the recitation
+        # `teach_me_this` exists to replace - and naming the cube they did
+        # not ask about. A prompt saying "call the tool" is a request, the
+        # same way a prompt saying "do not click" is a request; `guiding`
+        # is enforced by the tools refusing for exactly this reason.
+        #
+        # So a teaching turn does not go to the agent at all. It makes ONE
+        # call that can only produce a lesson.
+        if teaching_now and self.start_teaching is not None:
+            taught = self._teach(messages)
+            if taught is not None:
+                yield from taught
+                return
 
         try:
             try:
@@ -1346,6 +1391,61 @@ class Harness:
             # unverifiable action is not remembered as a successful one.
             worked = run.verified if run.outcome.ok else False
             self.memory.did(run.tool, run.argument, worked)
+
+    def _teach(self, messages):
+        """One call that can only call `teach_me_this`, or None to fall back.
+
+        `tool_choice` on the model is the whole mechanism: the reply cannot
+        be prose, because prose is not an available shape. Everything the
+        ordinary turn would have had - the digest, the skill, the manual,
+        the live scene, the OCR, the picture - is in `messages` already, so
+        the lesson is written with the same knowledge, just without the
+        option of talking instead.
+
+        Returns None when it could not produce a lesson, and the caller then
+        runs the ordinary turn. That matters: a request to be taught
+        something this cannot teach must still get an answer, and removing
+        the model's ability to say "I cannot pace that" is only safe if
+        there is a path back.
+        """
+        from langchain_core.messages import ToolMessage
+
+        lesson_tool = next((tool for tool in self.tools
+                            if getattr(tool, "name", "") == "teach_me_this"),
+                           None)
+        if lesson_tool is None:
+            return None
+
+        try:
+            decided = self._writer.bind_tools(
+                [lesson_tool], tool_choice="teach_me_this").invoke(messages)
+        except Exception as error:  # noqa: BLE001 - fall back, never fail
+            self.last_error = f"{type(error).__name__}: {error}"
+            return None
+
+        calls = getattr(decided, "tool_calls", None) or []
+        if not calls:
+            return None
+        try:
+            spoken = lesson_tool.invoke(calls[0]["args"])
+        except Exception as error:  # noqa: BLE001
+            self.last_error = f"{type(error).__name__}: {error}"
+            return None
+
+        # The tool refused - too few steps, or no app to pace them. Its own
+        # reply explains why, and the ordinary turn is the better answer.
+        if isinstance(spoken, str) and (
+                "just say it" in spoken or "cannot pace this" in spoken):
+            return None
+
+        def nothing():
+            # The APP says the first step, word for word, so the model
+            # cannot paraphrase the lesson back into a list - which is the
+            # whole point of the tool. There is nothing left to speak.
+            return
+            yield  # pragma: no cover - makes this a generator
+
+        return nothing()
 
     @staticmethod
     def _thread_is_poisoned(error) -> bool:

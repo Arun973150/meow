@@ -549,3 +549,126 @@ def test_a_turn_pushes_its_tool_runs_into_the_shared_memory():
     assert done[0].worked is True
     assert done[1].worked is None, "unverifiable must not read as successful"
     assert done[2].worked is False, "a failure is what 'try again' refers to"
+
+
+# --- a request to be TAUGHT has to start a lesson ---------------------------
+#
+# Live, in Blender: "hey, can you teach me how to make a ball bounce on a
+# plane?" came back as prose - "i see a cube in the viewport. let's start by
+# adding a plane" - which names the wrong object, describes the screen
+# instead of teaching, and is the one-breath recitation teach_me_this exists
+# to replace. The tool was loaded and named twice in the prompt and was not
+# called.
+#
+# So it stops being one bullet among twelve and becomes the instruction for
+# the turn, decided structurally rather than weighed by a model.
+
+
+@pytest.mark.parametrize("said", [
+    "teach me how to make a ball bounce on a plane",
+    "hey, can you teach me how to add a subdivision modifier?",
+    "show me how to export this",
+    "walk me through rigging a character",
+    "could you teach me blender",
+])
+def test_these_are_requests_to_be_taught(said):
+    from meow.language.phrases import asks_to_be_taught
+
+    assert asks_to_be_taught(said), said
+
+
+@pytest.mark.parametrize("said", [
+    # A ROUTE through menus, which belongs to find_how_to - not a procedure
+    # in their own hands.
+    "how do i change dark mode",
+    "where is the minimise button",
+    "show me the close button",
+    "open notepad",
+    "what is on my screen",
+])
+def test_these_are_NOT(said):
+    from meow.language.phrases import asks_to_be_taught
+
+    assert not asks_to_be_taught(said), said
+
+
+def test_the_reminder_forbids_the_things_it_actually_did():
+    """Each line answers something seen in a live run, so the prompt is a
+    record of failures rather than a wish list.
+    """
+    from meow.agent.harness import TEACH_REMINDER
+
+    lowered = TEACH_REMINDER.lower()
+    # It described the screen instead of teaching.
+    assert "do not describe" in lowered
+    # It said the steps in prose - "let's start by adding a plane".
+    assert "let's start by" in lowered
+    # It said cube when the user said ball.
+    assert "ball" in lowered and "cube" in lowered
+    # The off-by-one lists that get thrown away.
+    assert "exactly as many" in lowered
+
+
+def test_the_reminder_is_withheld_once_a_lesson_is_RUNNING():
+    """Mid-lesson, "teach me the next bit" must not start a second lesson on
+    top of the first - `where_we_are` is already in the prompt saying not to
+    restart it.
+    """
+    import inspect
+
+    from meow.agent import harness as harness_module
+
+    source = inspect.getsource(harness_module.Harness.answer)
+    assert "asks_to_be_taught(transcript) and not self.lesson" in source
+
+
+def test_a_teaching_turn_does_not_go_to_the_agent_at_all():
+    """ENFORCED IN THE TOOL, NOT THE PROMPT - relearned the hard way.
+
+    TEACH_REMINDER was written first and placed last, nearest the request.
+    The model read it and answered in prose anyway: "you have a cube in the
+    scene. let's start by turning that cube into a ball." Correct advice,
+    said in one breath, naming an object they had not asked about.
+
+    A prompt saying "call the tool" is a request, the same way a prompt
+    saying "do not click" is a request - which is why `guiding` is enforced
+    by the tools refusing. So the turn makes ONE call whose tool choice is
+    forced, and prose is not an available shape.
+    """
+    import inspect
+
+    from meow.agent import harness as harness_module
+
+    answer = inspect.getsource(harness_module.Harness.answer)
+    assert "teaching_now and self.start_teaching is not None" in answer
+    assert "self._teach(messages)" in answer
+
+    teach = inspect.getsource(harness_module.Harness._teach)
+    assert 'tool_choice="teach_me_this"' in teach
+
+
+def test_a_lesson_it_cannot_pace_falls_back_to_an_ordinary_turn():
+    """Removing the model's ability to say "I cannot teach that" is only
+    safe if there is a path back. A request to be taught something this
+    cannot teach must still get an answer.
+    """
+    import inspect
+
+    from meow.agent import harness as harness_module
+
+    teach = inspect.getsource(harness_module.Harness._teach)
+    # Every failure returns None, and the caller runs the normal turn.
+    assert teach.count("return None") >= 4
+    assert "just say it" in teach and "cannot pace this" in teach
+
+
+def test_the_app_says_the_first_step_so_nothing_is_spoken_here():
+    """The tool's whole point is that the other steps are NOT said yet, so a
+    model given the chance to summarise would undo it.
+    """
+    import inspect
+
+    from meow.agent import harness as harness_module
+
+    teach = inspect.getsource(harness_module.Harness._teach)
+    assert "def nothing()" in teach

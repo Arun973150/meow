@@ -36,9 +36,18 @@ POLL_SECONDS = 1.6
 class Guide:
     """The live walkthrough, if there is one."""
 
-    def __init__(self, say, point=None, should_stop=None, mark=None) -> None:
+    def __init__(self, say, point=None, should_stop=None, mark=None,
+                 done=None) -> None:
         self.say = say
         self.point = point
+        # Called the moment the last step is behind them. Nothing used to
+        # run at the END of a lesson at all: `active` simply went False, so
+        # the final PINNED ring stayed on screen for the rest of the
+        # session, pointing at a step nobody was on - and the harness kept
+        # `watching` set, paying for a screenshot on every later turn.
+        # Cancelling is for a lesson ABANDONED; this is for one completed,
+        # and both need the same tidying up.
+        self.done = done
         # Called with what the CURRENT doing step refers to, so the thing
         # being described gets circled on screen. Separate from `point`:
         # that one resolves a control NAME mined from a route against the
@@ -167,6 +176,7 @@ class Guide:
             # sight is seconds, and a step that waited for it would be a
             # lesson that pauses before every instruction.
             self._mark_now()
+            self._finished_with_it()
             return True
 
         if asks_to_repeat(transcript):
@@ -184,6 +194,19 @@ class Guide:
             return True
 
         return False
+
+    def _finished_with_it(self) -> None:
+        """Tidy up if that was the last step. Safe to call when it was not.
+
+        Called from the watcher thread as well as from `answer`, so it must
+        not join anything - `cancel` only sets an event, which is what makes
+        that safe.
+        """
+        walkthrough = self.walkthrough
+        if walkthrough is None or not walkthrough.finished:
+            return
+        if self.done is not None:
+            self.done()
 
     def _mark_now(self) -> None:
         """Circle what the current doing step refers to, if it named one.
@@ -244,4 +267,5 @@ class Guide:
                 # personalisation is on a page of thirty things.
                 self.point(walkthrough.current, digest)
             if walkthrough.finished:
+                self._finished_with_it()
                 return
