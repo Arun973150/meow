@@ -32,3 +32,8 @@ models/
 build/
 dist/
 *.whl
+
+# Belt and braces: uiautomation's own log, now pointed at
+# %LOCALAPPDATA%/Meow/uia.log in meow/desktop/uia.py. Any copy
+# here was written before that, or by a script run from the root.
+@AutomationLog.txt

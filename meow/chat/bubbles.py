@@ -18,7 +18,9 @@ here: a three-word answer should look like a three-word answer.
 from __future__ import annotations
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
+
+from meow.chat import palette
 from PySide6.QtWidgets import QStyledItemDelegate
 
 # Roles on each list item. Kept here so the window and the delegate agree
@@ -30,33 +32,41 @@ TEXT = Qt.UserRole + 2
 # read and stops the conversation looking like one.
 MAX_WIDTH_SHARE = 0.72
 
-PADDING_X = 13
-BUTTON_WIDTH = 62
-BUTTON_HEIGHT = 26
-PADDING_Y = 9
-NAME_HEIGHT = 15
-GAP = 12
-CORNER = 11
+# Roomier than before, because Apple's are. A Messages bubble is a pill with
+# generous horizontal padding, and the gap between turns is what makes a
+# transcript read as a conversation rather than as a log.
+PADDING_X = 15
+BUTTON_WIDTH = 66
+BUTTON_HEIGHT = 28
+PADDING_Y = 11
+NAME_HEIGHT = 16
+GAP = 14
+CORNER = palette.BUBBLE_RADIUS
 
 # Who is speaking decides the colour. Three cases rather than two: the user,
 # the cat, and a background agent - which is a different voice again and
 # should not be mistaken for the cat answering.
+# (background, foreground, name) per speaker, from the shared palette.
+#
+# Messages colours the OUTGOING side in the accent and leaves the incoming
+# side grey, and that asymmetry is most of why a Mac transcript is readable
+# at a glance - two tinted greys are not. The user is the blue one.
 COLOURS = {
-    "user": ("#2f3b44", "#dceaf5", "#7fa8c9"),
-    "meow": ("#2a2927", "#e8e6e3", "#d8a76b"),
-    # A file the agent wrote. Its own colour because it is not
-    # something anyone said - it is a thing that now exists, and
-    # unlike every other row it can be pressed.
-    "file": ("#2b332b", "#cfe6cd", "#7bc96f"),
+    "user": (palette.ACCENT, palette.ON_ACCENT, palette.LABEL_TERTIARY),
+    "meow": (palette.RAISED, palette.LABEL, palette.LABEL_TERTIARY),
+    # A file the agent wrote. Its own colour because it is not something
+    # anyone said - it is a thing that now exists, and unlike every other
+    # row it can be pressed.
+    "file": (palette.SURFACE, palette.GREEN, palette.LABEL_TERTIARY),
     # A task stopped on a question. Amber, because it is the one row in the
     # window that something is actually waiting on.
-    "ask": ("#3a3327", "#f0e3c8", "#d8a76b"),
+    "ask": (palette.SURFACE, palette.AMBER, palette.LABEL_TERTIARY),
     # A draft waiting to be sent. The same amber as a question, because it is
     # the same thing: something stopped, waiting on a person.
-    "draft": ("#3a3327", "#f0e3c8", "#d8a76b"),
-    "answer": ("#2f3b44", "#dceaf5", "#7fa8c9"),
+    "draft": (palette.SURFACE, palette.AMBER, palette.LABEL_TERTIARY),
+    "answer": (palette.ACCENT, palette.ON_ACCENT, palette.LABEL_TERTIARY),
 }
-AGENT_COLOURS = ("#242a24", "#d7e4d5", "#7bc96f")
+AGENT_COLOURS = (palette.SURFACE, palette.GREEN, palette.LABEL_TERTIARY)
 
 
 def _palette(who: str) -> tuple[str, str, str]:
@@ -126,8 +136,11 @@ class MessageDelegate(QStyledItemDelegate):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.body_font = QFont("Segoe UI", 10)
-        self.name_font = QFont("Segoe UI", 8)
+        # The stack, not one family. See palette.font.
+        self.body_font = palette.font(palette.TEXT_FAMILIES,
+                                      palette.BODY_POINTS)
+        self.name_font = palette.font(palette.TEXT_FAMILIES,
+                                      palette.NAME_POINTS)
 
     def _wrap_width(self, option) -> int:
         return max(160, int(option.rect.width() * MAX_WIDTH_SHARE) - PADDING_X * 2)
@@ -204,8 +217,10 @@ class MessageDelegate(QStyledItemDelegate):
                                       (no, labels[1], "#4a3535")):
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(QColor(fill))
-                painter.drawRoundedRect(QRectF(rect), 7, 7)
-                painter.setPen(QPen(QColor("#e8e6e3")))
+                painter.drawRoundedRect(QRectF(rect),
+                                        palette.BUTTON_RADIUS,
+                                        palette.BUTTON_RADIUS)
+                painter.setPen(QPen(QColor(palette.LABEL)))
                 painter.setFont(self.name_font)
                 painter.drawText(rect, Qt.AlignCenter, label)
 

@@ -51,12 +51,20 @@ def build(harness) -> list:
         """
         from ..platform.capture import capture_screens
 
-        # Already looking. While a lesson is live the turn CARRIES a picture
-        # of their screen, so calling this is paying 14.6 seconds to be told
-        # what is already in front of the model - measured, with the seeing
-        # model, on a plain VS Code window. The tool was the only way to see
-        # before, and during a lesson it is now the slow way.
-        if harness.watching and harness.saw_the_screen:
+        # Already looking. When the turn CARRIES a picture of their screen,
+        # calling this pays 14.6 seconds to be told what is already in front
+        # of the model - measured, with the seeing model, on a plain VS Code
+        # window.
+        #
+        # ⚠ **Gated on `saw_the_screen` ALONE, never on `watching` too.** That
+        # is what it was, and `watching` is only true during a LESSON - while
+        # `saw_the_screen` is also set for any window the tree is blind to.
+        # So a plain Blender question attached a picture and then spent 14.66
+        # seconds describing it: measured end to end at 21.2s for "how do i
+        # add a subdivision modifier", two thirds of it this call. The flag
+        # means "the model can see the screen right now", which is the only
+        # thing that matters here.
+        if harness.saw_the_screen:
             harness.runs.append(ToolRun(
                 "look_at_screen", what_to_look_for,
                 Outcome(True, "already attached", method="attached")))

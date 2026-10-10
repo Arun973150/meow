@@ -37,6 +37,30 @@ from enum import Enum
 
 import uiautomation as auto
 
+# --- stop the library littering the repository root --------------------------
+#
+# `uiautomation` writes its own log to `@AutomationLog.txt` in the CURRENT
+# DIRECTORY, which for this application is wherever it was started from - the
+# repository root. On this machine that file reached 103KB of one message
+# repeated: "CoInitialize has not been called. Can not load
+# UIAutomationCore.dll."
+#
+# That message is already understood - it is what a UIA call from a worker
+# thread prints, and it is the reason the stuck-phrase tests neuter
+# `_point_now`. So the log is noise from a known condition rather than a
+# signal, and it does not belong in a git working tree where it shows up as
+# an untracked file forever.
+#
+# Moved rather than silenced: `app_data()` is where this project keeps what
+# the APP owns, beside `window.log`, and a diagnostic that is hard to find is
+# only slightly better than one that was switched off.
+try:
+    from ..storage import app_data
+
+    auto.Logger.FilePath = str(app_data() / "uia.log")
+except Exception:  # noqa: BLE001 - a log path is not worth a failed import
+    pass
+
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 
 # From UIAutomationClient.h. Hardcoded rather than imported from the generated

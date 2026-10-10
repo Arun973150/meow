@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from meow.chat import icons
+from meow.chat import icons, palette
 from meow.chat.bubbles import (
     TEXT, WHO, MessageDelegate, draft_id, file_path, hit_yes, is_ask,
     is_draft, is_file,
@@ -53,28 +53,80 @@ POLL_MILLISECONDS = 400
 # Dark by default. The cat lives on top of whatever the user is doing, usually
 # an editor or a browser at night, and a white panel opening over that is the
 # kind of thing people close once and never open again.
-STYLE = """
-QMainWindow, QWidget { background: #1b1a19; color: #e8e6e3; }
-QSplitter::handle { background: #2a2927; }
-QListWidget {
-    background: #211f1e; border: none; padding: 6px;
-    font-size: 13px; outline: none;
-}
-QListWidget::item { padding: 9px 10px; border-radius: 7px; color: #c9c6c2; }
-QListWidget::item:selected { background: #34322f; color: #ffffff; }
-QListWidget::item:hover { background: #2a2927; }
-QListWidget#transcript {
-    background: #1b1a19; border: none; padding: 8px 4px;
-}
-QListWidget#transcript::item { padding: 0; border-radius: 0; background: transparent; }
-QListWidget#transcript::item:hover { background: transparent; }
-QLineEdit {
-    background: #211f1e; border: 1px solid #34322f; border-radius: 8px;
-    padding: 8px 11px; color: #e8e6e3; font-size: 13px;
-}
-QLineEdit:focus { border: 1px solid #55514c; }
-QLabel#heading { font-size: 15px; font-weight: 600; padding: 12px 18px 2px; }
-QLabel#subheading { color: #8b8985; font-size: 12px; padding: 0 18px 10px; }
+#
+# Every colour, radius and face comes from `palette.py`, which holds macOS's
+# own system values. It was a hand-written warm-grey theme in here and a
+# second, different grey in `bubbles.py` - two palettes for one window,
+# because a Qt stylesheet cannot reach a delegate that paints its own pixels.
+STYLE = f"""
+QMainWindow, QWidget {{
+    background: {palette.WINDOW};
+    color: {palette.LABEL};
+    font-family: {palette.TEXT_STACK};
+}}
+
+/* A hairline, not a grabbable bar. macOS splitters are invisible until you
+   are on them. */
+QSplitter::handle {{ background: {palette.HAIRLINE}; width: 1px; }}
+QSplitter::handle:hover {{ background: {palette.HAIRLINE_STRONG}; }}
+
+QListWidget {{
+    background: {palette.SIDEBAR}; border: none;
+    padding: 8px 8px; font-size: 13px; outline: none;
+}}
+/* Inset, rounded, and selected in ACCENT rather than in another grey - the
+   selected row in a Mac sidebar is the one coloured thing on it. */
+QListWidget::item {{
+    padding: 9px 11px; border-radius: {palette.ROW_RADIUS}px;
+    color: {palette.LABEL_SECONDARY}; margin: 1px 0;
+}}
+QListWidget::item:hover {{ background: rgba(255, 255, 255, 0.05); }}
+QListWidget::item:selected {{
+    background: {palette.ACCENT}; color: {palette.ON_ACCENT};
+}}
+
+QListWidget#transcript {{
+    background: {palette.WINDOW}; border: none; padding: 10px 6px;
+}}
+QListWidget#transcript::item {{
+    padding: 0; border-radius: 0; background: transparent; margin: 0;
+}}
+QListWidget#transcript::item:hover {{ background: transparent; }}
+QListWidget#transcript::item:selected {{ background: transparent; }}
+
+/* A macOS search field is a pill with no visible border until focus. */
+QLineEdit {{
+    background: {palette.RAISED}; border: 1px solid transparent;
+    border-radius: {palette.FIELD_RADIUS}px;
+    padding: 8px 12px; color: {palette.LABEL}; font-size: 13px;
+    selection-background-color: {palette.ACCENT};
+}}
+QLineEdit:focus {{ border: 1px solid {palette.ACCENT}; background: {palette.SURFACE}; }}
+
+QLabel#heading {{
+    font-family: {palette.DISPLAY_STACK};
+    font-size: 17px; font-weight: 600; padding: 16px 20px 2px;
+    color: {palette.LABEL};
+}}
+QLabel#subheading {{
+    color: {palette.LABEL_TERTIARY}; font-size: 12px; padding: 0 20px 12px;
+}}
+
+/* Overlay scrollbars: a thin rounded thumb on no track, which is what macOS
+   shows. A Windows scrollbar with arrows and a grey trough is the other
+   most platform-revealing control in the window. */
+QScrollBar:vertical {{
+    background: transparent; width: 10px; margin: 4px 2px 4px 0;
+}}
+QScrollBar::handle:vertical {{
+    background: rgba(255, 255, 255, 0.18); border-radius: 4px; min-height: 28px;
+}}
+QScrollBar::handle:vertical:hover {{ background: rgba(255, 255, 255, 0.30); }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: transparent;
+}}
+QScrollBar:horizontal {{ height: 0; }}
 """
 
 class ChatWindow(QMainWindow):
@@ -309,7 +361,10 @@ class ChatWindow(QMainWindow):
 def main() -> None:
     application = QApplication(sys.argv)
     application.setQuitOnLastWindowClosed(False)
-    QApplication.setFont(QFont("Segoe UI", 9))
+    # The whole fallback stack, not one name: SF Pro Display is installed
+    # on the development machine and will not be elsewhere, and a QFont built
+    # from a single missing family silently becomes the Qt default.
+    QApplication.setFont(palette.font(palette.TEXT_FAMILIES, 9))
 
     store = Store()
     window = ChatWindow(store)
