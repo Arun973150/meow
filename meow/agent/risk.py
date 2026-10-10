@@ -140,21 +140,16 @@ _FILLER = frozenset((
 
 
 def _spelling(word: str) -> str:
-    """One spelling for words that have two.
+    """One spelling for words that have two. See `phrases.one_spelling`.
 
-    Windows labels its buttons "Minimize" and people say "minimise", so the two
-    never matched and the cat asked permission to minimise a window somebody
-    had just told it to minimise. Both spellings are the same instruction, and
-    a confirmation prompt is not the place to have an opinion about which is
-    correct.
+    Kept as a name here because the rest of this module reads better for it,
+    and delegating rather than copying is the point: the identical comparison
+    in `desktop/lookup.py` did not fold, and "where is the minimise button"
+    therefore missed the `Minimize` button in the title bar.
     """
-    for british, american in (("ise", "ize"), ("ised", "ized"),
-                              ("ises", "izes"), ("ising", "izing"),
-                              ("isation", "ization"), ("yse", "yze"),
-                              ("ysed", "yzed"), ("ysing", "yzing")):
-        if word.endswith(british):
-            return word[:-len(british)] + american
-    return word
+    from ..language.phrases import one_spelling
+
+    return one_spelling(word)
 
 
 def _words(text: str) -> set[str]:

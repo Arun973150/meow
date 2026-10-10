@@ -462,3 +462,31 @@ def wants_to_stop_following(text: str) -> bool:
     them is the whole sentence rather than the first word.
     """
     return _for_matching(text) in LEAVE_PHRASES
+
+
+# British against American, folded one way. Windows labels its buttons
+# "Minimize" and people say "minimise".
+BOTH_SPELLINGS = (("ise", "ize"), ("ised", "ized"), ("ises", "izes"),
+                  ("ising", "izing"), ("isation", "ization"),
+                  ("yse", "yze"), ("ysed", "yzed"), ("ysing", "yzing"))
+
+
+def one_spelling(word: str) -> str:
+    """One spelling for a word that has two.
+
+    **Lives here, and is used by TWO callers, which is the point.** It was
+    private to `risk.py`, where it fixed the confirmation gate asking
+    permission to minimise a window somebody had just said to minimise. The
+    strict lookup in `desktop/lookup.py` compares a spoken word against a
+    control's name the same way and did NOT fold - so "where is the minimise
+    button" failed to match the `Minimize` button sitting in the title bar,
+    fell through to grounding by sight, spent 6.76 seconds on it and then
+    said it was not sure.
+
+    One normaliser, one place to add to. Two copies of a spelling rule drift,
+    and the half that has it looks like the half that does not.
+    """
+    for british, american in BOTH_SPELLINGS:
+        if word.endswith(british):
+            return word[:-len(british)] + american
+    return word

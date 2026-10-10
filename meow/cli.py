@@ -11,6 +11,7 @@
     meow evaluate --labelled   score against the hand-marked set
     meow teaching              does the model need the app's own manual?
     meow reference             does the lookup survive real speech?
+    meow latency               where a turn's seconds actually go
 
 A desktop application ships one executable. `doctor` and `stress` are things
 you ask it about itself, not separate programs, and a folder of loose scripts
@@ -26,7 +27,7 @@ import sys
 # `meow ...` with no recognised subcommand runs the companion and passes
 # everything through, so `meow --mute` keeps working without being listed.
 COMMANDS = ("doctor", "connectors", "stress", "smoke", "evaluate", "label",
-            "routing", "teaching", "reference", "help")
+            "routing", "teaching", "reference", "latency", "help")
 
 
 def _usage() -> None:
@@ -77,6 +78,11 @@ def main(argv: list[str] | None = None) -> None:
         from .diagnostics import teaching
 
         raise SystemExit(teaching.main())
+
+    if command == "latency":
+        from .diagnostics import latency
+
+        raise SystemExit(latency.main())
 
     if command == "reference":
         from .diagnostics import reference

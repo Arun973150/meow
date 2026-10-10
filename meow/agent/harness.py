@@ -515,9 +515,17 @@ class Harness:
         # pointing stays free - which is the autonomy decision this project was
         # built around, expressed as configuration rather than as a habit.
         # The risk policy inside each tool decides now, so the middleware gate
-        # is off by default. Having both meant two prompts for one action, and
-        # the middleware one could not see WHAT was about to be pressed - only
-        # that something was.
+        # is off WHEREVER THE APP BUILDS A HARNESS - both call sites in
+        # `loop.py` pass ask_before_acting=False. Having both meant two
+        # prompts for one action, and the middleware one could not see WHAT
+        # was about to be pressed, only that something was.
+        #
+        # ⚠ The parameter still DEFAULTS to True, so anything constructing a
+        # Harness directly gets the old double-prompt behaviour. That misled
+        # a latency measurement into reporting a confirmation on "open
+        # notepad" - a sentence `risk.judge` proceeds on, because the user
+        # named the target. A diagnostic has to build it the way the app
+        # does.
         interrupts = {
             "click_control": True,
             "type_text": True,

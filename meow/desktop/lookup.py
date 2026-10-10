@@ -443,14 +443,30 @@ def already_on_screen(question: str, digest: WindowDigest) -> Element | None:
     strength of the word "profile", which every profile card contains. Here a
     word from the question has to BE a control's name, or start it.
     """
-    words = [word for word in _normalise(question).replace("-", " ").split()
+    from ..language.phrases import one_spelling
+
+    # Folded on BOTH sides, because this is a spoken word against a label
+    # Windows wrote. "Where is the minimise button" missed the `Minimize`
+    # button in the title bar, fell through to grounding by sight, spent
+    # 6.76 seconds there and then said it was not sure - while the answer sat
+    # in the digest the whole time. `risk.py` has folded these since the
+    # confirmation gate hit the same wall; this did not.
+    #
+    # It is still EXACT matching. A spelling variant is one-to-one, not the
+    # word-overlap degradation this function exists to refuse.
+    def folded(text: str) -> str:
+        return " ".join(one_spelling(word)
+                        for word in _normalise(text).split())
+
+    words = [one_spelling(word)
+             for word in _normalise(question).replace("-", " ").split()
              if word not in _ASKING and len(word) > 2]
     if not words:
         return None
 
     for word in words:
         exact = [element for element in digest.elements
-                 if _normalise(element.name) == word]
+                 if folded(element.name) == word]
         if len(exact) == 1:
             return exact[0]
         if len(exact) > 1:
@@ -461,7 +477,7 @@ def already_on_screen(question: str, digest: WindowDigest) -> Element | None:
 
     for word in words:
         starting = [element for element in digest.elements
-                    if _normalise(element.name).startswith(word)]
+                    if folded(element.name).startswith(word)]
         if len(starting) == 1:
             return starting[0]
     return None

@@ -83,3 +83,72 @@ def test_something_genuinely_absent_falls_through_to_the_web():
     assert already_on_screen(
         "how do i change the dark mode of my screen", window) is None
     assert already_on_screen("where is my dns setting", window) is None
+
+
+# --- one spelling, and the strict lookup has to fold it too -----------------
+#
+# `risk.py` has folded -ise/-ize since the confirmation gate asked permission
+# to minimise a window somebody had just said to minimise. The identical
+# comparison in `lookup.already_on_screen` did NOT, so "where is the minimise
+# button" missed the Minimize button in the title bar, fell through to
+# grounding by sight, spent 6.76 seconds there and then said it was not sure -
+# while the answer sat in the digest the whole time.
+
+
+def a_digest(*names):
+    from meow.desktop.uia import Element, Regime, WindowDigest
+
+    return WindowDigest(
+        app="Code.exe", title="a window", regime=Regime.RICH,
+        total_found=len(names), usable_found=len(names), query_seconds=0.1,
+        elements=[Element(name=name, role="button", left=index * 40, top=0,
+                          right=index * 40 + 30, bottom=20)
+                  for index, name in enumerate(names)])
+
+
+def test_one_spelling_lives_in_ONE_place():
+    """Two copies of a spelling rule drift, and the half that has it looks
+    exactly like the half that does not.
+    """
+    from meow.agent import risk
+    from meow.language.phrases import one_spelling
+
+    for word in ("minimise", "maximise", "analyse", "organisation",
+                 "minimize", "close", "save"):
+        assert risk._spelling(word) == one_spelling(word)
+
+
+def test_the_strict_lookup_folds_british_spelling():
+    from meow.desktop.lookup import already_on_screen
+
+    screen = a_digest("Minimize", "Maximize", "Close", "Analyze data")
+    for said, wanted in (
+            ("where is the minimise button", "Minimize"),
+            ("where is the minimize button", "Minimize"),
+            ("how do i maximise this", "Maximize"),
+            ("where is the analyse data button", "Analyze data"),
+    ):
+        found = already_on_screen(said, screen)
+        assert found is not None, f"{said!r} matched nothing"
+        assert found.name == wanted, f"{said!r} -> {found.name}"
+
+
+def test_folding_does_not_make_the_strict_tier_fuzzy():
+    """It is still EXACT matching. A spelling variant is one-to-one, not the
+    word-overlap degradation this function exists to refuse.
+    """
+    from meow.desktop.lookup import already_on_screen
+
+    screen = a_digest("Minimize", "Settings and more", "Profile")
+    # "dark mode" is nowhere in the tree and must still fall through.
+    assert already_on_screen("how do i change dark mode", screen) is None
+    # A word that merely appears inside a longer name is not a match.
+    assert already_on_screen("where is more", screen) is None
+
+
+def test_two_controls_with_the_same_folded_name_is_a_QUESTION():
+    """Picking one is how the cat pointed confidently at the wrong profile."""
+    from meow.desktop.lookup import already_on_screen
+
+    screen = a_digest("Minimize", "Minimise")
+    assert already_on_screen("where is the minimise button", screen) is None

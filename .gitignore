@@ -25,3 +25,10 @@ Thumbs.db
 desktop.ini
 reference/
 models/
+
+# Wheel-build leftovers. `pip wheel` is used to CHECK that
+# package-data entries really ship - the recipes vanished once
+# because one did not - and it leaves these behind.
+build/
+dist/
+*.whl
