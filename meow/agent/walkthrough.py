@@ -128,6 +128,16 @@ class Walkthrough:
     # neither does the model being asked what is next. With it, every step
     # arrives inside something that has a name and an end.
     stage_of: list[str] = field(default_factory=list)
+    # What to MARK on screen for each step, one short name per step, or empty.
+    #
+    # A doing step is an instruction - "open the properties panel and click
+    # the blue spanner tab" - and grounding that whole sentence finds
+    # nothing. The thing worth circling is a noun inside it, and the model
+    # writing the lesson is what knows which noun. So it says, the same way
+    # it says which part of the job a step belongs to.
+    #
+    # Empty is the normal case and means say the step and mark nothing.
+    mark_of: list[str] = field(default_factory=list)
     index: int = 0
     started: bool = False
     finished: bool = False
@@ -157,6 +167,18 @@ class Walkthrough:
     def staged(self) -> bool:
         """Does this lesson have named parts? Only long ones do."""
         return len(self.stage_of) == len(self.steps) and bool(self.stage_of)
+
+    @property
+    def marked(self) -> bool:
+        """Does this lesson name something to mark for each step?"""
+        return len(self.mark_of) == len(self.steps) and bool(self.mark_of)
+
+    @property
+    def to_mark(self) -> str:
+        """What to circle for the step they are on now, or ""."""
+        if not self.marked or not 0 <= self.index < len(self.mark_of):
+            return ""
+        return self.mark_of[self.index]
 
     def stage_at(self, index: int) -> str:
         if not self.staged or not 0 <= index < len(self.stage_of):
@@ -511,7 +533,8 @@ def from_directions(directions, goal: str = "") -> Walkthrough | None:
     return from_steps(steps, goal)
 
 
-def from_steps(steps, goal: str = "", doing: bool = False, stages=None):
+def from_steps(steps, goal: str = "", doing: bool = False, stages=None,
+               marks=None):
     """A walkthrough from plain steps, or None if it is not worth one.
 
     One step is not a walkthrough - it is a sentence, and the ordinary reply
@@ -531,18 +554,28 @@ def from_steps(steps, goal: str = "", doing: bool = False, stages=None):
     named = list(stages) if stages is not None else []
     if len(named) != len(given):
         named = [""] * len(given)
+    # Same guard as the stages: a list that does not line up is DROPPED
+    # rather than trusted. A lesson whose marks are off by one circles the
+    # wrong thing while saying the right one, which is worse than circling
+    # nothing - the whole value of a mark is that it agrees with the words.
+    wanted = list(marks) if marks is not None else []
+    if len(wanted) != len(given):
+        wanted = [""] * len(given)
 
     kept: list[str] = []
     names: list[str] = []
-    for step, name in zip(given, named):
+    targets: list[str] = []
+    for step, name, target in zip(given, named, wanted):
         if not str(step).strip():
             continue
         kept.append(str(step).strip())
         names.append(str(name or "").strip())
+        targets.append(str(target or "").strip())
     if len(kept) < 2:
         return None
 
     budget = MAX_DOING_STEPS if doing else MAX_STEPS
     return Walkthrough(steps=kept[:budget], goal=goal, doing=doing,
                        stage_of=names[:budget] if any(names) else [],
+                       mark_of=targets[:budget] if any(targets) else [],
                        truncated=len(kept) > budget)

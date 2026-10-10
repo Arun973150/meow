@@ -36,9 +36,16 @@ POLL_SECONDS = 1.6
 class Guide:
     """The live walkthrough, if there is one."""
 
-    def __init__(self, say, point=None, should_stop=None) -> None:
+    def __init__(self, say, point=None, should_stop=None, mark=None) -> None:
         self.say = say
         self.point = point
+        # Called with what the CURRENT doing step refers to, so the thing
+        # being described gets circled on screen. Separate from `point`:
+        # that one resolves a control NAME mined from a route against the
+        # tree, and this one is a phrase out of an instruction, in an
+        # application whose tree is usually blind. The app supplies it and
+        # decides how to find it.
+        self.mark = mark
         self.should_stop = should_stop
         self.walkthrough: Walkthrough | None = None
         self._thread: threading.Thread | None = None
@@ -52,7 +59,7 @@ class Guide:
         """Start walking somebody through a route. False if it is not worth it."""
         return self._take(from_directions(directions, goal))
 
-    def teach(self, steps, goal: str = "", stages=None) -> bool:
+    def teach(self, steps, goal: str = "", stages=None, marks=None) -> bool:
         """Walk somebody through a PROCEDURE the model knew, not a route.
 
         "Add a UV sphere, set a keyframe, move to a later frame, set another"
@@ -63,7 +70,8 @@ class Guide:
         These are not watched for: there is no name to see. They advance when
         the person says they have done it.
         """
-        return self._take(from_steps(steps, goal, doing=True, stages=stages))
+        return self._take(from_steps(steps, goal, doing=True, stages=stages,
+                                     marks=marks))
 
     def _take(self, walkthrough) -> bool:
         if walkthrough is None:
@@ -155,6 +163,10 @@ class Guide:
                 self._watch_again()
             if sentence:
                 self.say(sentence)
+            # The words go out FIRST and the mark follows. Grounding by
+            # sight is seconds, and a step that waited for it would be a
+            # lesson that pauses before every instruction.
+            self._mark_now()
             return True
 
         if asks_to_repeat(transcript):
@@ -172,6 +184,21 @@ class Guide:
             return True
 
         return False
+
+    def _mark_now(self) -> None:
+        """Circle what the current doing step refers to, if it named one.
+
+        Silent either way. The step has already been SAID, so a mark that
+        cannot be found costs nothing and an apology for it would be noise -
+        the user has their instruction and does not need to hear that the
+        picture was hard.
+        """
+        walkthrough = self.walkthrough
+        if self.mark is None or walkthrough is None or walkthrough.finished:
+            return
+        wanted = walkthrough.to_mark
+        if wanted:
+            self.mark(wanted)
 
     def _point_now(self) -> None:
         """Point at the current step, reading the screen once to do it."""

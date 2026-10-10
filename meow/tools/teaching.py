@@ -297,7 +297,8 @@ def build(harness) -> list:
 
     @tool
     def teach_me_this(steps: list[str],
-                      stages: list[str] | None = None) -> str:
+                      stages: list[str] | None = None,
+                      marks: list[str] | None = None) -> str:
         """Walk the user through a procedure, ONE STEP AT A TIME.
 
         Use this whenever somebody asks to be TAUGHT how to do something
@@ -335,10 +336,30 @@ def build(harness) -> list:
         inside it. And do not leave `stages` out of a long one - a flat list
         of thirty things teaches nobody where they are.
 
+        `marks` is what to CIRCLE on their screen for each step, one short
+        name per step, in the same order. A step is an instruction - "open
+        the properties panel and click the blue spanner tab" - and the thing
+        worth circling is a noun inside it, which only you know:
+
+            steps = ["open the properties editor and click the spanner tab",
+                     "press Add Modifier", ...]
+            marks = ["the spanner tab",  "Add Modifier", ...]
+
+        Name what a person would SEE: a tab, a button, a field, a panel
+        heading. Leave an entry EMPTY for a step that is pure keyboard -
+        "press Tab" has nothing on screen to circle, and a mark on nothing
+        is worse than none. Leave the whole list out if the step is all
+        keyboard.
+
+        The mark is drawn AFTER the step is spoken and never delays it, and
+        a thing that cannot be found is passed over in silence - they
+        already have the instruction.
+
         Say nothing after calling this. The first step is said for you.
         """
-        wanted = [step for step in steps if step and step.strip()]
-        if len(wanted) < 2:
+        wanted_steps = [step for step in steps
+                        if step and step.strip()]
+        if len(wanted_steps) < 2:
             return ("That is one step, so just say it. This is for a "
                     "procedure somebody has to be walked through.")
 
@@ -349,22 +370,27 @@ def build(harness) -> list:
         # has to be told rather than left to wonder why nothing is staged.
         parts = [name for name in (stages or []) if name and name.strip()]
         mismatched = bool(parts) and len(stages or []) != len(steps)
+        # Same guard, same reason: a list that does not line up circles the
+        # wrong thing while saying the right one.
+        wanted = [name for name in (marks or []) if name and name.strip()]
+        marks_mismatched = bool(wanted) and len(marks or []) != len(steps)
 
         if harness.start_teaching is None:
             # No app to drive the pacing - a harness running standalone, or
             # a background task. Fall back to saying them, which is worse
             # than teaching and better than silence.
             return ("I cannot pace this here, so say the steps in order, "
-                    "briefly: " + "; ".join(wanted))
+                    "briefly: " + "; ".join(wanted_steps))
 
         started = harness.start_teaching(
-            wanted, None if mismatched else (stages or None))
+            wanted_steps, None if mismatched else (stages or None),
+            None if marks_mismatched else (marks or None))
         harness.runs.append(ToolRun(
-            "teach_me_this", f"{len(wanted)} steps",
+            "teach_me_this", f"{len(wanted_steps)} steps",
             Outcome(started, "teaching" if started else "could not start")))
         if not started:
             return ("I cannot pace this here, so say the steps in order, "
-                    "briefly: " + "; ".join(wanted))
+                    "briefly: " + "; ".join(wanted_steps))
         # Live, the model said the first step anyway, straight after the
         # app had said it: "...tell me when you have." / "press shift a and
         # choose mesh, then uv sphere." Telling it to say nothing is a
@@ -372,11 +398,11 @@ def build(harness) -> list:
         # wants to be helpful. So it is given something harmless to say
         # instead of being asked for silence it will not produce.
         answer = (f"Started, and the user has ALREADY HEARD: "
-                  f"\"{wanted[0]}\" - word for word, out loud, just now. "
+                  f"\"{wanted_steps[0]}\" - word for word, out loud, just now. "
                   f"Reply with AT MOST a short acknowledgement that adds "
                   f"something they do not already know - why this step, or "
                   f"what they will see. Never restate the step. Never list "
-                  f"the remaining {len(wanted) - 1}. If you have nothing to "
+                  f"the remaining {len(wanted_steps) - 1}. If you have nothing to "
                   f"add, reply with exactly: ok")
         if mismatched:
             answer += (f" NOTE: you gave {len(stages or [])} stage names for "

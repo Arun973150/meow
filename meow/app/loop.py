@@ -403,7 +403,44 @@ def main() -> None:
                     say=lambda sentence: replies.put(("say", sentence)))
     panic.on_panic("marking", pencil.cancel)
 
-    def start_teaching(steps, stages=None) -> bool:
+    LESSON_MARK = "lesson-step"
+
+    def mark_the_step(what: str) -> None:
+        """Circle what the step refers to. Never blocks, never complains.
+
+        On its OWN THREAD because grounding a phrase in an application the
+        tree cannot see is seconds, and a lesson that paused before every
+        instruction would be worse than one that says the words and draws a
+        moment later.
+
+        Silent on failure. The step has already been spoken, so a mark that
+        cannot be placed costs nothing - and saying "i could not find it"
+        after giving a correct instruction is noise that teaches the user to
+        distrust the instruction.
+        """
+        board = getattr(harness, "_board", None)
+        if board is None or not what:
+            return
+
+        def find_and_draw() -> None:
+            try:
+                target = harness.locate_anything(what)
+            except Exception:  # noqa: BLE001 - a missing mark is not a crash
+                return
+            if target is None:
+                return
+            # One group, cleared each step, so step four does not leave
+            # step three's ring on screen beside it.
+            from ..desktop.annotate import PINNED
+
+            board.sketch.clear(group=LESSON_MARK)
+            board.sketch.rings(target.centre, 34, seconds=PINNED,
+                               group=LESSON_MARK)
+
+        threading.Thread(target=find_and_draw, daemon=True,
+                         name="lesson-mark").start()
+
+    def start_teaching(steps, stages=None, marks=None) -> bool:
         """Hand a procedure to the walkthrough and say the first step.
 
         Said from HERE rather than returned to the model, so the model
@@ -414,7 +451,8 @@ def main() -> None:
         long enough to have parts. Passed straight through: the walkthrough
         drops them if they do not line up with the steps.
         """
-        if not guide.teach(steps, harness.transcript, stages=stages):
+        if not guide.teach(steps, harness.transcript, stages=stages,
+                           marks=marks):
             return False
         # From here the turns carry a picture: the whole point of a lesson is
         # watching what they do with it.
@@ -423,14 +461,24 @@ def main() -> None:
         guide.walkthrough.started = True
         if first:
             replies.put(("say", first))
+        # The first step gets a mark too, after its words.
+        mark_the_step(guide.walkthrough.to_mark)
         return True
 
     harness.start_teaching = start_teaching
+    # Assigned rather than passed to the constructor: `mark_the_step` closes
+    # over the harness and the board, and both are built after the Guide.
+    guide.mark = mark_the_step
 
     def stop_teaching() -> None:
         guide.cancel()
         harness.watching = False
         harness.lesson = ""
+        # The ring goes with the lesson. One left behind points at a step
+        # nobody is on any more, which is worse than no mark at all.
+        board = getattr(harness, "_board", None)
+        if board is not None:
+            board.sketch.clear(group=LESSON_MARK)
 
     panic.on_panic("teaching", stop_teaching)
     panic.on_panic("walkthrough", guide.cancel)
@@ -732,8 +780,23 @@ def main() -> None:
             # to go and do something.
             shot = (capture_screens()[0]
                     if (route.needs_screen or guide.active) else None)
+            # AROUND WHAT THEY DREW, when they drew something. The crop was
+            # always taken around the POINTER, which is right for "what is
+            # this" with no circle and silently wrong with one: the region
+            # had already been taken and consumed by this turn, so a
+            # deliberate circle was destroyed and the answer described
+            # wherever the mouse happened to rest.
+            #
+            # Seen live: circled a thing in VS Code, asked "what is this?",
+            # and got "this is a visual studio code application on your
+            # desktop" - a description of the whole screen. The harness
+            # crops to the region properly; the ANSWER path never reaches
+            # the harness, which is how this went unnoticed.
+            look_at = (harness.user_region.centre
+                       if harness.user_region is not None
+                       else get_cursor_position())
             for sentence in mind.answer(transcript, shot,
-                                        crop_around=get_cursor_position()):
+                                        crop_around=look_at):
                 if panic.tripped:
                     break
                 replies.put(("say", sentence))

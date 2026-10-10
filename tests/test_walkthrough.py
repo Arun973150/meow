@@ -692,3 +692,93 @@ def test_an_unstaged_lesson_says_nothing_about_parts():
     said = lesson.say(Progress.ARRIVED)
     assert "part" not in said
     assert said.startswith("press a")
+
+
+# --- marking what a step refers to ------------------------------------------
+#
+# A named route points at each step because its steps ARE control names. A
+# doing procedure never pointed at anything, deliberately: "press shift a and
+# choose mesh" is an instruction and no tree contains it. But the thing worth
+# circling is a NOUN inside the instruction, and the model writing the lesson
+# is what knows which noun - so it says, the same way it says which part of
+# the job a step belongs to.
+
+
+def a_blender_lesson():
+    from meow.agent.walkthrough import from_steps
+
+    return from_steps(
+        steps=["open the properties editor and click the spanner tab",
+               "press Add Modifier",
+               "press Tab to go back to object mode"],
+        goal="add a subdivision modifier", doing=True,
+        marks=["the spanner tab", "Add Modifier", ""])
+
+
+def test_a_lesson_can_name_what_to_circle_per_step():
+    lesson = a_blender_lesson()
+    assert lesson.marked
+    assert lesson.to_mark == "the spanner tab"
+    lesson.advance()
+    assert lesson.to_mark == "Add Modifier"
+
+
+def test_a_KEYBOARD_step_names_nothing_and_that_is_allowed():
+    """"Press Tab" has nothing on screen to circle, and a mark on nothing is
+    worse than no mark.
+    """
+    lesson = a_blender_lesson()
+    lesson.advance()
+    lesson.advance()
+    assert lesson.to_mark == ""
+
+
+def test_marks_that_do_not_line_up_are_DROPPED():
+    """A lesson whose marks are off by one circles the wrong thing while
+    saying the right one - worse than circling nothing, because the whole
+    value of a mark is that it agrees with the words.
+    """
+    from meow.agent.walkthrough import from_steps
+
+    lesson = from_steps(["one", "two", "three"], doing=True,
+                        marks=["only", "two"])
+    assert lesson.marked is False
+    assert lesson.to_mark == ""
+
+
+def test_a_lesson_with_no_marks_at_all_is_unaffected():
+    from meow.agent.walkthrough import from_steps
+
+    lesson = from_steps(["press g", "press escape"], doing=True)
+    assert lesson.marked is False
+    assert lesson.to_mark == ""
+
+
+def test_the_guide_asks_for_a_MARK_as_each_doing_step_is_announced():
+    """The words go out FIRST and the mark follows - grounding is seconds,
+    and a step that waited for it would pause before every instruction.
+    """
+    from meow.app.guiding import Guide
+
+    said, marked = [], []
+    guide = Guide(say=said.append, mark=marked.append)
+    assert guide.teach(
+        ["open the properties editor and click the spanner tab",
+         "press Add Modifier"],
+        goal="add a modifier", marks=["the spanner tab", "Add Modifier"])
+
+    # The app says the first step itself, so the first mark is the app's job
+    # too; the Guide takes over from the advance.
+    assert guide.answer("done") is True
+    assert marked == ["Add Modifier"], marked
+    assert said and "add modifier" in said[-1].lower()
+
+
+def test_an_unmarked_step_asks_for_nothing():
+    from meow.app.guiding import Guide
+
+    marked = []
+    guide = Guide(say=lambda sentence: None, mark=marked.append)
+    guide.teach(["press g", "press escape"], goal="move it")
+    guide.answer("done")
+    assert marked == []
