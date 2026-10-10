@@ -1144,6 +1144,51 @@ ABANDONED and finishing needs the same tidying up, so `Guide.done` fires on
 the last step, from the watcher thread as well as from `answer` - which is
 safe only because `cancel` sets an event and joins nothing.
 
+⚠ **A STEP IS A KEYSTROKE, NEVER A GOAL - and the docstring's own example
+broke that.** It offered `steps = ["add a plane", "scale it up", ...]` to
+illustrate `stages`, and the user said exactly what was wrong with it: *"it
+just said add a plane, not HOW to add a plane."* Somebody who knew how would
+not be asking. The examples are keystrokes now - "press shift a, choose mesh,
+then plane" - in the tool and in `TEACH_REMINDER` both.
+
+⚠ **A LESSON THAT ENDS BEFORE THE THING EXISTS HAS TAUGHT NOBODY
+ANYTHING.** Asked to teach a ball bouncing on a plane it wrote FOUR steps -
+sphere, scale, plane, move down - and stopped. Not one keyframe, and nothing
+bounced. The tool's own wording was the anchor: *"four steps are a
+recitation"* as the example of a short lesson, *"twenty or thirty"* only for
+a BIG job, so a job between the two came out at four. It says "work backwards
+from the finished thing" now, and that even two steps said in one breath are
+a recitation.
+
+⚠ **AND THEN IT CRAMMED THE JOB INTO THE LAST STEP INSTEAD.** *"select the
+sphere, press i, select location and set a keyframe at frame 1 and frame 10,
+moving the sphere up on frame 5"* - a recitation INSIDE a step, hidden where
+the pacing cannot reach it, which is worse than the short lesson it replaced.
+Asking was tried twice and this one is CHECKED: a step over `MANY_WORDS` is
+refused, by length rather than by counting verbs, because a real single step
+reads "press shift a, choose mesh, then uv sphere" - three clauses, one menu,
+and no verb count can tell those from two actions.
+
+**A refused lesson is sent back ONCE, with the refusal.** Falling through to
+the ordinary turn would answer "these steps are crammed" with prose, which is
+the thing being refused. One extra call, only when it happens.
+
+**Measured three times, because `temperature=0` is not determinism** and one
+run of this is a sample rather than a property:
+
+```
+                        steps   keyframes   does the ball bounce
+before                    4         0        no
+after, run 1             17         4        yes
+after, run 2              7         1        yes
+after, run 3              7         3        yes
+```
+
+Honest about what is left: runs 2 and 3 have steps of exactly eighteen words
+that still do two things, sitting right on the limit, and the keyframe count
+wanders. What holds across all three is that the lesson now reaches the thing
+they asked for.
+
 ⚠ **A CONFIRMATION THAT BECOMES FURNITURE IS WORSE THAN NONE.** "Open
 spotify in a new chrome tab here" asked **five times** - ctrl+t, ctrl+l,
 ctrl+t, ctrl+l, ctrl+l - and the user said yes to every one. Not one of those

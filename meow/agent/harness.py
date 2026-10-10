@@ -166,6 +166,8 @@ This overrides every other instruction about what to do with this turn.
 - Do NOT ask them what they want to do first. They told you.
 - Write the steps from what you KNOW about this application. That is not what you need a tool for; the tool is for the PACING.
 - They asked about a THING THEY WANT TO MAKE. If they said a ball and the scene holds a cube, the cube is not the ball - the lesson starts by adding what they asked for.
+- Every step names a KEY, a MENU or a BUTTON. "add a plane" is not a step, it is what the step achieves - somebody who knew how would not be asking. "press shift a, choose mesh, then plane" is a step.
+- Write EVERY step the job takes, and make the last one produce the thing they asked for. Four steps for a bouncing ball that never bounces is not a short lesson, it is a wrong one.
 
 Give `steps`, and `marks` naming what to circle for each one. EVERY list you pass must have EXACTLY as many entries as `steps` - count them. A list that is one short is thrown away whole, and the lesson loses its parts and its marks."""
 
@@ -1416,26 +1418,51 @@ class Harness:
         if lesson_tool is None:
             return None
 
-        try:
-            decided = self._writer.bind_tools(
-                [lesson_tool], tool_choice="teach_me_this").invoke(messages)
-        except Exception as error:  # noqa: BLE001 - fall back, never fail
-            self.last_error = f"{type(error).__name__}: {error}"
+        forced = self._writer.bind_tools([lesson_tool],
+                                         tool_choice="teach_me_this")
+        asked = list(messages)
+        for attempt in range(2):
+            try:
+                decided = forced.invoke(asked)
+            except Exception as error:  # noqa: BLE001 - fall back, never fail
+                self.last_error = f"{type(error).__name__}: {error}"
+                return None
+
+            calls = getattr(decided, "tool_calls", None) or []
+            if not calls:
+                return None
+            try:
+                spoken = lesson_tool.invoke(calls[0]["args"])
+            except Exception as error:  # noqa: BLE001
+                self.last_error = f"{type(error).__name__}: {error}"
+                return None
+
+            # STEPS THAT WERE TOO LONG GET ONE MORE GO, with the refusal in
+            # front of them. Falling through to the ordinary turn here would
+            # answer "these steps are crammed" with prose, which is the
+            # thing being refused - so the one fixable refusal is the one
+            # that is sent back. Costs a second call only when it happens.
+            if isinstance(spoken, str) and spoken.startswith("REFUSED"):
+                if attempt:
+                    break
+                asked = asked + [decided, ToolMessage(
+                    content=spoken, tool_call_id=calls[0]["id"])]
+                continue
+
+            # The tool refused something it cannot talk the model out of -
+            # one step, or no app to pace them. The ordinary turn is the
+            # better answer.
+            if isinstance(spoken, str) and (
+                    "just say it" in spoken or "cannot pace this" in spoken):
+                return None
+            break
+        else:  # pragma: no cover - the loop always breaks or returns
             return None
 
-        calls = getattr(decided, "tool_calls", None) or []
-        if not calls:
-            return None
-        try:
-            spoken = lesson_tool.invoke(calls[0]["args"])
-        except Exception as error:  # noqa: BLE001
-            self.last_error = f"{type(error).__name__}: {error}"
-            return None
-
-        # The tool refused - too few steps, or no app to pace them. Its own
-        # reply explains why, and the ordinary turn is the better answer.
-        if isinstance(spoken, str) and (
-                "just say it" in spoken or "cannot pace this" in spoken):
+        if isinstance(spoken, str) and spoken.startswith("REFUSED"):
+            # Twice over the limit. A lesson of long steps is still a
+            # lesson, and better than prose, but nothing started - so this
+            # is the one case that falls back.
             return None
 
         def nothing():

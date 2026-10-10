@@ -672,3 +672,79 @@ def test_the_app_says_the_first_step_so_nothing_is_spoken_here():
 
     teach = inspect.getsource(harness_module.Harness._teach)
     assert "def nothing()" in teach
+
+
+
+# --- a crammed step is refused ----------------------------------------------
+#
+# Told in the docstring AND in the reminder to write every step the job
+# takes, it wrote four and put the whole animation in the last one:
+#
+#   "select the sphere, press i, select location and set a keyframe at
+#    frame 1 and frame 10, moving the sphere up on frame 5"
+#
+# That is a recitation INSIDE a step - the exact thing being paced, hidden
+# where the pacing cannot reach it, and worse than the short lesson it
+# replaced. Asking was tried twice; this one is checked.
+
+
+def _teaching_tools():
+    from types import SimpleNamespace
+
+    from meow.tools import teaching
+
+    started = []
+    harness = SimpleNamespace(
+        start_teaching=lambda steps, stages=None, marks=None: (
+            started.append((list(steps), stages, marks)) or True),
+        runs=[], _board=None, guiding=True, transcript="", lesson="",
+        watching=False, saw_the_screen=False, user_region=None,
+        say=lambda sentence: None, note=lambda sentence: None,
+    )
+    tools = {tool.name: tool for tool in teaching.build(harness)}
+    return tools["teach_me_this"], started
+
+
+CRAMMED = ("select the sphere, press i, select location and set a keyframe "
+           "at frame 1 and frame 10, moving the sphere up on frame 5")
+
+
+def test_a_step_that_is_several_actions_is_refused():
+    teach, started = _teaching_tools()
+
+    answer = teach.invoke({"steps": [
+        "press shift a, choose mesh, then uv sphere", CRAMMED]})
+
+    assert answer.startswith("REFUSED")
+    assert CRAMMED in answer, "it has to name which step, to fix it"
+    assert started == [], "nothing may start - the lesson is the wrong shape"
+
+
+def test_a_real_single_step_is_not_refused_for_its_length():
+    """The limit has to clear a genuine step. "press shift a, choose mesh,
+    then uv sphere" is three clauses and one menu, and a verb count cannot
+    tell it from two actions - which is why the check is on words.
+    """
+    teach, started = _teaching_tools()
+
+    answer = teach.invoke({"steps": [
+        "press shift a, choose mesh, then uv sphere",
+        "open the properties editor and click the blue spanner tab",
+        "press s, type 0.5 and press enter"]})
+
+    assert not answer.startswith("REFUSED"), answer
+    assert len(started) == 1
+
+
+def test_a_refused_lesson_is_sent_back_once_rather_than_answered_in_prose():
+    """Falling through to the ordinary turn here would answer "these steps
+    are crammed" with prose, which is the thing being refused.
+    """
+    import inspect
+
+    from meow.agent import harness as harness_module
+
+    teach = inspect.getsource(harness_module.Harness._teach)
+    assert 'spoken.startswith("REFUSED")' in teach
+    assert "for attempt in range(2)" in teach
+    assert "ToolMessage(" in teach, "the refusal goes back as a tool result"

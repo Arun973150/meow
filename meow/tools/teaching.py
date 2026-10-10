@@ -32,6 +32,12 @@ from ..desktop.actions import Outcome
 # the first. Two sets of digits on the same screen is worse than none.
 STEP_BADGES = "step-badges"
 
+# A step longer than this is several actions in one sentence. Length is the
+# signal rather than counting verbs, because a real single step reads "press
+# shift a, choose mesh, then uv sphere" - seven words, three clauses, one
+# menu. A verb count cannot tell those clauses from two separate actions.
+MANY_WORDS = 18
+
 
 def build(harness) -> list:
     """The tools in this module, bound to one harness."""
@@ -307,23 +313,45 @@ def build(harness) -> list:
         this". Write the steps yourself, from what you know about the
         application. You know these; that is not what you need a tool for.
 
-        What you need it for is the PACING. Said in one breath, four steps
-        are a recitation - the user cannot hold them and find them at the
-        same time, which is the whole reason they asked. This says the first
-        one, waits, and says the next when they tell you they have done it.
+        What you need it for is the PACING. Said in one breath, even two
+        steps are a recitation - the user cannot hold them and find them at
+        the same time, which is the whole reason they asked. This says the
+        first one, waits, and says the next when they tell you they have
+        done it. The length of the lesson costs them nothing, because they
+        only ever hear one step at a time.
 
         Each step is one thing to DO, in their own hands, written for the
         ear: "press shift a and choose mesh, then uv sphere". Not "first,
         you will want to" - just the action.
 
-        For a BIG job - "design a full environment in blender", "edit a
-        whole video", "set up a render" - write ALL the steps it really
-        takes, twenty or thirty of them, and pass `stages` as well: the name
-        of the part of the job each step belongs to, ONE PER STEP, in the
-        same order, repeated for every step in that part. Like this:
+        A STEP IS A KEYSTROKE OR A CLICK, NEVER A GOAL. "add a plane" is
+        not a step - it is the thing the step achieves, and somebody who
+        knew how to do it would not have asked. The step is "press shift a,
+        choose mesh, then plane". Said live, "add a plane" got the honest
+        reply: "it just said add a plane, not HOW to add a plane." Every
+        step has to name the key, the menu or the button.
 
-            steps  = ["add a plane", "scale it up",   "add a sun lamp", ...]
-            stages = ["the ground",  "the ground",    "the light",      ...]
+        WORK BACKWARDS FROM THE FINISHED THING. The last step is the one
+        after which what they asked for EXISTS and works - if they said
+        bouncing, the last step is the one that makes it bounce. Then write
+        every action between here and there, in order, leaving none out.
+        Asked to teach a ball bouncing on a plane it wrote four steps -
+        sphere, scale, plane, move down - and stopped. Nothing bounced:
+        there was not one keyframe in the lesson, and a lesson that ends
+        before the thing exists has taught nobody anything. That job is
+        about twelve steps, and twelve is not a long lesson, it is the
+        right one.
+
+        For a BIG job - "design a full environment in blender", "edit a
+        whole video", "set up a render" - that is twenty or thirty steps,
+        and pass `stages` as well: the name of the part of the job each step
+        belongs to, ONE PER STEP, in the same order, repeated for every step
+        in that part. Like this:
+
+            steps  = ["press shift a, choose mesh, then plane",
+                      "press s, type 10 and press enter",
+                      "press shift a, choose light, then sun", ...]
+            stages = ["the ground", "the ground", "the light", ...]
 
         Four to six parts, each a handful of steps, named for what it
         produces rather than for what it does: "the ground", "the light",
@@ -362,6 +390,27 @@ def build(harness) -> list:
         if len(wanted_steps) < 2:
             return ("That is one step, so just say it. This is for a "
                     "procedure somebody has to be walked through.")
+
+        # A CRAMMED STEP IS REFUSED, because asking nicely did not work.
+        # Told to write every step the job takes, it wrote four and put the
+        # whole animation in the last one: "select the sphere, press i,
+        # select location and set a keyframe at frame 1 and frame 10, moving
+        # the sphere up on frame 5". That is a recitation INSIDE a step -
+        # the exact thing being paced, hidden where the pacing cannot reach
+        # it, and worse than the short lesson it replaced.
+        crammed = [step for step in wanted_steps
+                   if len(step.split()) > MANY_WORDS]
+        if crammed:
+            return ("REFUSED - these are not single steps: "
+                    + " | ".join(repr(step) for step in crammed[:3])
+                    + ". Each is several actions in one sentence, which is "
+                      "the recitation this tool exists to replace, hidden "
+                      "where the pacing cannot reach it. Split every one "
+                      "into a step per action - one key, one menu or one "
+                      f"click, under {MANY_WORDS} words - and call "
+                      "teach_me_this again with the whole list. A long "
+                      "lesson costs them nothing: they hear one step at a "
+                      "time.")
 
         # Reported rather than silently dropped. The walkthrough refuses
         # names that do not line up - a lesson whose parts are off by one
