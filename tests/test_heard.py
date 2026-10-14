@@ -642,3 +642,53 @@ def test_arriving_somewhere_is_following_along(said):
 ])
 def test_what_opens_like_a_report_and_is_not(said):
     assert not moving_on(said), said
+
+
+# --- a sentence said while the cat is working is KEPT, not replaced ---------
+#
+# `start_a_turn` held one and overwrote it - "the last is what they mean" -
+# which is true when somebody rephrases and false when they add. "Open
+# notepad" then "and chrome too" ran only Chrome, and the first request was
+# gone with nothing anywhere saying it had been dropped. No prompt line can
+# fix that: the loop had already thrown the sentence away.
+
+
+@pytest.mark.parametrize("earlier, later", [
+    ("open note", "open notepad"),
+    ("open notepad", "open notepad please"),
+    ("can you open", "can you open chrome"),
+    ("minimise this", "minimise this window"),
+    ("open notepad", "open notepad"),
+])
+def test_a_restart_of_the_same_sentence_replaces_it(earlier, later):
+    from meow.language.phrases import one_restating_the_other
+
+    assert one_restating_the_other(earlier, later), (earlier, later)
+
+
+@pytest.mark.parametrize("earlier, later", [
+    ("open notepad", "and chrome too"),
+    ("open notepad", "then type hello"),
+    ("open notepad", "also minimise vs code"),
+    ("what is on my screen", "open notepad"),
+    ("open chrome", "close notepad"),
+])
+def test_an_ADDITION_is_kept_alongside_it(earlier, later):
+    """Both were meant, so running only the newest loses a request."""
+    from meow.language.phrases import one_restating_the_other
+
+    assert not one_restating_the_other(earlier, later), (earlier, later)
+
+
+def test_the_loop_runs_the_held_sentences_as_one_turn():
+    """Three turns on one thread is the interleaving that poisons it, and
+    "open notepad" and "and chrome too" are one job anyway.
+    """
+    import inspect
+
+    from meow.app import loop as loop_module
+
+    source = inspect.getsource(loop_module)
+    assert 'held_back = {"said": []' in source, "a list, not one sentence"
+    assert "MOST_HELD" in source, "and capped, so a long turn is not a queue"
+    assert "one_restating_the_other" in source

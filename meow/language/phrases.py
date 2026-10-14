@@ -593,3 +593,78 @@ def asks_to_be_taught(transcript: str) -> bool:
     """
     said = without_split_contractions(transcript)
     return any(opening in said for opening in BEING_TAUGHT)
+
+# Things you CLICK. A lesson about any of these has to be decided one step
+# at a time, because what the next step is depends on what the last click
+# opened - and a plan written before the first click describes a screen that
+# does not exist yet.
+#
+# Short and concrete on purpose, like every other structural rule here.
+# These are nouns from interfaces, not a topic list.
+CLICKED_THROUGH = (
+    "menu", "submenu", "tab", "panel", "dialog", "toolbar", "sidebar",
+    "ribbon", "settings", "setting", "preferences", "options", "properties",
+    "modifier", "modifiers", "export", "exporting", "import", "importing",
+    "render settings", "account", "sign in", "log in", "install", "upload",
+    "publish", "checkbox", "dropdown", "drop down", "button", "wizard",
+    "window", "page", "screen", "field", "box", "slider", "colour picker",
+    "color picker", "layer", "layers", "timeline", "effect", "effects",
+    "filter", "filters", "plugin", "add-on", "addon", "extension",
+)
+
+# ... unless they asked for KEYS. "What are the shortcuts for the modifier
+# panel" names a panel and wants a keyboard answer, and those steps are the
+# same whatever is on screen.
+ASKED_FOR_KEYS = (
+    "shortcut", "shortcuts", "hotkey", "hotkeys", "keyboard", "key bind",
+    "keybind", "keybinding", "which key", "what key", "press",
+)
+
+
+def teaching_by_clicking(transcript: str) -> bool:
+    """Is this a lesson whose steps are CLICKS rather than keystrokes?
+
+    **Structural, because the model would not choose it.** Offered both
+    teaching tools with a call required, `gpt-4o-mini` picked the written
+    one for every click job tried - a modifier, a settings page, an export -
+    with the live one listed first and described in its own docstring. Which
+    is the same finding as every other promotion in this project: a prompt
+    naming a tool is a request.
+
+    Narrow on both sides. A request has to NAME something you click, and a
+    request about keys is never this however many panels it mentions.
+    """
+    said = without_split_contractions(transcript)
+    if any(word in said for word in ASKED_FOR_KEYS):
+        return False
+    return any(thing in said for thing in CLICKED_THROUGH)
+
+
+def one_restating_the_other(earlier: str, later: str) -> bool:
+    """Is the second sentence a rephrase of the first, rather than an addition?
+
+    Both are held while the cat is working, and the difference decides
+    whether they are run together or whether the newer one replaces the
+    older. "open notepad" then "and chrome too" is two requests and both
+    are meant; "open note" then "open notepad please" is one request said
+    twice, and running both opens two.
+
+    The test is a shared OPENING, because that is what a restart looks like:
+    the transcriber cuts somebody off, or they stop and begin again, and
+    either way the first words repeat. An addition opens with a joining word
+    or a different verb.
+    """
+    first = spoken_words(earlier)
+    second = spoken_words(later)
+    if not first or not second:
+        return False
+    if first == second:
+        return True
+    shared = 0
+    for one, other in zip(first, second):
+        if one != other:
+            break
+        shared += 1
+    # Two words in common at the START, and one of them being shorter than
+    # that is a fragment of the other rather than a new instruction.
+    return shared >= 2 and shared >= min(len(first), len(second)) - 1

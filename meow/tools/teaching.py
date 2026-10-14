@@ -302,6 +302,58 @@ def build(harness) -> list:
         return answer
 
     @tool
+    def teach_me_live(goal: str) -> str:
+        """Teach by pointing at ONE thing at a time, deciding as you go.
+
+        Use this whenever the steps are CLICKS in an interface: a menu, a
+        dialog, a panel, a settings page, a toolbar. "Show me how to add a
+        subdivision modifier", "teach me how to export this video", "walk me
+        through setting up a render".
+
+        You give only the GOAL, in the user's own words. You are then asked
+        for one step at a time, each time with a fresh picture of their
+        screen and what has already happened - so you never have to guess
+        what a menu will contain, and you are never wrong about where they
+        are. The app circles what you name and watches for their click.
+
+        THIS IS THE RIGHT ONE FOR ANYTHING WITH A MENU IN IT. A written
+        lesson has to guess what opens, and a plan written before the first
+        click describes a screen that does not exist yet: the menu lands
+        somewhere else, a dialog appears, or they already knew that part and
+        are two steps ahead. Deciding one step at a time absorbs all three.
+
+        Use `teach_me_this` instead when the steps are KEYSTROKES that do not
+        depend on what appears - "press shift a, choose mesh, then uv
+        sphere", a keyboard drill, an animation procedure. Those are the same
+        instructions whatever is on screen, and writing them all at once is
+        what lets the cat say how long the job is.
+
+        Say nothing after calling this. The first step is said for you.
+        """
+        wanted = goal.strip()
+        if not wanted:
+            return "I need to know what to teach them."
+        if harness.start_stepping is None:
+            return ("I cannot pace this here, so answer them directly "
+                    "instead.")
+        started = harness.start_stepping(wanted)
+        harness.runs.append(ToolRun(
+            "teach_me_live", wanted[:60],
+            Outcome(started, "teaching" if started else "could not start")))
+        if not started:
+            return ("I cannot pace this here, so answer them directly "
+                    "instead.")
+        # The same bargain as `teach_me_this`: the APP says the first step,
+        # so the model cannot paraphrase the lesson back into a list. Live,
+        # told to say nothing, it said the first step anyway - straight
+        # after the app had - so it is given something harmless instead.
+        return ("Started. The first step has been SAID to them already and "
+                "what it names has been circled on their screen. Say "
+                "nothing else at all - not the step, not a summary, not "
+                "what comes next. You do not know what comes next; you will "
+                "be asked for it when they click.")
+
+    @tool
     def teach_me_this(steps: list[str],
                       stages: list[str] | None = None,
                       marks: list[str] | None = None) -> str:
@@ -485,6 +537,12 @@ def build(harness) -> list:
         show_on_screen,
         draw_a_move,
         number_the_steps,
+        # Both lesson kinds. A tool defined and left out of this list is
+        # one nothing can ever call - which is the trap this project keeps
+        # finding, and found again here: `teach_me_live` was written,
+        # described, named in two reminders and absent from these six lines,
+        # so the measurement said the model "would not choose it".
+        teach_me_live,
         teach_me_this,
         clear_the_screen,
     ]

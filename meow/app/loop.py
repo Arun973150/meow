@@ -60,6 +60,7 @@ from meow.app.sketching import Pencil
 from meow.chat.launcher import ChatPanel
 from meow.connectors import Outbox, Sender
 from meow.config import MissingKey, cat_name
+from meow.language.phrases import one_restating_the_other
 from meow.console import quiet_library_warnings, use_utf8_console
 from meow.agent.harness import Confirmation, Harness, enable_tracing
 from meow.agent.memory import Memory
@@ -76,6 +77,7 @@ from meow.platform.capture import capture_region, capture_screens, mean_luminanc
 from meow.desktop.uia import digest_foreground
 from meow.platform.dpi import enable_per_monitor_dpi_awareness
 from meow.platform.hotkey import HotkeyListener, HotkeyUnavailable
+from meow.app import stepping as stepping_module
 from meow.platform.monitors import get_cursor_position, get_virtual_desktop
 from meow.platform.overlay import Bounds, Overlay
 from meow.storage import migrate_old_layout, stuck_in_the_old_layout
@@ -466,6 +468,51 @@ def main() -> None:
         return True
 
     harness.start_teaching = start_teaching
+
+    # --- the other kind of lesson: one step at a time ---------------------
+
+    def ring_the_step(target) -> None:
+        """Circle what the current step names. Already located by then.
+
+        Separate from `mark_the_step`, which takes a PHRASE and has to go
+        and find it. Here the target is in hand - the lesson needs the
+        rectangle anyway, to tell a click on the thing from a click beside
+        it - so finding it twice would pay for grounding twice.
+        """
+        board = getattr(harness, "_board", None)
+        if board is None:
+            return
+        from ..desktop.annotate import PINNED
+
+        board.sketch.clear(group=stepping_module.GROUP)
+        board.sketch.rings(target.centre, stepping_module.RING_RADIUS,
+                           seconds=PINNED, group=stepping_module.GROUP)
+
+    def clear_the_step(group: str) -> None:
+        board = getattr(harness, "_board", None)
+        if board is not None:
+            board.sketch.clear(group=group)
+
+    stepping = stepping_module.Stepping(
+        say=lambda sentence: replies.put(("say", sentence)),
+        locate=harness.locate_anything,
+        screen=harness.screen_for_a_step,
+        mark=ring_the_step,
+        clear=clear_the_step,
+    )
+
+    def start_stepping(goal: str) -> bool:
+        """Begin a step-by-step lesson. The first step follows on a worker."""
+        guide.cancel()          # only one lesson at a time
+        if not stepping.begin(goal):
+            return False
+        # From here the turns carry a picture, the same as a written lesson:
+        # the whole point is watching what they do with it.
+        harness.watching = True
+        return True
+
+    harness.start_stepping = start_stepping
+    panic.on_panic("stepping", stepping.stop)
     # Assigned rather than passed to the constructor: `mark_the_step` closes
     # over the harness and the board, and both are built after the Guide.
     guide.mark = mark_the_step
@@ -595,7 +642,20 @@ def main() -> None:
     # One sentence held back while a turn is running. ONE, replaced rather
     # than queued: if somebody says three things while the cat is working,
     # the last is what they mean and the first two have been overtaken.
-    held_back = {"text": "", "at": 0.0}
+    # EVERY sentence said while the cat was working, not only the last one.
+    # It held ONE and replaced it - "the last is what they mean" - which is
+    # true when somebody rephrases and false when they add: "open notepad"
+    # then "and chrome too" ran only Chrome, and the first request was gone
+    # with nothing anywhere to say it had been dropped.
+    #
+    # The newest still STEERS, because a rephrase has to win. What changes
+    # is that the earlier ones are not deleted: they are carried into the
+    # same turn, oldest first, so the turn honours every request since the
+    # last one. Capped, because a long turn plus a talkative user is not a
+    # queue worth replaying - past the cap the oldest go, which is the one
+    # end that can be dropped without losing what they just said.
+    held_back = {"said": [], "at": 0.0}
+    MOST_HELD = 3
 
     def start_a_turn(said: str, elapsed: float) -> None:
         """Run a sentence, or hold it until the current turn is done.
@@ -612,10 +672,18 @@ def main() -> None:
         a few lines above for the SPEECH BUBBLE and not for the turn itself.
         """
         if working.is_set():
-            held_back["text"] = said
+            # Appended, not replaced. A near-repeat IS a rephrase, though,
+            # and running both would do the thing twice - so a sentence that
+            # starts the same as the one before it takes its place.
+            waiting = held_back["said"]
+            if waiting and one_restating_the_other(waiting[-1], said):
+                waiting[-1] = said
+            else:
+                waiting.append(said)
+            del waiting[:-MOST_HELD]
             held_back["at"] = elapsed
-            print(f"  {elapsed:5.1f}s  holding that until this finishes: "
-                  f"{said[:48]}")
+            print(f"  {elapsed:5.1f}s  holding that until this finishes "
+                  f"({len(waiting)} waiting): {said[:48]}")
             return
         threading.Thread(target=ask, args=(said,),
                          name="turn", daemon=True).start()
@@ -638,6 +706,15 @@ def main() -> None:
         harness.user_region = pencil.take()
         if harness.user_region is not None:
             print(f"          looking at the area you drew round")
+
+        # A STEP-BY-STEP LESSON GETS FIRST REFUSAL, before the written
+        # kind and before the router. "done", "next", "stop" and "say that
+        # again" are reflexes with a step on the table, and a sentence that
+        # needs a round trip to be understood is not a reflex.
+        if stepping.active and stepping.answer(transcript):
+            replies.put(("done", ""))
+            return
+        stepping_now = stepping.active
 
         teaching = guide.active
         if teaching:
@@ -701,6 +778,19 @@ def main() -> None:
                     print(f"          lesson: step "
                           f"{guide.walkthrough.index + 1} of "
                           f"{len(guide.walkthrough.steps)}")
+
+            if stepping_now:
+                # Same for the other kind, and it ends on the same rule: a
+                # question is part of being taught, a new job is not.
+                if route.intent in (Intent.ACT, Intent.PLAN):
+                    stepping.stop()
+                    print("          lesson ended - that is a new job")
+                else:
+                    harness.watching = True
+                    harness.lesson = stepping.where_we_are()
+                    print(f"          lesson: step "
+                          f"{len(stepping.lesson.walked) + 1}, deciding each "
+                          f"one as it comes")
 
             # A plan the user is watching does not need a window. Only work
             # they have walked away from does - which is what a window is FOR,
@@ -1007,6 +1097,9 @@ def main() -> None:
                             # runs on. So were "Yeah." and "Now.", in one
                             # session, while the user waited to be told the
                             # next step.
+                            if stepping.active and stepping.answer(said):
+                                print(f"  {elapsed:5.1f}s  heard: {said}")
+                                continue
                             if guide.active and guide.answer(said):
                                 print(f"  {elapsed:5.1f}s  heard: {said}")
                                 continue
@@ -1122,11 +1215,18 @@ def main() -> None:
                         animator.set_state(CatState.LISTENING, elapsed)
                         # Whatever they said while it was working happens
                         # now, in order, on a thread of its own.
-                        waiting = held_back["text"]
+                        waiting = list(held_back["said"])
                         if waiting:
-                            held_back["text"] = ""
-                            print(f"  {elapsed:5.1f}s  now: {waiting[:48]}")
-                            start_a_turn(waiting, elapsed)
+                            held_back["said"] = []
+                            # One turn, not one per sentence: three turns on
+                            # one thread is the interleaving that poisons it,
+                            # and "open notepad" and "and chrome too" are one
+                            # job anyway.
+                            together = ". ".join(
+                                sentence.rstrip(" .") for sentence in waiting)
+                            print(f"  {elapsed:5.1f}s  now: "
+                                  f"{together[:60]}")
+                            start_a_turn(together, elapsed)
 
                 for finished in tasks.newly_finished():
                     mark = {TaskState.DONE: "done",
@@ -1248,6 +1348,17 @@ def main() -> None:
                 except Exception as error:  # noqa: BLE001
                     draw_fault("marking", error)
                     pencil.cancel()
+
+                # Three more, and only while a step is waiting to be
+                # clicked. Noticing the click belongs on this thread because
+                # it is microseconds; deciding the next step is a model call
+                # and happens on a worker, which is why this cannot stutter
+                # the cat.
+                try:
+                    stepping.tick()
+                except Exception as error:  # noqa: BLE001
+                    draw_fault("stepping", error)
+                    stepping.stop()
 
                 marks = getattr(harness, "_board", None)
                 if marks is not None:

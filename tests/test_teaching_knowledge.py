@@ -644,7 +644,11 @@ def test_a_teaching_turn_does_not_go_to_the_agent_at_all():
     assert "self._teach(messages)" in answer
 
     teach = inspect.getsource(harness_module.Harness._teach)
-    assert 'tool_choice="teach_me_this"' in teach
+    # A tool call is REQUIRED, so prose is not an available shape. Which
+    # KIND of lesson is the model's to pick - that is a judgement about the
+    # task - but whether to teach at all is not.
+    assert 'tool_choice="any"' in teach
+    assert "teach_me_live" in teach and "teach_me_this" in teach
 
 
 def test_a_lesson_it_cannot_pace_falls_back_to_an_ordinary_turn():
