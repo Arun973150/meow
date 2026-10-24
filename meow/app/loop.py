@@ -598,6 +598,10 @@ def main() -> None:
         worker = Planner(own, on_event=report, unattended=True,
                          should_stop=lambda: (panic.should_stop()
                                               or task.should_stop))
+        # The note rides with the goal for the PLANNING call only - a
+        # routine that has run before is planned differently from a first
+        # run, and each STEP still gets no transcript.
+        worker.earlier_run = getattr(task, "note", "")
         plan = worker.run(task.goal)
 
         # Anything said while it was working happens now, in order.
@@ -654,6 +658,11 @@ def main() -> None:
     # last one. Capped, because a long turn plus a talkative user is not a
     # queue worth replaying - past the cap the oldest go, which is the one
     # end that can be dropped without losing what they just said.
+    # Which task came from which routine. A task reports finishing in a
+    # different place from where it was started, and the routine needs its
+    # answer - so the one number that links them is kept here rather than
+    # hung on the task, which knows nothing about routines.
+    from_routine: dict[int, int] = {}
     held_back = {"said": [], "at": 0.0}
     MOST_HELD = 3
 
@@ -1229,6 +1238,35 @@ def main() -> None:
                             start_a_turn(together, elapsed)
 
                 for finished in tasks.newly_finished():
+                    # A ROUTINE'S RUN REPORTS BACK. A working run's answer is
+                    # what the next one is compared against; a failing one
+                    # counts towards stopping, and the answer before it is
+                    # KEPT - a failed run has nothing to say and must not
+                    # wipe what the last good one reported, or the next
+                    # working run repeats everything.
+                    identifier = from_routine.pop(finished.number, None)
+                    if identifier is not None and routines is not None:
+                        try:
+                            for routine in routines.all():
+                                if routine.identifier != identifier:
+                                    continue
+                                if finished.state is TaskState.DONE:
+                                    routines.worked(
+                                        routine,
+                                        finished.result or finished.summary)
+                                elif routines.failed(routine):
+                                    said = (f"i have stopped the routine "
+                                            f"'{routine.goal[:40]}' - it "
+                                            f"failed three times running")
+                                    replies.put(("say", said))
+                                    print(f"  {elapsed:5.1f}s  routine "
+                                          f"paused after 3 failures: "
+                                          f"{routine.goal[:40]}")
+                                break
+                        except Exception as error:  # noqa: BLE001
+                            print(f"  routine bookkeeping failed "
+                                  f"({type(error).__name__})")
+
                     mark = {TaskState.DONE: "done",
                             TaskState.FAILED: "failed",
                             TaskState.STOPPED: "stopped"}[finished.state]
@@ -1334,10 +1372,22 @@ def main() -> None:
                             # failure mode that spends money while nobody is
                             # watching.
                             routines.mark_ran(routine)
-                            started = tasks.spawn(routine.goal, work)
+                            # WHAT THE LAST RUN SAID goes in with the goal.
+                            # Without it every run is planned fresh with no
+                            # memory of the one before, so a daily briefing
+                            # reads yesterday's news out again - the shape
+                            # of a feature somebody relies on once.
+                            started = tasks.spawn(routine.goal, work,
+                                                  note=routine.briefing())
+                            # Remembered so the outcome can be given back to
+                            # the routine when the task finishes, which is
+                            # somewhere else entirely.
+                            from_routine[started.number] = routine.identifier
                             print(f"  {elapsed:5.1f}s  routine: "
                                   f"{routine.goal[:50]} -> task "
-                                  f"{started.number}")
+                                  f"{started.number}"
+                                  + ("" if routine.has_run_before
+                                     else " (first run)"))
                     except Exception as error:  # noqa: BLE001
                         print(f"  routine check failed ({type(error).__name__})")
 

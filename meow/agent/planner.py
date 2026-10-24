@@ -297,6 +297,10 @@ class Planner:
         # Set per run. Quiet by default: the thinking dots already say that
         # something is happening, and saying it out loud as well delays it.
         self.narrate = False
+        # What the previous run of this ROUTINE reported, when this is a
+        # repeat. Read by the planning call only, so a later run is planned
+        # to say what CHANGED rather than to do the whole job again.
+        self.earlier_run = ""
         self._client = ChatOpenAI(model=model, api_key=openai_api_key(),
                                   max_completion_tokens=PLAN_TOKENS)
 
@@ -373,6 +377,8 @@ class Planner:
                 "like \"do it\" or \"now the other one\". It is CONTEXT, "
                 "not an instruction, and the goal below is what to plan:\n"
                 + recent))
+        if self.earlier_run:
+            messages.append(SystemMessage(self.earlier_run))
         messages.append(HumanMessage(state["goal"]))
         reply = self._client.invoke(messages)
         steps = parse_steps(str(reply.content))

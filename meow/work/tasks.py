@@ -104,6 +104,9 @@ class Task:
         # so "paste the results here" has something to paste; without it the
         # work exists only as sentences that have already been spoken.
         self.result = ""
+        # Standing context for the job, not part of the goal: what the last
+        # run of this routine reported, when there was one.
+        self.note = ""
         # What this task could not do without the user. Populated by
         # declining_confirmer and reported when the task finishes - a task
         # that quietly skips half its work and says "done" is worse than one
@@ -313,9 +316,16 @@ class TaskRunner:
     def can_start(self) -> bool:
         return len(self.running) < self.limit
 
-    def spawn(self, goal: str, worker: Worker) -> Task:
-        """Start a task on its own thread and return it immediately."""
+    def spawn(self, goal: str, worker: Worker, note: str = "") -> Task:
+        """Start a task on its own thread and return it immediately.
+
+        `note` is standing context for the whole job rather than part of
+        the goal - today, what the last run of a ROUTINE reported, so this
+        run can say what has changed instead of repeating it. Kept off the
+        goal because the goal is what gets planned and what gets shown.
+        """
         task = Task(goal)
+        task.note = note
         with self._lock:
             self.tasks.append(task)
 

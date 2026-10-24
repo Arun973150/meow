@@ -1833,6 +1833,32 @@ user's own words; the model never picks one.
 routine that failed must not retry as fast as the loop checks - that is the
 one failure mode that spends money while nobody is watching.
 
+**A LATER RUN REPORTS WHAT IS NEW.** Every run was planned fresh with no
+memory of the one before, so the second day of a routine repeated the first.
+A first run is told to do the job fully, because what it says is what later
+runs are compared against; a later one is told to report what is NEW or has
+CHANGED and to say so in one line when nothing has. It rides as a task NOTE
+rather than as part of the goal - the goal is what gets planned and shown -
+and the PLANNING call reads it while each step still gets no transcript.
+
+⚠ **The last answer is labelled DATA.** It is a record of the model's own
+earlier reply, and a routine that read it as an instruction could be walked
+anywhere by one bad run. Capped at 2,000 characters.
+
+**THREE FAILURES IN A ROW STOP IT**, said out loud. Three because two is a
+bad afternoon and four is a feature quietly spending money. A run that works
+clears the count, so a blip never accumulates into a pause over a week - and
+a FAILED run keeps what the last good one said, because a failed run has
+nothing to report and must not wipe the record, or the next working run
+repeats everything.
+
+⚠ **A DATABASE MADE BEFORE THOSE COLUMNS IS ON THIS MACHINE.** `CREATE
+TABLE IF NOT EXISTS` leaves it with the old five columns and every read of
+`last_answer` raises. `LATER_COLUMNS` is applied as a migration, reading
+`PRAGMA table_info` first rather than catching the error `ADD COLUMN` raises
+on a column that already exists - a swallowed exception there would hide a
+real schema problem behind the one case it is expected in.
+
 **Nothing repeats faster than fifteen minutes**, and a missed slot does not
 catch up: eight hours asleep must not produce four briefings at breakfast.
 Ninety seconds of settling before anything fires, because a routine going off
