@@ -1,7 +1,9 @@
 # 08 — What the commercial Clicky does, and what Meow lacks
 
 Read from HeyClicky **1.0.53** (build 64, commit `cfc4ee64`), the macOS app,
-on 2026-10-14. Static reading only: the DMG was extracted with 7-Zip and the
+on 2026-10-14, and from `HeyClicky-Setup.exe`, the **Windows** build, on
+2026-10-24 - that half is its own section below, and it is the one that
+bears directly on this platform. Static reading only: the DMG was extracted with 7-Zip and the
 bundle's plists, markdown files and binary strings were read. Nothing was
 executed, nothing was decompiled, and no key or token from the bundle is
 reproduced here.
@@ -687,6 +689,211 @@ with the description. The two lines above are the test to run.
   dismissals, and *"a Yes approves the work, it does not fill in those
   blanks."*
 - **The onboarding interview and the personas.** Product polish.
+
+---
+
+## The WINDOWS build, read 2026-10-24
+
+`HeyClicky-Setup.exe`, 421MB packed and 948MB unpacked, 747 files. Same
+method as above: extracted with 7-Zip, text and binary strings read, nothing
+executed, no key reproduced. This is the half that matters most, because
+every problem in it is a problem on Meow's own platform.
+
+**It is not Electron.** .NET self-contained + WinUI 3 (`Microsoft.WinUI.dll`,
+`Microsoft.ui.xaml.dll`, `coreclr.dll`), with **ClearScript V8** embedded to
+run JavaScript and **Win2D / DirectComposition** to draw. Squirrel updates
+it, Sentry reports its crashes.
+
+```
+CodexRuntime/bin/codex.exe                     293 MB   bundled, as on macOS
+HarnessRuntime/clicky-harness.exe               87 MB   a Bun-compiled JS binary
+CodexRuntime/bin/codex-code-mode-host.exe       72 MB
+codex-resources/codex-windows-sandbox-setup.exe 15 MB   Windows Sandbox
+ClickyBrowserHost/ClickyBrowserHost.exe          4.7MB  the agent's own browser
+onnxruntime.dll + DirectML.dll                  40 MB   local inference
+Microsoft.Windows.{Vision,SemanticSearch,AI.*}.winmd    the Windows AI APIs
+```
+
+### How they get screen awareness
+
+**The agent cannot see or touch the screen at all.** `clicky-harness.exe`
+is the agent runtime and its tools are `web_search`, `fetch_url`,
+`view_image`, `run_script`, `update_plan`, `ask_user`,
+`device_{read_file,list_folder,find_files}` - and `mac_step`, still called
+that in the Windows build, which hands ONE step back to the app:
+
+> *"A step on the user's PC that only its screen can do: a Windows app's own
+> window or a system dialog, when no file, shell command, connected app, the
+> app's own scripting commands or the browser tool can do it. HeyClicky shows
+> the user a short card and, with their yes, does the step on their screen
+> while they watch; this call waits and tells you what happened... One step
+> per call, written as the outcome to reach ("In Excel, export Budget.xlsx as
+> a PDF to the Desktop")."*
+
+So the agent names an OUTCOME, the app asks the user yes, and the app drives
+the screen while they watch. The order it is told to try is explicit: *"files
+and the shell; then the app's own scripting commands (PowerShell calling what
+the app offers)"*, and the screen only when none of those can do it. **Meow
+goes to the screen first and has no shell at all** - which is the right
+default for a companion that narrates, and means Meow does by hand what they
+avoid entirely.
+
+**For the browser they do not use the accessibility tree, and they do not
+use screenshots.** A Chrome extension (manifest v3, `minimum_chrome_version`
+120) with the **`debugger`** permission, talking to the app over
+`nativeMessaging`. The CDP calls that matter:
+
+```
+Page.createIsolatedWorld + Runtime.evaluate   their own JS, off-page
+Input.dispatchMouseEvent / insertText         real input events
+Emulation.setFocusEmulationEnabled            the page behaves as focused
+Page.setInterceptFileChooserDialog            uploads
+Page.captureScreenshot                        only when it needs pixels
+```
+
+`setFocusEmulationEnabled` is the one worth stealing conceptually: it is how
+agent work in a background browser window never has to raise it, which is
+P2-2 above solved properly rather than avoided.
+
+**Locally, on a Copilot+ PC, they have more than Meow does.**
+`workloads.qnn.json` (Qualcomm), `.lnl.json` (Lunar Lake) and `.stx.json`
+(Strix) each pull a different set of Windows AI workloads:
+
+| API | on any PC | on an NPU |
+|---|---|---|
+| `Microsoft.Windows.AI.Imaging.TextRecognizer` | yes | yes |
+| `ImageScaler`, `ImageObjectExtractor`, `ImageForegroundExtractor` | yes | yes |
+| `ImageSearchEmbeddingsCreator` | yes | yes |
+| `ImageDescriptionGenerator` / `ImageDescriptionPipeline` | **no** | yes |
+| `Microsoft.Windows.AI.Text.LanguageModel` (Phi Silica) | **no** | yes |
+
+So a local screenshot describer and a local LLM exist and are NPU-gated,
+while **`TextRecognizer` is there on every machine** - and it is the modern
+replacement for the `Windows.Media.Ocr` that `meow/desktop/ocr.py` reaches
+through PowerShell. Worth measuring against the current reader before
+anything else on this list: same engine family, word boxes natively, no
+PowerShell hop and no cp1252 file workaround. The cost is a Windows App SDK
+dependency reachable from Python only through a WinRT projection.
+
+### How they draw
+
+**Two surfaces, and the model writes the drawing in both.** Neither is a
+fixed vocabulary like `Sketch`'s nine mark kinds.
+
+**1. The card** - the explaining canvas, `clicky-draw-engine.js` plus
+`clicky-draw-native.js` (50KB of shim) running in V8 inside the app. The
+engine paints SVG; because there is no browser, the shim implements the slice
+of the SVG DOM its painter uses - elements, attributes, CSS animations,
+`getBBox` - and **records what it paints**, which the app then draws with the
+compositor: *"the same geometry, timing curves and colours a browser would
+draw, without a web view."* Text widths come back from the app's own text
+engine.
+
+The API is a STREAM, and it is paced to speech:
+
+```
+beginStream({w, h, subtitles, ink})     pace: 'speech', speech: 'external'
+feed({code, done})                      the model's code arrives in chunks
+line(k)                                 which line is being SPOKEN right now
+state()                                 what is drawn, as part ids + boxes
+continueStream()                        a new turn on the same drawing
+```
+
+`state()` is the part Meow has no equivalent of: *"What is on the card now,
+as short lines for the model (its parts with ids like p3, their boxes in
+canvas pixels and what was said)"*, capped at 12,000 characters. The model
+can read its own drawing back and add to it. `continueStream()` keeps the
+drawing and starts a new turn on it; marks still waiting for their spoken
+line when the user interrupts are dropped for good.
+
+**This is Phase 3 without Manim, and it is better than the plan.** Meow's
+Phase 3 is a Manim pipeline that renders a video - minutes of ffmpeg for
+something the user watches afterwards. Theirs draws while it talks, line by
+line, and can be continued and read back. Nothing about it needs a GPU.
+
+**2. The note's sketch** - a line-oriented DSL inside the written note, one
+shape per line, canvas 380 wide:
+
+```
+:::sketch[How the refund flows]{h=150}
+box 10 50 100 50 "You ask" blue fill
+box 160 50 100 50 "Store checks" orange
+arrow 260 75 300 75 "3 days" curve
+circle 335 75 30 "Paid" green fill
+num x y "1"                     a numbered disc
+icon x y sf.symbol.name [size]  (SF Symbols - unported)
+```
+
+Modifiers after the numbers in any order: a quoted label, a colour from a
+fixed list, `fill`, `dashed`, `curve`, `big`/`small`. The rules read like
+`annotate.py`'s comments: labels 1-3 words, about 8px per letter, 10px from
+the edges, no overlapping shapes, *"colour for meaning (green good, red bad,
+blue the one that matters), never decoration"*, and *"Never a diagram of your
+own process... if every box just names a step you took, it is filler."*
+
+### Where this says Meow has a problem
+
+Two were real and are now fixed; the rest are open.
+
+**FIXED - a mark nobody can see.** Their prompt:
+
+> *"is a game in exclusive fullscreen, so nothing you draw, point at or
+> highlight can be seen over it (HeyClicky stays out of its way so it keeps
+> fullscreen), and a circle the user draws doesn't show either. Your voice
+> works and you still see the screen: answer by voice."*
+
+Meow had nothing for this: it would ground the target - seven seconds and two
+API calls - draw a ring behind the game, and report that it had marked the
+thing. A confident claim about something that did not happen, which is the
+failure shape this project cares about most, and it takes the user's
+Ctrl+Shift+M circle with it. `meow/platform/attention.py` reads
+`SHQueryUserNotificationState`; `show_on_screen` checks BEFORE spending the
+grounding call, and says so once. Only `RUNNING_D3D_FULL_SCREEN` counts -
+presentation mode still composites, and refusing to draw over a presentation
+would break pointing at a slide.
+
+**FIXED - a hover step that could never complete.** Their log line is
+`guided hover-rest complete label=`, so a dwell completes a step. Meow's
+`lesson.py` prompt offered *"clicking or hovering"* under one kind while
+`clicking.py` only ever completed on a mouse RELEASE - so "hover over the file
+menu" armed a watch and waited four minutes for a click nobody was going to
+make. There is a `hover` kind now, and `REST_SECONDS = 0.9` with a
+`REST_WANDER` of 12px, because this project already measured the pointer
+drifting to 57px while nothing touched it.
+
+**Their walkthrough confirms the rest of ours, independently.** The Windows
+build's own log lines are `guided target arm label=`, `guided target hit`,
+`guided target off-target click at`, `guided target suppressed: step`,
+`guided hover-rest complete` and `guided follow-up passive exit (app switch
+to ...)` - the same five endings `meow/app/clicking.py` now has, including
+off-target ending it and an app switch ending it. They also have an
+automated end-to-end test of it (`e2e-walkthrough-ring.png`,
+`walkthrough: step 1 ring armed =`), which Meow does not: its click path is
+covered by unit tests and has never been exercised by a real mouse.
+
+**Still open.**
+
+- **`TextRecognizer` against the PowerShell OCR.** Measure before porting.
+- **The shell, and the order of preference.** They try files and shell
+  commands before the screen; Meow has no shell and goes to the screen
+  first. `run_powershell` is already named in invariant 6's always-ask set
+  and does not exist.
+- **`state()` for the marks layer.** The model cannot read back what Meow
+  has drawn. It matters most for the thing Meow does have: a mark it placed
+  two turns ago is invisible to the model that placed it.
+- **An e2e test that moves the mouse.** Theirs exists; the click-to-advance
+  path is the one feature here that a unit test cannot honestly cover.
+
+⚠ **AND THE LESSON THAT IS NOT ABOUT A FEATURE.** The Windows build ships
+the macOS prompt: `BundledResources/clicky-model-instructions.md` opens
+*"HeyClicky started on this person's Mac"* and tells the agent to use
+`mdfind`, AppleScript, `cliclick` and System Events. The tool is called
+`mac_step`. The sketch DSL takes `sf.symbol.name`. The .NET assemblies'
+strings ARE ported - *"For the user's PC outside the browser... PowerShell
+calling what the app offers"* - so the code moved and one bundled markdown
+file did not. Meow's prompts carry measured constants and platform traps in
+their wording, and this file's own rule already says a tool change means a
+prompt change; this is the same rule one level up.
 
 ---
 

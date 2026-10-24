@@ -87,7 +87,8 @@ ONE IMMEDIATE ACTION. "Click Add Modifier" is a step. "Click Add Modifier, then 
 `target` NAMES what to click, as the words that appear on their screen: "Add Modifier", "the wrench tab", "File". Never coordinates, never a description of where it is on screen - the app finds it and circles it. Keep it to a few words, and make them words that are ON the screen.
 
 `kind`:
-- "click" when the step is clicking or hovering something that is visible. This is the normal one.
+- "click" when the step is clicking something visible. This is the normal one.
+- "hover" when the step is RESTING the pointer on something without clicking - a menu that opens on hover, a tooltip they need to read, a timeline preview. Name the thing in `target` as usual.
 - "do" when there is nothing to click - a keystroke ("press tab"), a drag, a slider, picking a colour, typing a value. Leave `target` empty unless there is something worth circling while they do it. They will say when they have done it.
 
 `instruction` is EXACTLY what gets said out loud to them. One short sentence, lower case, no preamble, no "now we will", no listing what comes after. Just the action.
@@ -103,7 +104,7 @@ STEP_SCHEMA = {
     "properties": {
         "instruction": {"type": "string"},
         "target": {"type": "string"},
-        "kind": {"type": "string", "enum": ["click", "do"]},
+        "kind": {"type": "string", "enum": ["click", "hover", "do"]},
         "done": {"type": "boolean"},
         "lost": {"type": "boolean"},
     },
@@ -126,11 +127,24 @@ class Step:
     def wants_a_click(self) -> bool:
         """Is this one the app watches the mouse for?
 
-        A click step with no target is not watchable - there is nothing to
-        circle and nothing to compare a click against - so it degrades to a
-        spoken step rather than waiting for something that can never arrive.
+        A click or hover step with no target is not watchable - there is
+        nothing to circle and nothing to compare a click against - so it
+        degrades to a spoken step rather than waiting for something that can
+        never arrive.
         """
-        return self.kind == "click" and bool(self.target.strip())
+        return self.kind in ("click", "hover") and bool(self.target.strip())
+
+    @property
+    def wants_a_rest(self) -> bool:
+        """Does this one complete by the pointer SITTING on the target?
+
+        ⚠ The prompt offered "clicking or hovering" under one kind while
+        the watcher only ever completed on a release, so "hover over the
+        file menu" armed a watch and waited four minutes for a click
+        nobody was going to make. Read off HeyClicky's Windows build, whose
+        own log line is `guided hover-rest complete label=`.
+        """
+        return self.kind == "hover" and bool(self.target.strip())
 
     @property
     def crammed(self) -> bool:

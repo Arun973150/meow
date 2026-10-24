@@ -57,10 +57,12 @@ class FakeWatch:
         self.armed = False
         self.verdict = Clicked.WAITING
         self.armed_on = None
+        self.resting = False
 
-    def arm(self, target) -> None:
+    def arm(self, target, resting: bool = False) -> None:
         self.armed = True
         self.armed_on = target
+        self.resting = resting
 
     def disarm(self) -> None:
         self.armed = False
@@ -528,3 +530,140 @@ def test_the_same_target_phrased_differently_still_counts_as_a_repeat():
     lesson.tick()
 
     assert said[-1] == "click add modifier"
+
+
+# --- a hover step completes by RESTING, not by a click ----------------------
+#
+# `lesson.py`'s prompt offered "clicking or hovering" under one kind while
+# the watcher only ever completed on a release, so "hover over the file menu"
+# armed a watch and waited four minutes for a click nobody was going to make.
+# HeyClicky's Windows build logs `guided hover-rest complete label=`, so a
+# dwell is how it is done.
+
+
+def test_a_hover_step_arms_the_watch_for_a_REST():
+    lesson, _said, _marked, _cleared, watch = build([
+        Step("hover over the file menu", target="file", kind="hover"),
+    ])
+    lesson.begin("open the file menu")
+
+    assert watch.armed
+    assert watch.resting is True, "a click is never coming"
+
+
+def test_a_click_step_does_not_wait_for_a_rest():
+    lesson, _said, _marked, _cleared, watch = build([
+        Step("click the wrench tab", target="the wrench tab"),
+    ])
+    lesson.begin("add a modifier")
+
+    assert watch.resting is False
+
+
+def test_resting_on_the_thing_advances_the_lesson():
+    lesson, said, _marked, _cleared, watch = build([
+        Step("hover over the file menu", target="file", kind="hover"),
+        Step("click new", target="new"),
+    ])
+    lesson.begin("make a new file")
+
+    watch.verdict = Clicked.RESTED
+    lesson.tick()
+
+    assert said[-1] == "click new"
+    told = lesson._teacher.histories[-1]
+    assert "hovered" in told, "a hover and a click lead to different next steps"
+
+
+def test_the_pointer_has_to_SIT_there_not_cross_it():
+    """A pointer crossing the target on the way somewhere else is not an
+    answer - and this project already measured the pointer drifting a median
+    of 0px with spikes to 57px while nothing touched it."""
+    from meow.app.clicking import REST_SECONDS, REST_WANDER
+
+    moving = iter([(120, 110), (120 + REST_WANDER + 5, 110),
+                   (400, 110), (401, 110)])
+    watch = Watch(cursor=lambda: next(moving, (401, 110)),
+                  button=lambda: False, foreground=lambda: "window")
+    watch.arm(FakeTarget(100, 100, 140, 120), resting=True)
+
+    assert watch.tick() is Clicked.WAITING      # settles, rest clock starts
+    assert watch.tick() is Clicked.WAITING      # wandered: clock restarts
+    assert watch.tick() is Clicked.WAITING      # left the target entirely
+    assert REST_SECONDS > 0.5, "longer than a tooltip takes to appear"
+
+
+def test_sitting_still_long_enough_IS_a_rest():
+    import meow.app.clicking as clicking
+
+    # `tick` reads the clock more than once a frame, so it is held still and
+    # moved by the test rather than counted out.
+    now = [100.0]
+    watch = Watch(cursor=lambda: (120, 110), button=lambda: False,
+                  foreground=lambda: "window")
+
+    real = clicking.time.time
+    clicking.time.time = lambda: now[0]
+    try:
+        watch.arm(FakeTarget(100, 100, 140, 120), resting=True)
+        assert watch.tick() is Clicked.WAITING   # settles
+        assert watch.tick() is Clicked.WAITING   # arrives, the clock starts
+        now[0] += clicking.REST_SECONDS / 2
+        assert watch.tick() is Clicked.WAITING   # not long enough yet
+        now[0] += clicking.REST_SECONDS
+        assert watch.tick() is Clicked.RESTED    # long enough
+    finally:
+        clicking.time.time = real
+
+
+# --- a mark nobody can see is not a mark ------------------------------------
+#
+# A game in exclusive fullscreen owns the display, so an overlay is not over
+# it. Meow would have drawn the ring, said it had marked the thing, and the
+# user would have seen nothing.
+
+
+def test_an_invisible_mark_is_refused_before_the_seven_seconds_are_spent():
+    import inspect
+
+    from meow.tools import teaching
+
+    source = inspect.getsource(teaching.build)
+    marking = source[source.index("def show_on_screen"):]
+    blind = marking.index("why_marks_cannot_be_seen")
+    looking = marking.index("harness.locate_anything")
+    assert blind < looking, "a doomed grounding call must never be paid for"
+
+
+def test_only_exclusive_fullscreen_hides_a_mark():
+    """A maximised window, a Store app and presentation mode all still
+    composite an overlay above themselves - and refusing to draw over a
+    presentation would break pointing at a slide."""
+    from meow.platform.attention import Attention, marks_can_be_seen
+    import meow.platform.attention as attention_module
+
+    real = attention_module.attention
+    try:
+        for state in Attention:
+            attention_module.attention = lambda s=state: s
+            hidden = not marks_can_be_seen()
+            assert hidden is (state is Attention.RUNNING_D3D_FULL_SCREEN), state
+    finally:
+        attention_module.attention = real
+
+
+def test_the_reason_is_written_for_the_model_and_says_it_once():
+    from meow.platform.attention import Attention
+    import meow.platform.attention as attention_module
+
+    real = attention_module.attention
+    try:
+        attention_module.attention = lambda: Attention.RUNNING_D3D_FULL_SCREEN
+        said = attention_module.why_marks_cannot_be_seen()
+    finally:
+        attention_module.attention = real
+
+    assert "exclusive fullscreen" in said
+    assert "ctrl shift m does not show either" in said, "their circle too"
+    assert "answer in words" in said
+    assert "do not mention it again" in said, "once, not every turn"

@@ -134,6 +134,13 @@ class Stepping:
         if what is Clicked.ON_TARGET:
             self._completed("clicked")
             return
+        if what is Clicked.RESTED:
+            # A hover step. Recorded as what it was, because the next round
+            # reads the history and "hovered" and "clicked" lead to
+            # different next steps - a hover opens a menu that a click
+            # would have committed.
+            self._completed("hovered over it")
+            return
         if what is Clicked.OFF_TARGET:
             # NO NAG. They clicked something else, which means they are doing
             # their own thing - and a lesson that says "that was not the
@@ -263,7 +270,7 @@ class Stepping:
             # same rule as a mark that cannot be placed during a written
             # lesson.
             return
-        self.watch.arm(target)
+        self.watch.arm(target, resting=step.wants_a_rest)
 
     def _repeats_the_last(self, step) -> bool:
         """Is this the step that was just completed, word for word?

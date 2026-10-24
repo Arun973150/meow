@@ -39,6 +39,7 @@ meow/platform/monitors.py   virtual desktop, negative origins, per-monitor rects
 meow/platform/overlay.py    layered - click-through - topmost - no-activate
 meow/platform/capture.py    BitBlt to BGRA + per-monitor JPEG, cursor screen first
 meow/platform/hotkey.py     RegisterHotKey activation, single key, NOREPEAT
+meow/platform/attention.py  is the user presenting, or in a fullscreen game
 meow/cat/sprite.py          line-art cat, traced from image.png
 meow/cat/animation.py       7 states, cross-faded
 meow/cat/follow.py          critically damped cursor follow
@@ -1151,6 +1152,25 @@ thing and moves a slider advances the lesson mid-drag. And the first read
 after a step begins is discarded: a button already down belongs to whatever
 they were doing before the step existed.
 
+⚠ **A HOVER STEP COULD NEVER COMPLETE, and the prompt was offering it.**
+`lesson.py` described a click step as "clicking or hovering something that is
+visible" while `clicking.py` completed on a release and nothing else - so
+"hover over the file menu" armed a watch and waited the full four minutes for
+a click nobody was going to make. There is a `hover` kind now, completing on
+a DWELL: `REST_SECONDS = 0.9`, which is about how long a tooltip takes, with
+`REST_WANDER = 12` because this project already measured the pointer drifting
+to 57px while nothing touched it, so a strict "has not moved" test would
+never fire. Moving within the target restarts the clock - crossing a thing on
+the way somewhere else is not an answer.
+
+**The five endings were confirmed from the outside.** HeyClicky's Windows
+build logs `guided target arm label=`, `guided target hit`, `guided target
+off-target click at`, `guided hover-rest complete` and `guided follow-up
+passive exit (app switch to ...)` - the same set, including off-target ending
+it silently and an app switch ending it. They also have an automated
+end-to-end test that arms a ring and clicks it; Meow's click path has unit
+tests and has never been exercised by a real mouse.
+
 ⚠ **An off-target click ends the lesson, silently.** They clicked something
 else, so they are doing their own thing, and a lesson that says "that was not
 the Add Modifier button" is the thing people close applications over. Same
@@ -2072,6 +2092,23 @@ for at the supersampled size.
 ⚠ **The mark layer is excluded from capture, and that matters more here
 than for the cat.** The grounding model reads a screenshot to decide where to
 point; marks appearing in it would have the cat pointing at its own arrows.
+
+⚠ **A GAME IN EXCLUSIVE FULLSCREEN OWNS THE DISPLAY, and a mark drawn
+over it cannot be seen.** Meow would ground the target - seven seconds and
+two API calls - draw the ring behind the game, and report that it had marked
+the thing. A confident claim about something that did not happen, which is
+the failure shape this project cares about most, and the user's own
+Ctrl+Shift+M circle is invisible to them too, so the one signal measured to
+rescue a hard grounding case goes with it.
+
+`meow/platform/attention.py` reads `SHQueryUserNotificationState`, and
+`show_on_screen` checks it BEFORE spending the grounding call. Only
+`RUNNING_D3D_FULL_SCREEN` counts: presentation mode and a maximised window
+both still composite an overlay above themselves, and refusing to draw over
+a presentation would break pointing at a slide, which is a thing people ask
+for. Read off HeyClicky's Windows build, which tells its model to answer by
+voice and to say once - not every turn - that they would have to leave
+fullscreen. See [docs/08-clicky-teardown.md](docs/08-clicky-teardown.md).
 
 **Measured grounding, 44 hand-labelled targets across five applications:**
 

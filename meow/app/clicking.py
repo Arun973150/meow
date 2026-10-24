@@ -48,12 +48,26 @@ SIGHTED_RADIUS = 46
 # silence is not an answer, and it is also not invisible.
 PATIENCE_SECONDS = 240.0
 
+# How long the pointer has to sit on a hover target before the step counts as
+# done. Long enough that crossing the thing on the way somewhere else is not
+# an answer, short enough that somebody deliberately resting on it does not
+# wonder whether it worked. A tooltip appears at about half a second, so this
+# is roughly "they waited for the tooltip".
+REST_SECONDS = 0.9
+
+# How far the pointer may wander while resting. A hand on a trackpad is never
+# still, and this project already measured the pointer drifting a median of
+# 0px with spikes to 57px while nothing touched it - so a strict "has not
+# moved" test would never fire.
+REST_WANDER = 12
+
 
 class Clicked(Enum):
     """How the wait for a click ended."""
 
     WAITING = "waiting"          # nothing yet, say nothing
     ON_TARGET = "on target"      # they clicked the thing: next step
+    RESTED = "rested"            # they held the pointer on it: a hover step
     OFF_TARGET = "off target"    # they clicked somewhere else
     STEPPED_AWAY = "stepped away"  # another window came to the front
     GAVE_UP = "gave up"          # four minutes, no click
@@ -114,6 +128,9 @@ class Watch:
         # is the same bug wearing different clothes.
         self._settled = False
         self._was_down = False
+        self._resting = False
+        self._rested_from = 0.0
+        self._rested_at = (0, 0)
 
     # --- the three Win32 reads, late-bound so tests need no Windows ------
 
@@ -148,18 +165,28 @@ class Watch:
     def armed(self) -> bool:
         return self.where is not None
 
-    def arm(self, target) -> None:
-        """Start waiting for a click on this target."""
+    def arm(self, target, resting: bool = False) -> None:
+        """Start waiting for a click on this target, or a rest on it.
+
+        `resting` is for a step whose instruction is to HOVER - a menu that
+        opens on hover, a tooltip, a timeline preview. There is no click
+        coming, so waiting for one is waiting forever.
+        """
         self.where = Where.around(target)
         self._armed_at = time.time()
         self._window = self._front()
         self._settled = False
         self._was_down = False
+        self._resting = resting
+        self._rested_from = 0.0
+        self._rested_at = (0, 0)
 
     def disarm(self) -> None:
         self.where = None
         self._settled = False
         self._was_down = False
+        self._resting = False
+        self._rested_from = 0.0
 
     def tick(self) -> Clicked:
         """One frame. WAITING almost always."""
@@ -193,6 +220,35 @@ class Watch:
             return (Clicked.ON_TARGET if self.where.contains(where)
                     else Clicked.OFF_TARGET)
 
+        if self._resting and self._rest_is_done():
+            return Clicked.RESTED
+
         if time.time() - self._armed_at > PATIENCE_SECONDS:
             return Clicked.GAVE_UP
         return Clicked.WAITING
+
+    def _rest_is_done(self) -> bool:
+        """Has the pointer sat on the target long enough to mean it?
+
+        Only ever consulted for a hover step. The clock starts when the
+        pointer arrives and is thrown away the moment it leaves or wanders,
+        so crossing the target on the way somewhere else never completes a
+        step.
+        """
+        where = self._pointer()
+        if self.where is None or not self.where.contains(where):
+            self._rested_from = 0.0
+            return False
+        if self._rested_from:
+            moved = (abs(where[0] - self._rested_at[0])
+                     + abs(where[1] - self._rested_at[1]))
+            if moved > REST_WANDER:
+                # Moving WITHIN the target is still not resting on it - they
+                # are on their way across it.
+                self._rested_from = time.time()
+                self._rested_at = where
+                return False
+            return time.time() - self._rested_from >= REST_SECONDS
+        self._rested_from = time.time()
+        self._rested_at = where
+        return False

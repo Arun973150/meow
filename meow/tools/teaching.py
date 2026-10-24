@@ -26,6 +26,7 @@ from langchain_core.tools import tool
 
 from ..desktop.annotate import ACCENT, INK, PINNED
 from .record import ToolRun
+from ..platform.attention import why_marks_cannot_be_seen
 from ..desktop.actions import Outcome
 
 # Numbered sequences are their own group, so numbering a second one replaces
@@ -123,6 +124,19 @@ def build(harness) -> list:
         line - "the razor tool", "this is the keyframe". Say what it IS, never
         where it is.
         """
+        # CHECKED BEFORE THE SEVEN SECONDS, because a game in exclusive
+        # fullscreen owns the display and an overlay is not over it. Meow
+        # would have drawn the ring, said it had marked the thing, and the
+        # user would have seen nothing - a confident claim about something
+        # that did not happen, which is the worst failure shape here. And it
+        # is checked FIRST so a doomed grounding call is never paid for.
+        blind = why_marks_cannot_be_seen()
+        if blind:
+            harness.runs.append(ToolRun(
+                "show_on_screen", description,
+                Outcome(False, "nothing on screen can be seen")))
+            return blind
+
         # Said BEFORE the slow part. Grounding by sight is two API round
         # trips and takes about seven seconds, and seven seconds of silence
         # after a question reads as broken rather than as looking. The mark
