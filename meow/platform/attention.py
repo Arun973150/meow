@@ -61,6 +61,35 @@ def attention() -> Attention:
         return Attention.UNKNOWN
 
 
+# The states in which Meow does not START a conversation. Windows itself
+# suppresses notifications in all of them, which is the strongest available
+# evidence of what the user wants - and `BUSY` is deliberately NOT here: it
+# means a full-screen application, which is a maximised editor as often as
+# anything, and holding back a finished task because somebody maximised
+# their editor would make the feature useless.
+NOT_NOW = frozenset({
+    3,  # RUNNING_D3D_FULL_SCREEN - a game, and it would be drawn over too
+    4,  # PRESENTATION_MODE - presenting to other people
+    6,  # QUIET_TIME - Windows' own first-hour-after-install quiet
+})
+
+
+def should_stay_quiet() -> bool:
+    """Should Meow avoid SPEAKING unprompted right now?
+
+    Only ever consulted for speech nobody asked for: a routine finishing, a
+    background task reporting. **A reply to something the user just said is
+    always spoken**, however busy they look - they asked a question, and
+    swallowing the answer because a game is open is worse than talking over
+    one. HeyClicky draws the same line: "in Do Not Disturb your scheduled
+    routines finish quietly. Finished work waits in the chat."
+
+    The work is never lost. It is in the chat window and in the memory
+    either way; what changes is whether a voice arrives with it.
+    """
+    return int(attention()) in NOT_NOW
+
+
 def marks_can_be_seen() -> bool:
     """Would a mark drawn right now be visible to the user?
 

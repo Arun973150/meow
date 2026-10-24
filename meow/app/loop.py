@@ -662,6 +662,15 @@ def main() -> None:
     # different place from where it was started, and the routine needs its
     # answer - so the one number that links them is kept here rather than
     # hung on the task, which knows nothing about routines.
+    def stay_quiet() -> bool:
+        """Is this a bad moment to speak unprompted? Never fails."""
+        try:
+            from meow.platform.attention import should_stay_quiet
+
+            return should_stay_quiet()
+        except Exception:  # noqa: BLE001 - a missed hush is not a crash
+            return False
+
     from_routine: dict[int, int] = {}
     held_back = {"said": [], "at": 0.0}
     MOST_HELD = 3
@@ -1215,6 +1224,23 @@ def main() -> None:
                         animator.set_state(CatState.SPEAKING, elapsed)
                         if speech is not None:
                             speech.enqueue(payload)
+                    elif kind == "unprompted":
+                        # SPEECH NOBODY ASKED FOR. It always reaches the chat
+                        # window and the memory; the voice is what is held
+                        # back while they are presenting, in a call or in a
+                        # fullscreen game. Nothing is lost, and Windows'
+                        # own notification state is the evidence.
+                        print(f"          says: {payload}"
+                              + ("  (quietly - they are busy)"
+                                 if stay_quiet() else ""))
+                        memory.said("meow", payload)
+                        panel.say(session, "meow", payload)
+                        if not stay_quiet():
+                            bubble_state.say(payload, elapsed,
+                                             seconds=REPLY_LINE_SECONDS)
+                            animator.set_state(CatState.SPEAKING, elapsed)
+                            if speech is not None:
+                                speech.enqueue(payload)
                     elif kind == "quiet":
                         print(f"          {payload}")
                     elif kind == "error":
@@ -1258,7 +1284,7 @@ def main() -> None:
                                     said = (f"i have stopped the routine "
                                             f"'{routine.goal[:40]}' - it "
                                             f"failed three times running")
-                                    replies.put(("say", said))
+                                    replies.put(("unprompted", said))
                                     print(f"  {elapsed:5.1f}s  routine "
                                           f"paused after 3 failures: "
                                           f"{routine.goal[:40]}")
@@ -1274,12 +1300,15 @@ def main() -> None:
                           f"{finished.summary[:70]}")
                     memory.update(f"task {finished.number}",
                                   f"{mark}: {finished.summary[:90]}")
+                    # Unprompted: they handed this over and walked away,
+                    # so its finishing is Meow starting a conversation.
                     if finished.state is TaskState.DONE:
-                        replies.put(("say", f"{finished.summary} say close "
-                                            f"that when you want it gone."))
+                        replies.put(("unprompted",
+                                     f"{finished.summary} say close "
+                                     f"that when you want it gone."))
                     else:
-                        replies.put(("say", f"that one {mark}. "
-                                            f"{finished.summary[:70]}"))
+                        replies.put(("unprompted", f"that one {mark}. "
+                                                   f"{finished.summary[:70]}"))
 
                 animator.speech_level = speech.level if speech is not None else 0.0
 

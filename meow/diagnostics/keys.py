@@ -78,6 +78,29 @@ def main() -> None:
         if not status.present and not optional:
             print(f"           {status.purpose} - {status.source}")
 
+    # The two files the USER writes, surfaced here because an empty folder
+    # is indistinguishable from a feature that does not exist - which is
+    # how the shipped recipes once vanished without anybody noticing.
+    print("\nYOUR OWN FILES")
+    try:
+        from ..knowledge.profile import make_the_template, profile_file, read_profile
+        from ..storage.paths import contacts_file
+
+        made = make_the_template()
+        profile = profile_file()
+        written = read_profile()
+        print(f"  {profile}")
+        print("    just created, with a note on what to put in it" if made
+              else f"    {len(written)} characters about you"
+              if written else "    still the blank template")
+        contacts = contacts_file()
+        print(f"  {contacts}"
+              + ("" if contacts.exists() else "   <- not there yet"))
+        print("    one 'name = address' per line; a dictated address does "
+              "not survive")
+    except Exception as error:  # noqa: BLE001
+        print(f"  could not check ({type(error).__name__})")
+
     print()
     if not missing_packages and not missing_keys:
         print("ready. the voice loop has everything it needs.")

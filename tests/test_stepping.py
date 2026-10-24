@@ -667,3 +667,55 @@ def test_the_reason_is_written_for_the_model_and_says_it_once():
     assert "ctrl shift m does not show either" in said, "their circle too"
     assert "answer in words" in said
     assert "do not mention it again" in said, "once, not every turn"
+
+
+# --- quiet during a call, a presentation and a fullscreen game --------------
+#
+# Unsolicited speech only. A reply to something the user just said is wanted
+# however busy they are - they asked.
+
+
+def test_only_UNPROMPTED_speech_is_held_back():
+    from meow.platform.attention import Attention, NOT_NOW
+
+    assert Attention.PRESENTATION_MODE in [Attention(s) for s in NOT_NOW]
+    assert Attention.RUNNING_D3D_FULL_SCREEN in [Attention(s) for s in NOT_NOW]
+    # BUSY means a full-screen application, which is a maximised editor as
+    # often as anything. Holding back a finished task because somebody
+    # maximised their editor would make the feature useless.
+    assert Attention.BUSY not in [Attention(s) for s in NOT_NOW]
+    assert Attention.ACCEPTS_NOTIFICATIONS not in [Attention(s) for s in NOT_NOW]
+
+
+@pytest.mark.parametrize("state, quiet", [
+    ("PRESENTATION_MODE", True),
+    ("RUNNING_D3D_FULL_SCREEN", True),
+    ("QUIET_TIME", True),
+    ("BUSY", False),
+    ("ACCEPTS_NOTIFICATIONS", False),
+    ("UNKNOWN", False),
+])
+def test_what_each_state_means_for_speaking(state, quiet):
+    import meow.platform.attention as module
+    from meow.platform.attention import Attention
+
+    real = module.attention
+    try:
+        module.attention = lambda: getattr(Attention, state)
+        assert module.should_stay_quiet() is quiet
+    finally:
+        module.attention = real
+
+
+def test_the_work_is_never_lost_only_the_voice():
+    """It reaches the chat window and the memory either way."""
+    import inspect
+
+    from meow.app import loop as loop_module
+
+    source = inspect.getsource(loop_module)
+    block = source[source.index('elif kind == "unprompted"'):]
+    block = block[:block.index('elif kind == "quiet"')]
+    assert "panel.say" in block, "the chat window always gets it"
+    assert "memory.said" in block, "and the memory"
+    assert "if not stay_quiet():" in block, "the voice is what is gated"

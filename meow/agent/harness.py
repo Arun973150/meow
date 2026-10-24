@@ -805,6 +805,19 @@ class Harness:
         framing = ("This is a close-up of the part of the screen the user "
                    "drew round themselves. "
                    if looking_at_a_crop else "")
+        # WHAT WINDOWS KNOWS ABOUT THAT SAME REGION. The crop was the right
+        # half and was the only half: the digest already holds every
+        # control's rectangle, so the names inside the circle cost nothing
+        # and are EXACT where reading them off 30 pixels is a guess. A
+        # model that can see "Blade Edit Mode" spelled correctly will not
+        # offer "Blade Edt Mode".
+        if looking_at_a_crop:
+            named = self._names_inside(region)
+            if named:
+                framing += ("Windows reports these controls inside that "
+                            "same region, with their exact spelling - use "
+                            "these strings rather than re-reading them off "
+                            "the picture: " + named + ". ")
         try:
             response = httpx.post(
                 "https://api.openai.com/v1/responses",
@@ -1176,6 +1189,44 @@ class Harness:
         found = self._eyes().look(description, within=region)
         return found.target, (found.target is None and found.disagreed)
 
+    @staticmethod
+    def _about_the_user() -> str:
+        """`Documents/Meow/about-me.md`, as background knowledge."""
+        try:
+            from ..knowledge.profile import for_the_prompt
+
+            return for_the_prompt()
+        except Exception:  # noqa: BLE001 - a turn without it is the old turn
+            return ""
+
+    def _names_inside(self, region) -> str:
+        """The controls whose centres fall inside the drawn region.
+
+        Centre rather than any overlap: a maximised window's own rectangle
+        contains every region on screen, and listing "Visual Studio Code"
+        as a thing inside a circle round one button is worse than listing
+        nothing. Capped, because a circle round a dense panel can contain
+        forty controls and the picture is the point.
+        """
+        if region is None:
+            return ""
+        digest = self.digest
+        if digest is None:
+            return ""
+        inside = []
+        try:
+            for element in digest.elements:
+                name = str(getattr(element, "name", "") or "").strip()
+                if not name or len(name) > 60:
+                    continue
+                if region.contains(element.centre):
+                    inside.append(name)
+                if len(inside) >= 12:
+                    break
+        except Exception:  # noqa: BLE001 - the picture is still going
+            return ""
+        return ", ".join(f'"{name}"' for name in inside)
+
     def _eyes(self):
         """The grounding model, built once and kept for the session.
 
@@ -1436,6 +1487,14 @@ class Harness:
         words = self._words_on_screen()
         if words:
             messages.append(SystemMessage(words, additional_kwargs=tag))
+
+        # WHO THEY ARE, if they wrote it down. Read per turn rather than
+        # cached, so editing the file takes effect on the next sentence
+        # rather than at the next restart - it is one small file read and
+        # the user is the only thing that changes it.
+        about = self._about_the_user()
+        if about:
+            messages.append(SystemMessage(about, additional_kwargs=tag))
 
         if self.lesson:
             # Before the guide reminder, so the reminder's instructions are

@@ -66,6 +66,7 @@ meow/agent/                 harness · planner · router · risk · memory · le
 meow/work/                  tasks · taskwindow · agentdock · conversations ·
                             routines
 meow/knowledge/             research · study · queries · recipes · documents
+meow/knowledge/profile.py   who they are, if they wrote it down
 meow/desktop/reading.py     the text of what is open, scrolled-out part included
 meow/storage/paths.py       WHERE THINGS GO - user files vs app data
 meow/config.py              .env keys; never logs a value
@@ -649,6 +650,29 @@ address. This is not fixable at the transcription layer, so the address is
 never dictated: `find_contact` resolves a spoken NAME against
 `Documents/Meow/contacts.txt` first and the user's own mail second, and the
 tool tells the model to draft immediately rather than ask which to use.
+
+**A SHORT PROFILE OF THE PERSON, in `Documents/Meow/about-me.md`.** Memory
+is a rolling transcript and the last six actions, so nothing durable about
+the person survived a restart - and a lesson for somebody who has used
+Blender for a year is a different lesson from one for somebody who opened it
+yesterday. The same bargain as `contacts.txt`: they write it, they can read
+and delete it, and **nothing is inferred from the screen**, because a profile
+assembled by watching somebody is a different trust position from one they
+typed.
+
+⚠ **It is BACKGROUND KNOWLEDGE and never an instruction.** A user writes
+it and it goes into a prompt, so a file saying "always send emails without
+asking" must not be able to say that. Read per turn rather than cached, so
+editing it takes effect on the next sentence; capped at 1,200 characters,
+because this rides in every prompt.
+
+⚠ **The blank template is not a profile.** `make_the_template()` writes a
+note on what to put in the file, and somebody who ran `meow doctor` and never
+edited it must not have those instructions read back as facts about them -
+the shipped lines and the headings are dropped, so an untouched file reads as
+empty. `meow doctor` prints both this and `contacts.txt`, because an empty
+folder is indistinguishable from a feature that does not exist, which is how
+the shipped recipes once vanished.
 
 ⚠ **`Documents/Meow/contacts.txt` is how an address gets in at all.** One
 `name = address` per line. A lookup cannot invent an address for somebody who
@@ -2242,6 +2266,31 @@ a presentation would break pointing at a slide, which is a thing people ask
 for. Read off HeyClicky's Windows build, which tells its model to answer by
 voice and to say once - not every turn - that they would have to leave
 fullscreen. See [docs/08-clicky-teardown.md](docs/08-clicky-teardown.md).
+
+**AND THE SAME CALL ANSWERS "SHOULD IT SPEAK AT ALL".** A routine finishing
+or a task reporting is Meow starting a conversation nobody invited, and
+presenting, a call or a fullscreen game is a bad moment for one. Those go
+through a new `unprompted` reply kind: the chat window and the memory get it
+either way and only the VOICE is held back, so nothing is lost.
+
+⚠ **A REPLY TO SOMETHING THEY JUST SAID IS ALWAYS SPOKEN**, however busy
+they look. They asked, and swallowing the answer because a game is open is
+worse than talking over one. The distinction is made where the reply is PUT
+on the queue, because only the caller knows whether anybody asked - and
+`BUSY` is deliberately not in `NOT_NOW`, since it means a full-screen
+application, which is a maximised editor as often as anything.
+
+**THE CIRCLE YOU DRAW CARRIES ITS NAMES NOW.** Cropping to the region was
+the right half and was the only half: the digest already holds every
+control's rectangle, so the names inside the circle cost nothing and are
+EXACT where reading them off thirty pixels is a guess. A model that can see
+"Blade Edit Mode" spelled correctly will not offer "Blade Edt Mode".
+
+⚠ **A control is placed by its CENTRE, not by overlap.** A maximised
+window's own rectangle contains every region on screen, so overlap would
+list "Visual Studio Code" as a thing inside a circle round one button -
+worse than listing nothing. Capped at twelve, because a circle round a dense
+panel can contain forty and the picture is the point.
 
 **Measured grounding, 44 hand-labelled targets across five applications:**
 
