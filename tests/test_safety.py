@@ -194,3 +194,145 @@ def test_a_dangerous_chord_is_not_rescued_by_the_sentence():
 
     assert judge("press_keys", "shift+delete",
                  "search for the file and delete it").decision is Decision.ASK
+
+
+# --- never into a password field --------------------------------------------
+#
+# `NOT_TEXT_FIELDS` is a deny-list of control TYPES and a password box is an
+# ordinary EditControl, so it passed every check in the module and the
+# keystrokes went in. Worse, the confirmation is SPOKEN and the Outcome is
+# written to conversations.db, so the secret was read aloud and then kept.
+
+
+def _typed(secret, role="EditControl", text="hunter2", name="a box"):
+    """type_text against a fake focused control.
+
+    `_send` is the one call that reaches Windows, and it is neutered here -
+    a test that types for real types into whatever window happens to have
+    focus, which is the running editor.
+    """
+    from meow.desktop import actions
+
+    real_focus = actions._focused_control_description
+    real_send = actions._send
+    real_paste = actions.paste_text
+    pressed = []
+    actions._focused_control_description = lambda: (role, name, secret)
+    actions._send = lambda *a, **k: pressed.append(a) or 1
+    actions.paste_text = lambda value: pressed.append(("paste", value)) or False
+    try:
+        asked = []
+        outcome = actions.type_text(
+            text, confirm=lambda question: asked.append(question) or True)
+        return outcome, asked, pressed
+    finally:
+        actions._focused_control_description = real_focus
+        actions._send = real_send
+        actions.paste_text = real_paste
+
+
+def test_a_password_field_is_refused():
+    outcome, asked, pressed = _typed(secret=True)
+
+    assert outcome.ok is False
+    assert "password field" in outcome.detail
+    assert pressed == [], "not one keystroke"
+
+
+def test_the_secret_is_never_spoken_or_written_DOWN():
+    """The refusal comes BEFORE the preview is built, so a password is never
+    previewed, read aloud or put in the conversation store."""
+    outcome, asked, _pressed = _typed(secret=True, text="correct horse")
+
+    assert asked == [], "nothing was asked, so nothing was said out loud"
+    assert "correct horse" not in outcome.detail
+    assert "correct horse" not in str(outcome)
+
+
+def test_an_ordinary_text_field_is_untouched_by_the_check():
+    outcome, asked, pressed = _typed(secret=False, text="hello")
+
+    assert asked, "an ordinary field still confirms"
+    assert "password" not in outcome.detail.lower()
+    assert pressed, "and the keystrokes go out"
+
+
+def test_IsPassword_is_a_PROPERTY_not_a_method():
+    """Had it been a method, `element.IsPassword` would be a bound method -
+    truthy - and every field on the machine would read as a password,
+    refusing all typing everywhere. Checked against the installed library
+    rather than assumed."""
+    import uiautomation
+
+    attribute = uiautomation.Control.__dict__.get("IsPassword")
+    assert isinstance(attribute, property), type(attribute)
+
+
+def test_a_field_that_will_not_say_is_treated_as_secret():
+    """Fail closed. Refusing to type is a visible failure the user can
+    report; typing a password into a field is invisible, already submitted,
+    and in the conversation store."""
+    import inspect
+
+    from meow.desktop import actions
+
+    source = inspect.getsource(actions._focused_control_description)
+    body = source[source.index("element.IsPassword"):]
+    assert "secret = True" in body
+
+
+# --- the plan is made with the recent turns; a step still is not ------------
+#
+# `_plan` invoked with the prompt and the goal only, so "do it" ten seconds
+# after describing a job planned from the words "do it".
+
+
+def test_the_plan_sees_the_recent_turns():
+    import inspect
+
+    from meow.agent import planner as planner_module
+
+    plan = inspect.getsource(planner_module.Planner._plan)
+    assert "self._recently()" in plan
+    assert "not an instruction" in plan, "context, labelled as context"
+
+
+def test_a_STEP_still_gets_no_transcript():
+    """Different question, and the distinction is the shape of the file: a
+    step is a standalone instruction against the screen as it is then."""
+    import inspect
+
+    from meow.agent import planner as planner_module
+
+    step = inspect.getsource(planner_module.Planner._step)
+    assert "_recently" not in step
+
+
+def test_the_planner_survives_a_harness_with_no_memory():
+    from meow.agent.planner import Planner
+
+    nothing = type("Bare", (), {})()
+    assert Planner._recently(type("P", (), {"harness": nothing})()) == ""
+
+
+# --- the prompt rules out of the teardown ----------------------------------
+
+def test_the_planner_is_told_it_cannot_see_the_screen():
+    from meow.agent.planner import PLANNER_PROMPT
+
+    assert "NO SCREENSHOT IS ATTACHED" in PLANNER_PROMPT
+
+
+def test_an_uncertain_action_is_looked_at_rather_than_repeated():
+    from meow.agent.harness import SYSTEM_PROMPT
+
+    assert "DO NOT REDO" in SYSTEM_PROMPT
+    assert "sends a thing" in SYSTEM_PROMPT
+
+
+def test_the_voice_does_not_narrate_what_it_is_about_to_do():
+    from meow.agent.harness import STYLE_REMINDER
+
+    assert "never name a tool" in STYLE_REMINDER
+    assert "five words at most" in STYLE_REMINDER
+    assert "not to recite" in STYLE_REMINDER

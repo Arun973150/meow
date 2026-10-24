@@ -1780,6 +1780,27 @@ during startup competes with the window the user just opened.
 so the singular won and left the trailing "s" in the goal - "check my inbox
 every two hours" became the routine "check my inbox s".
 
+⚠ **THE PLAN WAS MADE WITH NO IDEA WHAT HAD JUST BEEN SAID.** `_plan`
+invoked with the prompt and the goal and nothing else, so "do it" ten
+seconds after describing a job planned from the words "do it". It gets the
+same one-line `memory.recent()` summary the router gets, labelled as context
+rather than instruction. **Each STEP still gets no transcript** - that is a
+different question and the distinction is the shape of the file: a step is a
+standalone instruction against the screen as it is then, and a transcript
+per step is what would make a six-step task cost more per step than a
+two-step one.
+
+**Three prompt rules out of the teardown, in the paths that run blind.** The
+planner is told plainly that no screenshot is attached and none is coming -
+it had no such line while being the one path that never sees the screen. The
+harness is told to LOOK before redoing an action whose outcome was
+uncertain, because "it did not say it worked" and "it did not work" are
+different and the second attempt is the one that sends a thing twice. And
+`STYLE_REMINDER` now forbids narrating what it is about to do or naming a
+tool: `harness.note()` already covers the seven-second silence, and the
+other half is that a tool's reply is for the model to read rather than to
+recite.
+
 **`work(task)` was lifted out of `ask`** so a routine hands work over exactly
 the way a sentence does. It depended on nothing from the turn, only on the
 task, which is what made lifting it possible and is worth keeping true.
@@ -2092,6 +2113,30 @@ for at the supersampled size.
 ⚠ **The mark layer is excluded from capture, and that matters more here
 than for the cat.** The grounding model reads a screenshot to decide where to
 point; marks appearing in it would have the cat pointing at its own arrows.
+
+⚠ **NEVER TYPE INTO A PASSWORD FIELD.** `NOT_TEXT_FIELDS` is a deny-list
+of control TYPES and a password box is an ordinary `EditControl`, so it
+passed every check in `actions.py` and the keystrokes went in. UIA exposes
+`IsPassword` on every element and it is one property read.
+
+**`IsPassword` is a PROPERTY, not a method** - checked against the installed
+`uiautomation` rather than assumed, because a bound method is truthy and
+every field on the machine would have read as a password, refusing all
+typing everywhere. A read that RAISES is treated as a password: fail closed,
+since refusing to type is a visible failure the user can report and typing a
+password into a field is invisible, already submitted, and in the
+conversation store.
+
+⚠ **THE SECRET WAS ALSO BEING SPOKEN AND KEPT**, which the teardown did
+not mention. The confirmation is built as `type "hunter2"?` and read aloud,
+and the `Outcome` repeats it into `conversations.db`. The refusal runs
+BEFORE the preview is built, so a password is never previewed, said or
+written down.
+
+⚠ **A TEST THAT TYPES FOR REAL TYPES INTO THE EDITOR.** `_send` is the one
+call that reaches Windows and the fixture neuters it, along with
+`paste_text` - the first version of these tests ran the real path and
+reported "typed 5 characters" into whatever had focus.
 
 ⚠ **A GAME IN EXCLUSIVE FULLSCREEN OWNS THE DISPLAY, and a mark drawn
 over it cannot be seen.** Meow would ground the target - seven seconds and

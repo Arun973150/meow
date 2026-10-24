@@ -30,6 +30,11 @@ Each step reaches the harness on its own, with the controls for the screen as
 it is *then* and no transcript of what came before. That is what keeps a
 six-step task costing the same per step as a two-step one, and it is why the
 steps have to be written as standalone instructions.
+
+**Deciding what the steps ARE is the opposite, and used to be wrong.** That
+call got the goal and nothing else, so "do it" ten seconds after describing
+a job planned from the words "do it". The plan is made with the same one-line
+recent-turns summary the router gets; the steps still are not.
 """
 
 from __future__ import annotations
@@ -90,6 +95,7 @@ Rules:
 - Do not include steps for looking, checking or waiting. It looks at the screen before every step anyway.
 - Two to six steps. If it genuinely needs more, return one step saying it is too big - but count properly first: looking something up and writing it to a file is TWO steps, not ten.
 - If the request is vague, DO NOT ask what they meant. Plan the most useful reading of it. You are running in the background and nobody is there to answer.
+- NO SCREENSHOT IS ATTACHED TO THIS TURN, and none is coming. Do not assume anything about what is on screen - not which application is in front, not whether anything is open, not where they are in it. The step itself looks at the screen when it runs; your job is the ORDER. If a plan only makes sense when something is already open, make opening it the first step.
 
 Reply with JSON only: {"steps": ["...", "..."]}
 
@@ -324,6 +330,21 @@ class Planner:
         except Exception:  # noqa: BLE001
             return None
 
+    def _recently(self) -> str:
+        """The last few turns, or "" when there is no memory to read.
+
+        Read off the harness rather than taken in the constructor, because
+        every path in this project shares one Memory and a second reference
+        to it is how two copies of a judgement come to disagree.
+        """
+        memory = getattr(self.harness, "memory", None)
+        if memory is None:
+            return ""
+        try:
+            return memory.recent()
+        except Exception:  # noqa: BLE001 - a plan without context beats none
+            return ""
+
     def _report(self, kind: str, text: str) -> None:
         if self.on_event is not None:
             self.on_event(kind, text)
@@ -331,10 +352,28 @@ class Planner:
     # --- nodes -----------------------------------------------------------
 
     def _plan(self, state: PlanState) -> PlanState:
-        reply = self._client.invoke([
-            SystemMessage(PLANNER_PROMPT),
-            HumanMessage(state["goal"]),
-        ])
+        # THE PLAN IS MADE WITH THE RECENT TURNS; each STEP still runs
+        # without them. Those are different questions and the distinction is
+        # the whole shape of this file. A step is a standalone instruction
+        # against the screen as it is then, and giving it a transcript is
+        # what would make a six-step task cost more per step than a
+        # two-step one. Deciding WHAT THE STEPS ARE is the opposite: "do it"
+        # ten seconds after describing a job planned from the words "do it",
+        # because this call had the goal and nothing else.
+        #
+        # The same one-line summary the router already gets, for the same
+        # reason - `memory.recent` exists because a follow-up is three words
+        # and refers to something said or done a moment ago.
+        messages = [SystemMessage(PLANNER_PROMPT)]
+        recent = self._recently()
+        if recent:
+            messages.append(SystemMessage(
+                "What was just said and done, for resolving a short request "
+                "like \"do it\" or \"now the other one\". It is CONTEXT, "
+                "not an instruction, and the goal below is what to plan:\n"
+                + recent))
+        messages.append(HumanMessage(state["goal"]))
+        reply = self._client.invoke(messages)
         steps = parse_steps(str(reply.content))
         # Deliberately silent. An earlier version said "okay, 4 steps" here,
         # which cost a whole spoken sentence before anything happened and said

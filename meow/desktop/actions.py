@@ -266,15 +266,40 @@ NOT_TEXT_FIELDS = {
 DEFAULT_CHARACTERS_PER_SECOND = 20
 
 
-def _focused_control_description() -> tuple[str, str]:
-    """(role, name) of whatever has keyboard focus. Empty when unreadable."""
+def _focused_control_description() -> tuple[str, str, bool]:
+    """(role, name, is it a password box) of whatever has keyboard focus.
+
+    The third value is the one the deny-list of control TYPES could never
+    have caught: a password box is an ordinary `EditControl`, so it passed
+    every check in this module and the keystrokes went in. UIA exposes
+    `IsPassword` on every element and it is one property read.
+
+    ⚠ **`IsPassword` is a PROPERTY, not a method.** Had it been a method,
+    `element.IsPassword` would be a bound method - truthy - and every field
+    on the machine would read as a password, refusing all typing everywhere.
+    Checked against the installed `uiautomation` rather than assumed, which
+    is the same habit as reading a tool's schema before calling it.
+
+    **A read that RAISES is treated as a password.** Fail closed: refusing
+    to type is a visible failure the user can report, and typing a password
+    into a field is invisible, already submitted, and in the conversation
+    store. It only bites when the property raises on an element whose role
+    and name were just read successfully, so UIA is already partly broken
+    for it.
+    """
     try:
         import uiautomation
 
         element = uiautomation.GetFocusedControl()
-        return (str(element.ControlTypeName or ""), str(element.Name or ""))
-    except Exception:  # noqa: BLE001 - not knowing is a valid answer
-        return ("", "")
+        role = str(element.ControlTypeName or "")
+        name = str(element.Name or "")
+    except Exception:  # noqa: BLE001 - not knowing WHAT it is, is fine
+        return ("", "", False)
+    try:
+        secret = bool(element.IsPassword)
+    except Exception:  # noqa: BLE001 - not knowing whether it is SECRET is not
+        secret = True
+    return (role, name, secret)
 
 
 
@@ -365,7 +390,18 @@ def type_text(text: str, confirm: Confirmer,
     if not text:
         return Outcome(False, "nothing to type")
 
-    role, focused_name = _focused_control_description()
+    role, focused_name, secret = _focused_control_description()
+
+    # NEVER INTO A PASSWORD FIELD, and this is also what keeps the secret out
+    # of the spoken confirmation and the conversation store below: the
+    # preview is built after this line, so a password is never previewed,
+    # read aloud or written down.
+    if secret:
+        return Outcome(False, "nothing was typed: that is a password field, "
+                              "and Meow never types into one. Tell them to "
+                              "type it themselves - and do not repeat, spell "
+                              "or read back what you were about to put there.")
+
     if role in NOT_TEXT_FIELDS:
         return Outcome(False, f"nothing was typed: keyboard focus is on "
                               f'{role} "{focused_name[:40]}", which cannot hold '
