@@ -66,6 +66,7 @@ meow/agent/                 harness · planner · router · risk · memory · le
 meow/work/                  tasks · taskwindow · agentdock · conversations ·
                             routines
 meow/knowledge/             research · study · queries · recipes · documents
+meow/desktop/reading.py     the text of what is open, scrolled-out part included
 meow/storage/paths.py       WHERE THINGS GO - user files vs app data
 meow/config.py              .env keys; never logs a value
 meow/console.py             UTF-8 stdout - cp1252 cannot print what STT returns
@@ -629,7 +630,7 @@ resolved day and time back.
 
 ⚠ **There is NO send tool in the harness, and there must never be one.** The
 harness holds the screen, which is private data and untrusted content both;
-one send tool closes the trifecta in a single move. 41 tools, none of them
+one send tool closes the trifecta in a single move. 42 tools, none of them
 send-shaped, and `meow/testing/stress.py` checks that.
 
 **Approval is explicit.** Saying "send it" sends the newest waiting draft, and
@@ -1696,6 +1697,67 @@ here, and `gpt-4.1-nano` does it in 1,467ms against 4o-mini's 1,606ms at a
 fraction of the price. A gpt-5 *nano* is a reasoning model and spends a 90
 token budget thinking, returning one query instead of three.
 
+**IT CAN READ WHAT YOU HAVE OPEN, including the part scrolled out of
+view.** "Summarise what i am reading" saw the visible part only - a
+screenshot or the control list, neither of which holds the paragraph below
+the fold. `meow/desktop/reading.py` reads the window's own text through
+UIA's `TextPattern`, and `read_what_is_open` is the tool.
+
+**Measured on the windows that were actually open:**
+
+```
+VS Code, GetText(-1)         439,329 chars, 8,957 lines   383ms
+VS Code, GetText(12000)       12,000 chars                 15ms
+VS Code, GetVisibleRanges()   12,000 chars             65,387ms  <- unusable
+VS Code, through read()       11,742 chars, cut           179ms
+a Claude chat page             9,587 chars                927ms
+a Google Form                  1,993 chars                335ms
+the address bar               exact                          1ms
+```
+
+⚠ **THE FIRST MEASUREMENT SAID A WEB PAGE WAS NOT READABLE AT ALL, AND
+THAT WAS MY OWN SEARCH BUG.** It found 8 candidates in Chrome whose best was
+17 characters - "Create split view", a toolbar tooltip - and the conclusion
+drawn was that Chrome does not project page text into `TextPattern`. A tidy
+story, which would even have explained why HeyClicky ships a Chrome
+extension. The real cause: `GetTextPattern` is declared per control CLASS,
+an `EditControl` has one, and the first match found was **"Address and
+search bar"** - which returns the URL and looks exactly like a
+51-character document. Candidates are ranked by role and size with the
+address bar excluded by name, and a page then hands over thousands of
+characters of its real content.
+
+**A negative result about a PLATFORM is the one most worth re-checking**,
+because it closes a door for months. This is the second time in this file:
+the "VS Code is SKELETAL (6 elements)" result was a depth cap, not a
+platform limit.
+
+⚠ **A BOUNDED `GetText` IS THE MECHANISM, not a courtesy applied after
+reading.** `GetText(12000)` is 15ms where `GetText(-1)` is 383ms, because
+the provider never materialises the other 427,000 characters. It asks for
+one MORE than the cap, which is how "there is more after this" is known
+without paying for all of it - and the reply says it was cut, so nothing
+claims to have read the whole thing.
+
+⚠ **`GetVisibleRanges` is SIXTY-FIVE SECONDS on a flattened Electron
+window.** It was going to be the cheap exact answer to "what am I looking
+at". It is not available at any price inside a voice turn, and nothing
+reaches for it - `tests/test_reading.py` raises if anything does.
+
+⚠ **What comes back is the WINDOW flattened, not the document.** The VS
+Code read begins "File Edit Selection View Go Run Terminal Help" and a
+Claude page begins with its sidebar, with `U+FFFC` placeholders where
+non-text children sat and private-use glyphs for the icon fonts. Those are
+a real share of the characters and every one is a token that says nothing,
+so they are stripped - and the reply says what this is rather than calling
+it the document.
+
+**The URL is the only route left when the text is not enough.** A public
+page can be fetched by `look_up`; a signed-in page - somebody's mail - is
+reachable by neither, and saying so is the honest answer instead of
+describing the screenshot. A search term left in the bar is not a URL and is
+not offered as one.
+
 **Phase 2.5 done: it can point at settings nobody told it about.** Ask
 "where is the bluetooth setting" and `meow/desktop/lookup.py` searches for what it is
 *called*, then finds that exact name in the window in front. Measured against
@@ -2542,7 +2604,7 @@ happened. The model rounds are most of it and the rest was waiting.
 ROUTER (reflex: route · needs_screen · risky — gpt-4.1-nano, strict schema)
  │
  ├──▶ RESEARCH   search + fetch only. No files. No desktop. No send.
- ├──▶ HARNESS    41 tools · 2 prompts · reactive | deliberate(planner)
+ ├──▶ HARNESS    42 tools · 2 prompts · reactive | deliberate(planner)
  └──▶ EXPLAINER  manim pipeline, fixed shape
 ```
 

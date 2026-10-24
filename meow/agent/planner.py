@@ -81,6 +81,7 @@ PLANNER_PROMPT = """You break a spoken request into the fewest steps that actual
 It can:
 - open applications, switch between open windows, minimise and maximise them
 - click controls by name, type exact text, press keyboard shortcuts
+- READ the document or page they have open, text and all, including the part scrolled out of view
 - LOOK UP a topic on the web and read the top pages
 - WRITE text about a topic, in its own words
 - MAKE a Word document, a spreadsheet or a slide deck, saved to Documents/Meow

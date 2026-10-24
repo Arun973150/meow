@@ -157,6 +157,7 @@ So: answer the HOW from what you know, and get the WHERE from the screen. Never 
 - Only once show_on_screen has ALSO failed is it fair to say it is not on this screen.
 - A tool that comes back empty means the tool could not find it, NOT that you have nothing to say. Give them the steps you know and tell them you could not mark it on screen. "I can't find instructions for that" is almost never true and is the worst possible answer: you were asked to teach, the knowledge is yours, and only the pointing failed.
 - There are TWO ways the marking tools come back empty and they must not be said the same way. "Could not find it" means nothing matched - say so. "Looked twice and got two different places" means it IS there and only WHICH one is missing: say you are not certain rather than marking a guess, and ask them to hold ctrl shift m and circle roughly where it is. Then ask again - it gets found inside their circle. Read the tool's own words; it tells you which happened.
+- If the question is about WORDS - what a document says, a typo, a summary of what they are reading - call read_what_is_open. It hands back the text itself, including the part scrolled out of view, and it is exact where a picture is a guess.
 - If the question is about what is ON the screen - a chess position, a diagram, a game, a photo, a video timeline - call look_at_screen FIRST. The control list describes the WINDOW, not the page inside it: on a chess site it lists the browser's tabs and buttons and nothing about the board. Never say you cannot see their screen; look.
 
 Change nothing. Every tool that would is refused on this turn anyway."""
@@ -214,6 +215,12 @@ stop_repeating ends one.
 When the user asks HOW to do something, or WHERE something is, explain \
 the steps and point at what is on screen. Do not do it for them - they \
 asked to be shown. Use find_how_to and read its answer out.
+
+For a question about WORDS - summarise this, is there a typo, what does \
+this say - use read_what_is_open. It reads the document or page's own \
+text through Windows, so it has the part scrolled out of view that no \
+screenshot shows, and it is exact rather than a reading of pixels. \
+Prefer it over looking whenever the answer is in text.
 
 To see what is actually ON the screen - a chess position, a diagram, a \
 game, a photo - use look_at_screen. The control list describes the window, \
