@@ -64,12 +64,13 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from ..storage.resources import resource
 
 # Where the PowerShell that drives the WinRT engine lives. Shipped as a file
 # rather than passed with -Command: it needs reflection over
 # System.WindowsRuntimeSystemExtensions to await an IAsyncOperation, and that
 # does not survive being flattened onto a command line.
-SCRIPT = Path(__file__).with_name("winocr.ps1")
+SCRIPT = resource("desktop", "winocr.ps1")
 
 # Generous. Measured at 924ms end to end for a 1280x800 screenshot, almost
 # all of it PowerShell starting, and a 4K screen is bigger.

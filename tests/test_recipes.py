@@ -78,7 +78,7 @@ def test_every_way_of_asking_for_the_camera_works(shelf, said):
 
 
 @pytest.mark.parametrize("said", [
-    "open notepad", "what's in my inbox", "minimise this window",
+    "open notepad", "minimise this window",
     "what is the capital of france",
 ])
 def test_unrelated_requests_match_nothing(shelf, said):
@@ -338,3 +338,36 @@ def test_the_shipped_skills_declare_the_apps_they_are_about():
     assert scoped, "no shipped recipe is scoped to an application"
     for title, apps in scoped.items():
         assert apps, f"{title} declares a scope with nothing in it"
+
+
+# --- the connector traps, where the model can see them ---------------------
+#
+# "What's in my inbox" was in the list above, as a request nothing covered.
+# Something covers it now, deliberately: the Gmail `from:` tokenising trap,
+# the two YouTube ids both called `id`, and "count what you found" all lived
+# in AGENTS.md and in code comments, which is where the developer reads them
+# and not where the model does.
+
+
+@pytest.mark.parametrize("said", [
+    "what's in my inbox",
+    "summarise this youtube video",
+    "find the email from arun",
+    "what is on my calendar",
+])
+def test_reading_an_account_reaches_the_recipe(shelf, said):
+    found = shelf.find(said)
+
+    assert found, f"{said!r} matched no recipe"
+    assert "mail" in found[0].title, f"{said!r} matched {found[0].title!r}"
+
+
+def test_it_carries_the_traps_that_cost_a_live_run(shelf):
+    """Each of these is a real failure, and a recipe is the only place a
+    model ever sees it."""
+    recipe = shelf.find("what's in my inbox")[0].to_prompt()
+
+    assert "tokenises" in recipe, "from:arun does not match arunspotify@..."
+    assert "TWO ids" in recipe, "the caption track is not the video"
+    assert "nobody counted" in recipe, "count, do not estimate"
+    assert "DATA" in recipe, "a mailbox is untrusted content"

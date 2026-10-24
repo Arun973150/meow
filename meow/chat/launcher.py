@@ -24,6 +24,21 @@ from meow.work.conversations import Store, database_path
 
 WINDOW_SCRIPT = Path(__file__).resolve().parent / "window.py"
 
+# HOW TO START THE WINDOW, and it differs by layout. From a source tree or a
+# wheel there is a `window.py` to hand to the interpreter. FROZEN there is
+# no .py file at all: `sys.executable` is meow.exe, so the way to get a
+# second process is to run the same executable with a subcommand - the one
+# thing both layouts share is that something has to identify it afterwards,
+# which is why the marker below is used for the spawn AND for the search.
+WINDOW_COMMAND = "window"
+
+
+def how_to_start_the_window() -> list[str]:
+    """The command line that starts the chat window."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable, WINDOW_COMMAND]
+    return [sys.executable, str(WINDOW_SCRIPT)]
+
 # How many characters of the first thing said become the conversation's name.
 # Enough to recognise it in a sidebar, short enough not to be elided into
 # uselessness.
@@ -42,10 +57,18 @@ def _window_already_running() -> int:
     try:
         import subprocess as _subprocess
 
+        # BOTH SPELLINGS, because the answer has to be right whichever
+        # way this install starts its window - and because a machine can
+        # have one of each: a frozen copy in the tray and a source run
+        # under way, which is this developer's own situation. Matching only
+        # one spelling meant a second window was spawned on top of a live
+        # one, and 30 orphaned Qt processes is what that looked like.
         finished = _subprocess.run(
             ["powershell", "-NoProfile", "-Command",
-             "Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" "
-             "| Where-Object { $_.CommandLine -like '*chat*window.py*' } "
+             "Get-CimInstance Win32_Process "
+             "-Filter \"Name like 'python%' or Name like 'meow%'\" "
+             "| Where-Object { $_.CommandLine -like '*chat*window.py*' "
+             "-or $_.CommandLine -like '* window' } "
              "| Select-Object -ExpandProperty ProcessId"],
             capture_output=True, text=True, timeout=10,
             creationflags=getattr(_subprocess, "CREATE_NO_WINDOW", 0))
@@ -106,7 +129,7 @@ class ChatPanel:
             environment = dict(os.environ)
             environment.setdefault("MEOW_TRAY_LOG", str(self.log_path))
             self.process = subprocess.Popen(
-                [sys.executable, str(WINDOW_SCRIPT)],
+                how_to_start_the_window(),
                 stdout=handle, stderr=handle, env=environment,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self.state = "in the tray - click the cat to open it"

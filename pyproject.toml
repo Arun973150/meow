@@ -79,7 +79,10 @@ include = ["meow*"]
 # is missing from a wheel and the feature fails with "missing winocr.ps1" -
 # which is exactly how all six recipes vanished once, silently, because a
 # shelf with nothing on it looks like a request that matched nothing.
-meow = ["recipes/*.md", "desktop/*.ps1"]
+# `storage/resources.py:SHIPPED` is the list this must cover, and
+# `tests/test_bundle.py` checks the two agree - along with meow.spec,
+# because three places that have to match is three places to forget.
+meow = ["recipes/*.md", "desktop/*.ps1", "assets/*.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

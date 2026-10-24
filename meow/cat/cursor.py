@@ -30,6 +30,7 @@ from ctypes import wintypes
 from pathlib import Path
 
 from PIL import Image, ImageFilter
+from ..storage.resources import resource
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
@@ -54,7 +55,10 @@ def _system_cursor_size() -> int:
 
 DEFAULT_CURSOR_SIZE = _system_cursor_size()
 
-SOURCE_IMAGE = Path(__file__).resolve().parent.parent.parent / "cat_cursor.png"
+# Through the resource helper, because `__file__` is right for a git
+# clone and wrong for both a wheel and a frozen bundle. This file used to
+# point OUTSIDE the package, so no wheel has ever carried the cursor.
+SOURCE_IMAGE = resource("assets", "cat_cursor.png")
 
 
 class BITMAPINFOHEADER(ctypes.Structure):

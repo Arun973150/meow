@@ -18,11 +18,35 @@ how keys should reach a shipped client - see the note at the bottom of
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-ENV_PATH = PROJECT_ROOT / ".env"
+
+
+def _where_the_env_file_is() -> Path:
+    """`.env`, looked for where this install would actually keep it.
+
+    Three layouts and three answers. From a git clone it is beside the
+    package. FROZEN there is no clone: the file sits next to the executable,
+    where somebody who unzipped the app can see and edit it.
+
+    And `%LOCALAPPDATA%/Meow/.env` is checked FIRST either way, because that
+    is the one path that survives replacing the application - an update that
+    overwrites the folder must not take the keys with it. Nothing writes it;
+    it is there for somebody who wants their keys out of the install.
+    """
+    kept = Path(os.environ.get("LOCALAPPDATA", "")) / "Meow" / ".env"
+    if kept.is_file():
+        return kept
+    if getattr(sys, "frozen", False):
+        beside = Path(sys.executable).resolve().parent / ".env"
+        return beside
+    return PROJECT_ROOT / ".env"
+
+
+ENV_PATH = _where_the_env_file_is()
 
 
 class MissingKey(RuntimeError):

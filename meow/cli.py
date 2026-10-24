@@ -27,7 +27,7 @@ import sys
 # `meow ...` with no recognised subcommand runs the companion and passes
 # everything through, so `meow --mute` keeps working without being listed.
 COMMANDS = ("doctor", "connectors", "stress", "smoke", "evaluate", "label",
-            "routing", "teaching", "reference", "latency", "help")
+            "routing", "teaching", "reference", "latency", "window", "help")
 
 
 def _usage() -> None:
@@ -45,6 +45,18 @@ def main(argv: list[str] | None = None) -> None:
 
     if command == "help":
         _usage()
+        return
+
+    if command == "window":
+        # THE CHAT WINDOW, as a second process. Frozen there is no
+        # `window.py` to hand to an interpreter, so the only way to a second
+        # process is this executable with a subcommand - see
+        # `chat/launcher.py:how_to_start_the_window`. It is listed in
+        # COMMANDS but deliberately not in the usage text: nobody types it,
+        # the application does.
+        from .chat.window import main as window_main
+
+        window_main()
         return
 
     if command == "doctor":

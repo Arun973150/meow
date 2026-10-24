@@ -273,9 +273,14 @@ class AgentDock:
         the tray doing no harm.
         """
         try:
+            # The same question the launcher answers: frozen there is no
+            # `window.py` to hand to an interpreter, so the way to a second
+            # process is this executable plus a subcommand.
+            from ..chat.launcher import how_to_start_the_window
+
             subprocess.Popen(
-                [sys.executable, str(self.window_script),
-                 "--show", "--open", str(conversation_id)],
+                how_to_start_the_window()
+                + ["--show", "--open", str(conversation_id)],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except Exception:  # noqa: BLE001 - an icon that will not open is not
